@@ -225,6 +225,156 @@ def read_url(url: str) -> Dict[str, Any]:
         return {"success": False, "content": "", "error": str(e)}
 
 
+# =============================================================================
+# CANVAS/DOCUMENT TOOLS (Chamam API do memory_server)
+# =============================================================================
+
+import requests
+
+MEMORY_SERVER_URL = "http://127.0.0.1:8001"
+
+def create_document(title: str, content: str = "") -> Dict[str, Any]:
+    """
+    Cria um novo documento no Canvas.
+    
+    Args:
+        title: Título do documento
+        content: Conteúdo inicial (opcional)
+    
+    Returns:
+        {"success": bool, "document_id": str, "message": str}
+    """
+    try:
+        response = requests.post(
+            f"{MEMORY_SERVER_URL}/documents",
+            json={"title": title, "content": content},
+            timeout=10
+        )
+        data = response.json()
+        if data.get("success"):
+            doc = data.get("document", {})
+            return {
+                "success": True,
+                "document_id": doc.get("id"),
+                "message": f"Documento '{title}' criado com sucesso!"
+            }
+        return {"success": False, "error": data.get("error", "Erro desconhecido")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def write_document(document_id: str, content: str) -> Dict[str, Any]:
+    """
+    Escreve/substitui o conteúdo de um documento existente.
+    
+    Args:
+        document_id: ID do documento
+        content: Novo conteúdo completo
+    
+    Returns:
+        {"success": bool, "message": str}
+    """
+    try:
+        response = requests.put(
+            f"{MEMORY_SERVER_URL}/documents/{document_id}",
+            json={"content": content},
+            timeout=10
+        )
+        data = response.json()
+        if data.get("success"):
+            return {"success": True, "message": "Documento atualizado com sucesso!"}
+        return {"success": False, "error": data.get("error", "Documento não encontrado")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def append_document(document_id: str, content: str) -> Dict[str, Any]:
+    """
+    Adiciona conteúdo ao final de um documento existente.
+    
+    Args:
+        document_id: ID do documento
+        content: Conteúdo a adicionar
+    
+    Returns:
+        {"success": bool, "message": str}
+    """
+    try:
+        # First, get current content
+        get_response = requests.get(
+            f"{MEMORY_SERVER_URL}/documents/{document_id}",
+            timeout=10
+        )
+        get_data = get_response.json()
+        if not get_data.get("success"):
+            return {"success": False, "error": "Documento não encontrado"}
+        
+        current_content = get_data.get("document", {}).get("content", "")
+        new_content = current_content + "\n\n" + content if current_content else content
+        
+        # Then update
+        response = requests.put(
+            f"{MEMORY_SERVER_URL}/documents/{document_id}",
+            json={"content": new_content},
+            timeout=10
+        )
+        data = response.json()
+        if data.get("success"):
+            return {"success": True, "message": "Conteúdo adicionado ao documento!"}
+        return {"success": False, "error": data.get("error", "Erro ao atualizar")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def read_document(document_id: str = None) -> Dict[str, Any]:
+    """
+    Lê o conteúdo de um documento. Se document_id não for fornecido, lê o documento ativo.
+    
+    Args:
+        document_id: ID do documento (opcional, usa ativo se omitido)
+    
+    Returns:
+        {"success": bool, "title": str, "content": str}
+    """
+    try:
+        if document_id:
+            url = f"{MEMORY_SERVER_URL}/documents/{document_id}"
+        else:
+            url = f"{MEMORY_SERVER_URL}/documents/active"
+        
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        
+        if data.get("success"):
+            doc = data.get("document")
+            if not doc:
+                return {"success": True, "content": "", "message": "Nenhum documento ativo no momento."}
+            return {
+                "success": True,
+                "document_id": doc.get("id"),
+                "title": doc.get("title", "Sem título"),
+                "content": doc.get("content", "")
+            }
+        return {"success": False, "error": data.get("error", "Documento não encontrado")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def list_documents() -> Dict[str, Any]:
+    """
+    Lista todos os documentos disponíveis no Canvas.
+    
+    Returns:
+        {"success": bool, "documents": [{"id": str, "title": str, "updated_at": str}]}
+    """
+    try:
+        response = requests.get(f"{MEMORY_SERVER_URL}/documents", timeout=10)
+        data = response.json()
+        if data.get("success"):
+            docs = data.get("documents", [])
+            if not docs:
+                return {"success": True, "content": "Nenhum documento encontrado no Canvas."}
+            doc_list = "\n".join([f"- {d['title']} (ID: {d['id']})" for d in docs])
+            return {"success": True, "content": f"Documentos disponíveis:\n{doc_list}"}
+        return {"success": False, "error": data.get("error", "Erro ao listar")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 
@@ -280,6 +430,43 @@ TOOLS = {
     "get_running_apps": {
         "function": None,
         "description": "Lista todas as janelas/aplicativos abertos e visíveis no PC do usuário. Use quando ele perguntar 'o que está aberto?', 'quais apps estão rodando?' ou quiser saber o contexto geral do desktop.",
+        "parameters": {}
+    },
+    # === CANVAS/DOCUMENT TOOLS ===
+    "create_document": {
+        "function": create_document,
+        "description": "Cria um novo documento no Canvas de escrita. Use quando o usuário pedir para escrever algo longo (artigo, história, livro, documento).",
+        "parameters": {
+            "title": {"type": "string", "description": "Título do documento", "required": True},
+            "content": {"type": "string", "description": "Conteúdo inicial do documento (opcional)", "required": False}
+        }
+    },
+    "write_document": {
+        "function": write_document,
+        "description": "Escreve/substitui o conteúdo completo de um documento existente no Canvas.",
+        "parameters": {
+            "document_id": {"type": "string", "description": "ID do documento", "required": True},
+            "content": {"type": "string", "description": "Novo conteúdo completo do documento", "required": True}
+        }
+    },
+    "append_document": {
+        "function": append_document,
+        "description": "Adiciona conteúdo ao final de um documento existente. Ideal para continuar escrevendo um texto longo.",
+        "parameters": {
+            "document_id": {"type": "string", "description": "ID do documento", "required": True},
+            "content": {"type": "string", "description": "Conteúdo a adicionar ao final", "required": True}
+        }
+    },
+    "read_document": {
+        "function": read_document,
+        "description": "Lê o conteúdo de um documento para consultar o que já foi escrito. Use antes de continuar escrevendo.",
+        "parameters": {
+            "document_id": {"type": "string", "description": "ID do documento (opcional, usa o documento ativo se omitido)", "required": False}
+        }
+    },
+    "list_documents": {
+        "function": list_documents,
+        "description": "Lista todos os documentos disponíveis no Canvas.",
         "parameters": {}
     }
 }

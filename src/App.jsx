@@ -28,12 +28,17 @@ import {
     Star,
     History,
     Eye,
-    EyeOff
+    EyeOff,
+    Zap,
+    BellOff,
+    Clock,
+    LayoutDashboard
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import WritingCanvas from "./WritingCanvas";
 
 const MEMORY_SERVER = "http://127.0.0.1:8001";
 
@@ -129,6 +134,26 @@ function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem("luna-theme") || "dark");
     const [pcObserverEnabled, setPcObserverEnabled] = useState(true);
     const [pcContext, setPcContext] = useState(null);
+    const [autonomyEnabled, setAutonomyEnabled] = useState(() => {
+        const saved = localStorage.getItem("luna-autonomy");
+        return saved !== null ? JSON.parse(saved) : true;
+    });
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [overlayActive, setOverlayActive] = useState(() => {
+        const saved = localStorage.getItem("luna-overlay");
+        return saved !== null ? JSON.parse(saved) : true;
+    });
+    const [canvasOpen, setCanvasOpen] = useState(false);
+    const [lunaEditingDocId, setLunaEditingDocId] = useState(null);
+
+    const isOverlayMode = new URLSearchParams(window.location.search).get("mode") === "overlay";
+
+    // Solicitar permissão de notificação no montar
+    useEffect(() => {
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }, []);
 
     const getGreeting = () => {
         const hour = new Date().getHours();
@@ -141,12 +166,41 @@ function App() {
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const currentChatIdRef = useRef(null);
+
+    // Sync ref with state
+    useEffect(() => {
+        currentChatIdRef.current = currentChatId;
+    }, [currentChatId]);
+
+    // Helper: Tenta extrair o pensamento limpo se for JSON
+    const parseThought = (text) => {
+        if (!text) return "";
+        try {
+            // Se parecer JSON (começa com {), tenta parsear
+            if (typeof text === 'string' && text.trim().startsWith('{')) {
+                const parsed = JSON.parse(text);
+                if (parsed.detailed_thought) return parsed.detailed_thought;
+            }
+        } catch (e) {
+            // Se falhar o parse, retorna o original (pode estar incompleto durante stream)
+        }
+        return text;
+    };
 
     // Theme Effect
     useEffect(() => {
         document.documentElement.classList.toggle("light", theme === "light");
         localStorage.setItem("luna-theme", theme);
     }, [theme]);
+
+    // Ovelay Background Transparency Effect
+    useEffect(() => {
+        if (isOverlayMode) {
+            document.body.style.background = "transparent";
+            document.documentElement.style.background = "transparent";
+        }
+    }, [isOverlayMode]);
 
     useEffect(() => {
         localStorage.setItem("luna-pc-observer", pcObserverEnabled);
@@ -205,6 +259,14 @@ function App() {
         };
         checkHealth();
     }, []);
+    // Trigger initial overlay if enabled
+    useEffect(() => {
+        if (appState === "READY" && overlayActive && window.electron?.overlay) {
+            const savedPos = localStorage.getItem("luna_overlay_pos");
+            const initialPos = savedPos ? JSON.parse(savedPos) : null;
+            window.electron.overlay.toggle(true, initialPos);
+        }
+    }, [appState]);
 
     useEffect(() => {
         loadChats();
@@ -213,6 +275,113 @@ function App() {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, streamBuffer]);
+
+    useEffect(() => {
+        if (appState !== "READY") return;
+        if (isOverlayMode) return;
+        let attempt = 0;
+        let closed = false;
+        let es = null;
+        let ws = null;
+        const recent = new Set();
+        const trimRecent = () => {
+            const max = 50;
+            if (recent.size > max) {
+                const toDelete = recent.size - max;
+                const it = recent.values();
+                for (let i = 0; i < toDelete; i++) recent.delete(it.next().value);
+            }
+        };
+        const handleProactiveMessage = (d) => {
+            if (d.messages && d.messages.length > 0) {
+                const unique = d.messages.filter(m => {
+                    const key = m.id ? m.id : (m.content || "") + "|" + (m.role || "");
+                    if (recent.has(key)) return false;
+                    recent.add(key);
+                    return true;
+                });
+                trimRecent();
+                if (unique.length === 0) return;
+                if (view !== "CHAT") {
+                    setUnreadCount(prev => prev + unique.length);
+                }
+                unique.forEach(m => {
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        new Notification("Luna", { body: m.content, icon: "/luna_icon.png" });
+                    }
+                });
+                setMessages(prev => {
+                    const next = [...prev, ...unique];
+                    let targetId = currentChatIdRef.current;
+                    if (!targetId && chats.length > 0) {
+                        const diario = chats.find(c => c.title === "Diário da Luna");
+                        targetId = diario ? diario.id : chats[0].id;
+                        setCurrentChatId(targetId);
+                    }
+                    persistChat(next, targetId, !targetId ? "Diário da Luna" : undefined);
+                    return next;
+                });
+            }
+        };
+        const connectWS = () => {
+            try {
+                ws = new WebSocket("ws://127.0.0.1:8001/ws/proactive");
+                ws.onmessage = (evt) => {
+                    try {
+                        const data = JSON.parse(evt.data);
+                        if (data.type === "proactive_message") {
+                            handleProactiveMessage(data);
+                        }
+                    } catch { }
+                };
+                ws.onclose = () => {
+                    ws = null;
+                    if (!closed) connectSSE();
+                };
+                ws.onerror = () => {
+                    try { ws && ws.close(); } catch { }
+                    ws = null;
+                    if (!closed) connectSSE();
+                };
+            } catch {
+                connectSSE();
+            }
+        };
+        const connectSSE = () => {
+            attempt++;
+            es = new EventSource(`${MEMORY_SERVER}/proactive/events`);
+            es.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "proactive_message") {
+                        handleProactiveMessage(data);
+                    }
+                } catch (e) {
+                    console.error("SSE Parse Error:", e);
+                }
+            };
+            es.onerror = () => {
+                if (es) es.close();
+                if (closed) return;
+                const delay = Math.min(30000, 500 * Math.pow(2, Math.min(attempt, 6)));
+                setTimeout(connect, delay);
+            };
+        };
+        const connect = () => connectWS();
+        connect();
+        return () => {
+            closed = true;
+            if (es) es.close();
+            if (ws) ws.close();
+        };
+    }, [appState, chats, view]);
+
+    // Reset unread count when entering chat
+    useEffect(() => {
+        if (view === "CHAT") {
+            setUnreadCount(0);
+        }
+    }, [view]);
 
     // Auto-resize Input
     useEffect(() => {
@@ -365,6 +534,30 @@ function App() {
         }
     };
 
+    const toggleAutonomy = async () => {
+        const next = !autonomyEnabled;
+        setAutonomyEnabled(next);
+        localStorage.setItem("luna-autonomy", JSON.stringify(next));
+        try {
+            await fetch(`${MEMORY_SERVER}/proactive/toggle`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next })
+            });
+        } catch (e) {
+            console.error("Failed to sync proactivity toggle", e);
+        }
+    };
+
+    const toggleOverlay = () => {
+        const next = !overlayActive;
+        setOverlayActive(next);
+        localStorage.setItem("luna-overlay", JSON.stringify(next));
+        if (window.electron?.overlay) {
+            window.electron.overlay.toggle(next);
+        }
+    };
+
     const [activeMenu, setActiveMenu] = useState(null);
     const [toolStatus, setToolStatus] = useState(null);
     const [activeTool, setActiveTool] = useState(null); // Estado dedicado para ferramenta ativa
@@ -373,13 +566,14 @@ function App() {
     const [isThinkingMode, setIsThinkingMode] = useState(false); // Toggle state
     const [toolHistory, setToolHistory] = useState([]); // Track all tool calls in conversation
     const [showToolHistory, setShowToolHistory] = useState(false); // Toggle tool history panel
+    // Canvas removido
 
-    const persistChat = async (msgs, chatId = null) => {
+    const persistChat = async (msgs, chatId = null, customTitle = null) => {
         try {
             const body = {
                 chat_id: chatId,
                 messages: msgs,
-                title: msgs.length > 0 ? (msgs[0].content || "Novo Chat").slice(0, 40) : "Conversa"
+                title: customTitle || (msgs.length > 0 ? (msgs[0].content || "Novo Chat").slice(0, 40) : "Conversa")
             };
             const r = await fetch(`${MEMORY_SERVER}/chats`, {
                 method: "POST",
@@ -388,12 +582,16 @@ function App() {
             });
             const d = await r.json();
             if (d.success && d.chat) {
-                if (!chatId) setCurrentChatId(d.chat.id);
+                if (!chatId) {
+                    setCurrentChatId(d.chat.id);
+                }
                 loadChats(); // Refresh sidebar
+                return d.chat.id; // Return the ID
             }
         } catch (e) {
             console.error("Failed to persist chat", e);
         }
+        return chatId;
     };
 
     const regenerateResponse = async (messageIndex) => {
@@ -421,6 +619,89 @@ function App() {
         setTimeout(() => {
             sendMessage(userMessage.content.split("\n\n--- Documentos anexados ---")[0]);
         }, 100);
+    };
+
+    const streamAgentViaWS = (next, thinkingMode, activeChatId) => {
+        return new Promise((resolve, reject) => {
+            let ws;
+            let fullText = "";
+            let currentThought = null;
+            try {
+                ws = new WebSocket("ws://127.0.0.1:8001/ws/agent");
+            } catch (e) {
+                reject(e);
+                return;
+            }
+            ws.onopen = () => {
+                ws.send(JSON.stringify({
+                    type: "start",
+                    request: {
+                        messages: next,
+                        agent_mode: true,
+                        deep_thinking: thinkingMode
+                    }
+                }));
+            };
+            ws.onmessage = (evt) => {
+                try {
+                    const data = JSON.parse(evt.data);
+                    if (data.status) setToolStatus({ message: data.status, type: 'info' });
+                    if (data.phase === "thinking") setToolStatus({ message: "Pensando...", type: 'info' });
+                    if (data.thinking) {
+                        currentThought = (currentThought || "") + data.thinking;
+                        setStreamThought(currentThought);
+                    }
+                    if (data.tool_call) {
+                        const toolName = data.tool_call.name;
+                        if (toolName === "think") {
+                            const thoughtArg = data.tool_call.args.detailed_thought;
+                            const cleanThought = parseThought(thoughtArg);
+                            currentThought = cleanThought;
+                            setStreamThought(cleanThought);
+                        } else {
+                            let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
+                            if (toolName === "web_search") { toolInfo.message = `Pesquisando: ${data.tool_call.args.query || '...'}`; toolInfo.icon = "search"; }
+                            if (toolName === "read_url") { toolInfo.message = `Lendo página: ${data.tool_call.args.url || '...'}`; toolInfo.icon = "read"; }
+                            // Canvas removido
+                            setActiveTool(toolInfo);
+                            activeToolRef.current = toolInfo;
+                            setToolHistory(prev => [...prev, { ...toolInfo, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
+                        }
+                    }
+                    if (data.tool_result) {
+                        const result = data.tool_result;
+                        if (result.success && result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
+                            setMessages(prev => [...prev, { role: "tool-card", content: result.content, type: result.content.includes("TITULO:") ? "search" : "read" }]);
+                        }
+                    }
+                    if (data.content) {
+                        if (activeToolRef.current) { setActiveTool(null); activeToolRef.current = null; }
+                        fullText += data.content;
+                        setStreamBuffer(prev => prev + data.content);
+                    }
+                    if (data.done) {
+                        const finalAssistantMsg = { role: "assistant", content: fullText, thought: data.thought || currentThought, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+                        setMessages(prev => {
+                            const finalMessages = [...prev, finalAssistantMsg];
+                            persistChat(finalMessages, activeChatId);
+                            return finalMessages;
+                        });
+                        setStreamBuffer(""); setStreamThought(null); setToolStatus(null); setActiveTool(null); activeToolRef.current = null;
+                        isStreamingRef.current = false; setIsStreaming(false);
+                        loadChats();
+                        try { ws.close(); } catch { }
+                        resolve(true);
+                    }
+                } catch { }
+            };
+            ws.onerror = () => {
+                try { ws.close(); } catch { }
+                reject(new Error("ws"));
+            };
+            ws.onclose = () => {
+                reject(new Error("ws"));
+            };
+        });
     };
 
     const sendMessage = async (overrideInput = null) => {
@@ -471,9 +752,19 @@ function App() {
         setStreamBuffer("");
 
         // Persist immediately after user message to ensure it's there even if stream fails
-        persistChat(next, currentChatId);
+        // AWAIT this to get the real ID if it was null
+        let activeChatId = currentChatId;
+        const newId = await persistChat(next, activeChatId);
+        if (newId) {
+            activeChatId = newId;
+            // setCurrentChatId(newId); // Already done in persistChat, but good for local clarity if needed
+        }
 
         try {
+            try {
+                const ok = await streamAgentViaWS(next, isThinkingMode, activeChatId);
+                if (ok) return;
+            } catch { }
             const response = await fetch(`${MEMORY_SERVER}/agent/stream`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -522,9 +813,10 @@ function App() {
 
                             // Special Handling for 'think' tool
                             if (toolName === "think") {
-                                const thoughtText = data.tool_call.args.detailed_thought;
-                                currentThought = thoughtText;
-                                setStreamThought(thoughtText);
+                                const thoughtArg = data.tool_call.args.detailed_thought;
+                                const cleanThought = parseThought(thoughtArg);
+                                currentThought = cleanThought;
+                                setStreamThought(cleanThought); // Update stream view
                             } else {
                                 // Usar estado dedicado para ferramenta ativa
                                 let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
@@ -602,7 +894,7 @@ function App() {
                                 // CRITICAL SYNC: Save the whole history including Luna's response
                                 // We use a small delay or ref-based sync to ensure we have the absolute latest state
                                 // Actually, we can just use the local 'finalMessages' array.
-                                persistChat(finalMessages, currentChatId);
+                                persistChat(finalMessages, activeChatId);
                                 return finalMessages;
                             });
 
@@ -656,6 +948,11 @@ function App() {
         );
     }
 
+    if (isOverlayMode) {
+        return <OverlayView messages={messages} unreadCount={unreadCount} />;
+    }
+
+
     return (
         <div className="flex h-screen w-screen text-gray-100 overflow-hidden relative">
             {/* Native Title Bar Drag Area */}
@@ -664,9 +961,57 @@ function App() {
             {/* Sidebar (Overlay/Slide) */}
             <div className={`fixed inset-y-0 left-0 z-40 w-[280px] bg-[#0d1117]/95 backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
                 <div className="p-4 pt-12 flex flex-col h-full">
-                    <button onClick={startNewChat} className="flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 mb-6">
+                    <button onClick={startNewChat} className="flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 mb-3">
                         <Plus size={18} />
                         <span className="font-medium">Nova Conversa</span>
+                    </button>
+
+                    <button
+                        onClick={toggleAutonomy}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all mb-2 border ${autonomyEnabled ? 'bg-blue-500/10 border-blue-500/30 text-blue-300' : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <Zap size={18} className={autonomyEnabled ? "fill-blue-500/20" : ""} />
+                            <div className="flex flex-col items-start leading-none">
+                                <span className="font-medium text-sm">Autonomia</span>
+                            </div>
+                        </div>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors ${autonomyEnabled ? 'bg-blue-500' : 'bg-gray-600'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autonomyEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                    </button>
+                    <AutonomySettings />
+                    <AutonomyStatus />
+
+                    {/* Canvas de Escrita */}
+                    <button
+                        onClick={() => setCanvasOpen(!canvasOpen)}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all mb-2 border ${canvasOpen ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <FileText size={18} className={canvasOpen ? "fill-emerald-500/20" : ""} />
+                            <div className="flex flex-col items-start leading-none">
+                                <span className="font-medium text-sm">Canvas de Escrita</span>
+                            </div>
+                        </div>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors ${canvasOpen ? 'bg-emerald-500' : 'bg-gray-600'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${canvasOpen ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                    </button>
+
+                    <button
+                        onClick={toggleOverlay}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all mb-6 border ${overlayActive ? 'bg-violet-500/10 border-violet-500/30 text-violet-300' : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <Eye size={18} className={overlayActive ? "fill-violet-500/20" : ""} />
+                            <div className="flex flex-col items-start leading-none">
+                                <span className="font-medium text-sm">Modo Overlay</span>
+                            </div>
+                        </div>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors ${overlayActive ? 'bg-violet-500' : 'bg-gray-600'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${overlayActive ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
                     </button>
 
                     <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 px-2">Recentes</div>
@@ -734,8 +1079,16 @@ function App() {
                 {/* Header */}
                 <header className="absolute top-0 left-0 w-full p-4 flex items-center justify-between z-20 pointer-events-none">
                     <div className="flex items-center gap-4 pointer-events-auto pt-2 pl-2">
-                        <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                        <button onClick={() => { setSidebarOpen(true); setUnreadCount(0); }} className="p-2 hover:bg-white/10 rounded-lg transition-colors relative">
                             <Menu size={24} className="text-gray-300" />
+                            {unreadCount > 0 && (
+                                <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-4 w-4 bg-blue-500 text-[10px] items-center justify-center font-bold text-white shadow-lg">
+                                        {unreadCount}
+                                    </span>
+                                </span>
+                            )}
                         </button>
                         <div className="flex items-center gap-2 opacity-80" onClick={() => { setView("HOME"); setMessages([]); }} role="button">
                             <Bot size={24} className="text-violet-500" />
@@ -776,6 +1129,14 @@ function App() {
                             title={theme === "dark" ? "Modo Claro" : "Modo Escuro"}
                         >
                             {theme === "dark" ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-blue-400" />}
+                        </button>
+                        {/* Canvas Toggle */}
+                        <button
+                            onClick={() => setCanvasOpen(!canvasOpen)}
+                            className={`p-2 hover:bg-white/10 rounded-lg transition-colors ${canvasOpen ? 'bg-emerald-500/10 text-emerald-400' : ''}`}
+                            title="Canvas de Escrita"
+                        >
+                            <FileText size={18} className={canvasOpen ? "text-emerald-400" : "text-gray-400"} />
                         </button>
 
                         {/* Status Badge */}
@@ -965,7 +1326,7 @@ function App() {
                                     return (
                                         <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} message-enter`}>
                                             <div
-                                                className={`max-w-[85%] rounded-2xl px-5 py-4 text-base leading-relaxed shadow-lg whitespace-pre-wrap ${m.role === "user" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-sm border border-white/20" : "glass-panel rounded-tl-sm"}`}
+                                                className={`max-w-[85%] rounded-2xl px-5 py-4 text-base leading-relaxed shadow-lg ${m.role === "user" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-sm border border-white/20 whitespace-pre-wrap" : "glass-panel rounded-tl-sm"}`}
                                                 style={{ color: m.role === "user" ? 'white' : 'var(--text-primary)' }}
                                             >
                                                 {/* Render images if user sent them */}
@@ -989,8 +1350,8 @@ function App() {
                                                             <span>Processo de Pensamento</span>
                                                         </summary>
                                                         <div className="pl-2 border-l-2 border-white/10 ml-1.5 my-2">
-                                                            <div className="text-xs text-gray-400 font-mono bg-[#0d1117] p-3 rounded-lg opacity-90">
-                                                                <Markdown content={m.thought} />
+                                                            <div className="text-sm text-gray-400 font-mono bg-[#0d1117] p-3 rounded-lg opacity-90 whitespace-pre-wrap">
+                                                                {parseThought(m.thought)}
                                                             </div>
                                                         </div>
                                                     </details>
@@ -1075,6 +1436,7 @@ function App() {
                                                 <div className="flex items-center gap-2">
                                                     {activeTool.icon === "search" && <Globe size={16} className="text-blue-400" />}
                                                     {activeTool.icon === "read" && <FileText size={16} className="text-violet-400" />}
+                                                    {activeTool.icon === "doc" && <FileText size={16} className="text-cyan-400" />}
                                                     <span className="font-medium">{activeTool.message}</span>
                                                 </div>
                                             </div>
@@ -1145,12 +1507,463 @@ function App() {
                         </div>
 
                     </div>
-                )}
+                )
+                }
 
 
             </main>
-        </div >
+
+            {/* Writing Canvas Panel */}
+            {canvasOpen && (
+                <div className="w-[50%] min-w-[500px] h-full border-l border-white/10">
+                    <WritingCanvas
+                        onClose={() => setCanvasOpen(false)}
+                        lunaEditingDocId={lunaEditingDocId}
+                    />
+                </div>
+            )}
+        </div>
     );
 }
+
+function AutonomySettings() {
+    const [open, setOpen] = useState(false);
+    const [settings, setSettings] = useState({ sensitivity: "medium", dnd: { start: "", end: "" }, max_per_hour: 6, allow: { startup: true, change: true, idle: true, followup: true, affection: true } });
+    const [original, setOriginal] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const now = new Date();
+    const dndActive = (() => {
+        const s = settings.dnd?.start;
+        const e = settings.dnd?.end;
+        if (!s || !e) return false;
+        const [sh, sm] = s.split(":").map(Number);
+        const [eh, em] = e.split(":").map(Number);
+        const start = new Date(); start.setHours(sh || 0, sm || 0, 0, 0);
+        const end = new Date(); end.setHours(eh || 0, em || 0, 0, 0);
+        if (start <= end) return now >= start && now <= end;
+        return now >= start || now <= end;
+    })();
+    const changed = JSON.stringify(settings) !== JSON.stringify(original || settings);
+    useEffect(() => {
+        (async () => {
+            try {
+                const r = await fetch(`${MEMORY_SERVER}/proactive/settings`);
+                const d = await r.json();
+                if (d.success && d.settings) {
+                    setSettings(d.settings);
+                    setOriginal(d.settings);
+                }
+            } catch { }
+        })();
+    }, []);
+    const save = async () => {
+        try {
+            setSaving(true);
+            await fetch(`${MEMORY_SERVER}/proactive/settings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settings)
+            });
+            setOriginal(settings);
+            setOpen(false);
+        } catch { }
+        finally { setSaving(false); }
+    };
+    const presetNight = () => setSettings({ ...settings, dnd: { start: "22:00", end: "07:00" } });
+    const clearDnd = () => setSettings({ ...settings, dnd: { start: "", end: "" } });
+    const reset = () => { setSettings(original || settings); setOpen(false); };
+    return (
+        <div className="mb-6">
+            <button onClick={() => setOpen(true)} className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-sm border border-white/10 transition-colors flex items-center gap-2">
+                <SettingsIcon />
+                Configurar Autonomia
+            </button>
+            {open && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
+                    <div className="relative z-50 w-[520px] max-w-[90vw] glass-panel rounded-2xl p-5 border border-white/10 shadow-2xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Preferências da Autonomia</h3>
+                            <button onClick={() => setOpen(false)} className="p-1 hover:bg-white/10 rounded"><X size={14} /></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Sensibilidade</span>
+                                <select value={settings.sensitivity} onChange={(e) => setSettings({ ...settings, sensitivity: e.target.value })} className="bg-white/10 border border-white/10 rounded px-2 py-1 text-sm">
+                                    <option value="low">Baixa</option>
+                                    <option value="medium">Média</option>
+                                    <option value="high">Alta</option>
+                                </select>
+                            </div>
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>Máx. por hora</span>
+                                    <span className="text-xs opacity-60">{settings.max_per_hour}</span>
+                                </div>
+                                <input type="range" min="1" max="12" value={settings.max_per_hour} onChange={(e) => setSettings({ ...settings, max_per_hour: parseInt(e.target.value || "1") })} className="w-full accent-blue-500" />
+                            </div>
+                            <div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><BellOff size={14} />Não perturbe</span>
+                                    <div className={`text-[10px] px-2 py-0.5 rounded-full ${dndActive ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                                        {dndActive ? 'Ativo agora' : 'Inativo'}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                    <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1">
+                                        <Clock size={14} className="opacity-60" />
+                                        <input type="time" value={settings.dnd?.start || ""} onChange={(e) => setSettings({ ...settings, dnd: { ...settings.dnd, start: e.target.value } })} className="bg-transparent text-sm" />
+                                    </div>
+                                    <span className="text-xs opacity-60">até</span>
+                                    <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1">
+                                        <Clock size={14} className="opacity-60" />
+                                        <input type="time" value={settings.dnd?.end || ""} onChange={(e) => setSettings({ ...settings, dnd: { ...settings.dnd, end: e.target.value } })} className="bg-transparent text-sm" />
+                                    </div>
+                                    <button onClick={presetNight} className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10">Silenciar à noite</button>
+                                    <button onClick={clearDnd} className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10">Limpar</button>
+                                </div>
+                            </div>
+                            <div>
+                                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Gatilhos</span>
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                    {[
+                                        { key: "startup", label: "Startup" },
+                                        { key: "change", label: "Change" },
+                                        { key: "idle", label: "Idle" },
+                                        { key: "followup", label: "Follow‑up" },
+                                        { key: "affection", label: "Affection" }
+                                    ].map(item => {
+                                        const active = settings.allow?.[item.key] ?? true;
+                                        return (
+                                            <button
+                                                key={item.key}
+                                                onClick={() => setSettings({ ...settings, allow: { ...settings.allow, [item.key]: !active } })}
+                                                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${active ? 'bg-blue-600/20 border-blue-500/40 text-blue-300' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
+                                            >
+                                                {item.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-5">
+                            <button onClick={reset} className="px-3 py-2 text-sm rounded bg-white/5 hover:bg-white/10">Cancelar</button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setSettings({ sensitivity: "medium", dnd: { start: "", end: "" }, max_per_hour: 6, allow: { startup: true, change: true, idle: true, followup: true, affection: true } })} className="px-3 py-2 text-sm rounded bg-white/5 hover:bg-white/10">Resetar</button>
+                                <button onClick={save} disabled={!changed || saving} className={`px-3 py-2 text-sm rounded ${changed ? 'bg-blue-600 hover:bg-blue-500' : 'bg-white/10 text-gray-400'} min-w-[86px]`}>
+                                    {saving ? 'Salvando...' : 'Salvar'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AutonomyStatus() {
+    const [state, setState] = useState(null);
+    useEffect(() => {
+        let mounted = true;
+        const poll = async () => {
+            try {
+                const r = await fetch(`${MEMORY_SERVER}/autonomy/state`);
+                const d = await r.json();
+                if (mounted && d.success) setState(d.state);
+            } catch { }
+        };
+        poll();
+        const t = setInterval(poll, 5000);
+        return () => { mounted = false; clearInterval(t); };
+    }, []);
+    if (!state) return null;
+    const drives = state.drives || {};
+    return (
+        <div className="glass-panel rounded-xl p-3 border border-white/10">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold">Estado da Autonomia</span>
+                <span className="text-xs opacity-60">{state.mood || "—"}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>Energia: {(state.energy ?? 0).toFixed(2)}</div>
+                <div>Curiosidade: {(drives.curiosity ?? 0).toFixed(2)}</div>
+                <div>Afeto: {(drives.affection ?? 0).toFixed(2)}</div>
+                <div>Produtividade: {(drives.productivity ?? 0).toFixed(2)}</div>
+            </div>
+        </div>
+    );
+}
+
+function SettingsIcon(props) {
+    return <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" {...props}><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9.94 3.06-2.12-.36a7.99 7.99 0 0 0-1.01-2.43l1.25-1.75a.5.5 0 0 0-.06-.65l-1.41-1.41a.5.5 0 0 0-.65-.06l-1.75 1.25c-.77-.44-1.6-.77-2.47-.97l-.35-2.16a.5.5 0 0 0-.49-.41h-2a.5.5 0 0 0-.49.41l-.35 2.16c-.87.2-1.7.53-2.47.97L5.06 4.5a.5.5 0 0 0-.65.06L3 5.97a.5.5 0 0 0-.06.65l1.25 1.75c-.44.77-.77 1.6-.97 2.47l-2.16.35a.5.5 0 0 0-.41.49v2c0 .25.18.46.41.49l2.16.35c.2.87.53 1.7.97 2.47L2.94 18.3a.5.5 0 0 0 .06.65l1.41 1.41c.19.19.48.22.65.06l1.75-1.25c.77.44 1.6.77 2.47.97l.35 2.16c.03.23.24.41.49.41h2c.25 0 .46-.18.49-.41l.35-2.16c.87-.2 1.7-.53 2.47-.97l1.75 1.25c.17.16.46.13.65-.06l1.41-1.41c.16-.17.19-.46.06-.65l-1.25-1.75c.44-.77.77-1.6.97-2.47l2.16-.35c.23-.03.41-.24.41-.49v-2a.5.5 0 0 0-.41-.49Z" /></svg>;
+}
+
+// --- Overlay View ---
+const OverlayView = ({ unreadCount }) => {
+    const [localMessages, setLocalMessages] = useState([]);
+    const [isShaking, setIsShaking] = useState(false);
+    const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, startWinX: 0, startWinY: 0 });
+
+    // Initial state: ignore clicks but forward mouse events for detection
+    useEffect(() => {
+        window.electron?.overlay?.setIgnoreMouse(true, { forward: true });
+    }, []);
+
+    // Initial recent messages load
+    useEffect(() => {
+        (async () => {
+            try {
+                const r = await fetch(`${MEMORY_SERVER}/proactive/recent?limit=10`);
+                const d = await r.json();
+                if (d.success && d.messages && Array.isArray(d.messages)) {
+                    const mapped = d.messages.map(m => ({ id: m.id || `${Date.now()}-${Math.random()}`, content: m.content }));
+                    setLocalMessages(prev => [...prev, ...mapped].slice(-5));
+                }
+            } catch { }
+        })();
+    }, []);
+
+    useEffect(() => {
+        let attempt = 0;
+        let closed = false;
+        let es = null;
+        let ws = null;
+        const recent = new Set();
+        const trimRecent = () => {
+            const max = 50;
+            if (recent.size > max) {
+                const toDelete = recent.size - max;
+                const it = recent.values();
+                for (let i = 0; i < toDelete; i++) recent.delete(it.next().value);
+            }
+        };
+        const pushMessages = (msgs) => {
+            const mapped = msgs.map(m => ({
+                id: `${Date.now()}-${Math.random()}`,
+                content: typeof m === 'string' ? m : m.content
+            }));
+            setLocalMessages(prev => {
+                const next = [...prev, ...mapped].slice(-5);
+                return next;
+            });
+            setIsShaking(true);
+            setTimeout(() => setIsShaking(false), 500);
+            mapped.forEach(msg => {
+                setTimeout(() => {
+                    setLocalMessages(prev => prev.filter(x => x.id !== msg.id));
+                }, 8000);
+            });
+        };
+        const handleData = (data) => {
+            if (data.type !== "proactive_message" || !data.messages || data.messages.length === 0) return;
+            const unique = data.messages.filter(m => {
+                const key = m.id ? m.id : (typeof m === 'string' ? m : m.content || "") + "|" + (m.role || "");
+                if (recent.has(key)) return false;
+                recent.add(key);
+                return true;
+            });
+            trimRecent();
+            if (unique.length === 0) return;
+            pushMessages(unique);
+        };
+        const connectWS = () => {
+            try {
+                ws = new WebSocket("ws://127.0.0.1:8001/ws/proactive");
+                ws.onmessage = (evt) => {
+                    try {
+                        const data = JSON.parse(evt.data);
+                        handleData(data);
+                    } catch { }
+                };
+                ws.onclose = () => {
+                    ws = null;
+                    if (!closed) connectSSE();
+                };
+                ws.onerror = () => {
+                    try { ws && ws.close(); } catch { }
+                    ws = null;
+                    if (!closed) connectSSE();
+                };
+            } catch {
+                connectSSE();
+            }
+        };
+        const connectSSE = () => {
+            attempt++;
+            es = new EventSource(`${MEMORY_SERVER}/proactive/events`);
+            es.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleData(data);
+                } catch { }
+            };
+            es.onerror = () => {
+                if (es) es.close();
+                if (closed) return;
+                const delay = Math.min(30000, 500 * Math.pow(2, Math.min(attempt, 6)));
+                setTimeout(connectWS, delay);
+            };
+        };
+        connectWS();
+        return () => {
+            closed = true;
+            if (es) es.close();
+            if (ws) ws.close();
+        };
+    }, []);
+
+    useEffect(() => {
+        const handler = (data) => {
+            const payload = Array.isArray(data) ? data : [{ content: typeof data === 'string' ? data : data?.content }];
+            const valid = payload.filter(x => x && (x.content || typeof x === 'string'));
+            if (valid.length > 0) {
+                const msgs = valid.map(x => (typeof x === 'string' ? { content: x } : x));
+                const mapped = msgs.map(m => ({ id: `${Date.now()}-${Math.random()}`, content: m.content }));
+                setLocalMessages(prev => [...prev, ...mapped].slice(-5));
+                setIsShaking(true);
+                setTimeout(() => setIsShaking(false), 500);
+                mapped.forEach(msg => {
+                    setTimeout(() => {
+                        setLocalMessages(prev => prev.filter(x => x.id !== msg.id));
+                    }, 8000);
+                });
+            }
+        };
+        window.electron?.overlay?.onNotification?.(handler);
+        return () => { };
+    }, []);
+
+    const dismissMessage = (id) => {
+        setLocalMessages(prev => prev.filter(m => m.id !== id));
+    };
+
+    const enableInteraction = () => window.electron?.overlay?.setIgnoreMouse(false);
+    const disableInteraction = () => {
+        if (!dragRef.current.isDragging) {
+            window.electron?.overlay?.setIgnoreMouse(true, { forward: true });
+        }
+    };
+
+    // Drag Logic
+    const handleMouseDown = (e) => {
+        // Only drag with left click on the avatar area
+        if (e.button !== 0) return;
+
+        dragRef.current = {
+            isDragging: true,
+            startX: e.screenX,
+            startY: e.screenY,
+            startWinX: window.screenX,
+            startWinY: window.screenY
+        };
+        enableInteraction(); // Ensure we don't lose focus
+    };
+
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (!dragRef.current.isDragging) return;
+
+            const deltaX = e.screenX - dragRef.current.startX;
+            const deltaY = e.screenY - dragRef.current.startY;
+
+            const newX = dragRef.current.startWinX + deltaX;
+            const newY = dragRef.current.startWinY + deltaY;
+
+            window.electron?.overlay?.move({ x: newX, y: newY });
+        };
+
+        const handleMouseUp = () => {
+            if (dragRef.current.isDragging) {
+                dragRef.current.isDragging = false;
+                // Save position
+                localStorage.setItem("luna_overlay_pos", JSON.stringify({ x: window.screenX, y: window.screenY }));
+                disableInteraction();
+            }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, []);
+
+    return (
+        <div className="w-full h-full flex items-end justify-end p-6 overflow-hidden select-none pointer-events-none bg-transparent font-sans">
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    25% { transform: translateX(-4px) rotate(-2deg); }
+                    75% { transform: translateX(4px) rotate(2deg); }
+                }
+                .animate-shake { animation: shake 0.4s ease-in-out; }
+            `}} />
+
+            <div className="flex flex-col items-end gap-3 pointer-events-none">
+                {/* Speech Bubbles Stack */}
+                <div className="flex flex-col items-end gap-2 max-h-[400px] overflow-hidden pointer-events-none">
+                    {localMessages.map((msg) => (
+                        <div
+                            key={msg.id}
+                            onMouseEnter={enableInteraction}
+                            onMouseLeave={disableInteraction}
+                            className="bg-white/95 backdrop-blur-3xl p-4 rounded-3xl rounded-br-sm shadow-[0_25px_60px_rgba(0,0,0,0.4)] border border-white/60 max-w-[280px] animate-in fade-in slide-in-from-right-10 duration-500 zoom-in-95 transform origin-bottom-right group relative cursor-pointer hover:scale-[1.02] transition-transform pointer-events-auto"
+                            onClick={() => {
+                                dismissMessage(msg.id);
+                                window.electron?.overlay?.showMain();
+                            }}
+                        >
+                            <button
+                                onClick={(e) => { e.stopPropagation(); dismissMessage(msg.id); }}
+                                className="absolute -top-2 -left-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border-2 border-white hover:bg-red-600"
+                            >
+                                <X size={12} />
+                            </button>
+                            <p className="text-gray-900 text-sm font-semibold leading-relaxed tracking-wide">
+                                {msg.content}
+                            </p>
+                            <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-white rotate-45 transform translate-x-1 translate-y-1 shadow-sm border-r border-b border-white/20" />
+                        </div>
+                    ))}
+                </div>
+
+                {/* Avatar / Toggle */}
+                <div className="relative pointer-events-auto"
+                    onMouseEnter={enableInteraction}
+                    onMouseLeave={disableInteraction}
+                    onMouseDown={handleMouseDown}
+                >
+                    <div
+                        onClick={() => {
+                            if (!dragRef.current.isDragging) {
+                                window.electron?.overlay?.showMain();
+                            }
+                        }}
+                        className={`w-16 h-16 bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 rounded-full flex items-center justify-center shadow-2xl border-2 border-white/50 cursor-grab active:cursor-grabbing hover:scale-110 transition-all duration-300 active:scale-95 group relative ring-8 ring-black/5 ${isShaking ? 'animate-shake' : ''}`}
+                    >
+                        <Bot size={32} className="text-white drop-shadow-lg group-hover:rotate-12 transition-transform" />
+                        <div className={`absolute inset-0 rounded-full border-4 border-violet-400 opacity-20 ${unreadCount > 0 ? 'animate-ping' : ''}`} />
+                    </div>
+
+                    {/* Activity/Unread Glow - Positioned carefully */}
+                    {Math.max(unreadCount || 0, localMessages.length) > 0 ? (
+                        <div className="absolute -top-1 -right-1 flex h-6 w-6 pointer-events-none">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-6 w-6 bg-red-500 text-[11px] items-center justify-center font-bold text-white shadow-xl border-2 border-white">
+                                {Math.max(unreadCount || 0, localMessages.length)}
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="absolute -top-0 -right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg animate-pulse pointer-events-none" />
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default App;
