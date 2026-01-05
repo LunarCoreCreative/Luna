@@ -1,0 +1,271 @@
+﻿Especificação Técnica Avançada: Arquitetura de Mimese Estilística Computacional para o Ecossistema IA Luna
+1. Introdução
+A evolução dos Modelos de Linguagem de Grande Escala (LLMs) inaugurou uma nova era na interação humano-computador, permitindo a geração de texto com fluência e coerência sem precedentes. No entanto, a democratização dessas ferramentas revelou uma limitação crítica: a homogeneização do estilo. Modelos treinados por Reinforcement Learning from Human Feedback (RLHF) tendem a convergir para uma "voz" neutra, prestativa e corporativa, frequentemente destituída das idiossincrasias, ritmos e texturas que definem a grande literatura ou a escrita autoral distinta. Para a IA Luna, que opera dentro de uma interface de Canvas e Artifacts, o desafio transcende a simples geração de texto; trata-se de dotar o sistema de uma capacidade de camaleão literário.
+O objetivo deste relatório é delinear uma arquitetura técnica exaustiva para a implementação do "Modo de Estudo" na Luna. Este modo permitirá a ingestão de documentos externos (livros, artigos, arquivos PDF/EPUB), a decomposição analítica profunda do estilo narrativo do autor e a síntese de um "Perfil Estilístico" computacional. Este perfil atuará como um artefato de controle dinâmico, guiando a geração futura de texto para mimetizar não apenas o vocabulário, mas a estrutura sintática, o tom retórico e as estratégias narrativas do autor estudado.
+A solução proposta rejeita a dicotomia simplista entre fine-tuning (caro e estático) e prompting básico (limitado e inconsistente). Em vez disso, propomos uma arquitetura híbrida de RAG Estilístico (Retrieval-Augmented Generation) enriquecida por Estilometria Computacional. Esta abordagem funde a precisão estatística de bibliotecas de Processamento de Linguagem Natural (NLP) clássico com a compreensão semântica avançada de LLMs de última geração, operacionalizada através de Dynamic Few-Shot Prompting. Ao tratar o estilo como um dado estruturado (um artefato JSON manipulável no Canvas), a Luna poderá "ler" um clássico literário e, instantes depois, escrever um prólogo inédito ou editar um parágrafo existente mantendo estrita fidelidade à voz do autor original.
+Este documento serve como um plano diretor para engenheiros de IA, cientistas de dados e arquitetos de software, detalhando desde os fundamentos teóricos da estilometria até a especificação de schemas JSON e pipelines de ingestão de dados.
+________________
+2. Fundamentação Teórica: A Ciência da Mimese Computacional
+Para ensinar uma máquina a imitar um estilo, é imperativo primeiro definir o que constitui "estilo" sob uma ótica computacional. O estilo não é uma abstração etérea; é o resultado cumulativo de escolhas probabilísticas discretas feitas pelo autor em vários níveis linguísticos. A nossa arquitetura baseia-se na decomposição dessas escolhas em métricas quantificáveis (Estilometria) e traços qualitativos (Narratologia).
+2.1 Estilometria: A Assinatura Estatística do Autor
+A estilometria, historicamente utilizada para atribuição de autoria em disputas legais e acadêmicas, fornece a base matemática para o nosso "Modo de Estudo". Ela opera sob a premissa de que cada autor possui uma "impressão digital" linguística inconsciente.
+2.1.1 O Princípio do Delta de Burrows
+No centro da estilometria moderna está o conceito desenvolvido por John Burrows, conhecido como "Delta de Burrows". Diferente da intuição humana, que foca em palavras raras ou temáticas (palavras de conteúdo), o Delta demonstra que a assinatura mais robusta de um autor reside nas palavras funcionais mais frequentes e "invisíveis": preposições, artigos, conjunções e pronomes. A frequência relativa com que um autor usa "o", "de", "que", "mas" ou "porém" permanece notavelmente estável através de sua obra e difere significativamente de outros autores. Para a Luna, calcular o vetor de frequência das 100 palavras mais comuns (MFW - Most Frequent Words) de um texto ingerido é o primeiro passo para ancorar a mimese em dados estatísticos sólidos, prevenindo que a IA crie uma caricatura baseada apenas em clichês temáticos.
+2.1.2 Métricas de Complexidade Sintática e Lexical
+Além da frequência de palavras, o estilo é definido pela arquitetura das frases. Autores como Ernest Hemingway caracterizam-se por sentenças curtas, parataxe (uso de orações coordenadas) e baixo uso de adjetivos. Em contraste, Marcel Proust ou José Saramago exibem hipotaxe (orações subordinadas complexas), longos períodos e alta densidade lexical.
+Para capturar essas nuances, o sistema deve medir:
+* Comprimento de Sentença (Sentence Length): A média e, crucialmente, o desvio padrão. Um desvio padrão alto indica um autor que varia o ritmo para efeito dramático, alternando entre longas exposições e frases de impacto curto.
+* Diversidade Lexical (Type-Token Ratio - TTR): A relação entre o número de palavras únicas (types) e o total de palavras (tokens). Um TTR alto indica um vocabulário vasto e preciso; um TTR baixo pode indicar um estilo repetitivo ou minimalista intencional.
+* Distância de Dependência (Dependency Distance): Uma métrica derivada da análise sintática que mede a distância linear entre palavras gramaticalmente conectadas (ex: a distância entre o sujeito e o verbo). Textos academicamente densos ou literariamente complexos tendem a ter uma distância de dependência média maior, exigindo maior carga cognitiva do leitor.
+2.2 Narratologia Computacional: Voz e Perspectiva
+Enquanto a estilometria lida com a microestrutura, a narratologia lida com a macroestrutura. A Luna deve compreender a "Voz Narrativa" para não cometer erros de perspectiva (como narrar em terceira pessoa onisciente um texto que deveria ser em primeira pessoa limitada).
+* Focalização e Diegese: A análise deve determinar se o narrador é homodiegético (parte da história, "Eu") ou heterodiegético (observador externo, "Ele/Ela"). Além disso, deve identificar a focalização: o narrador sabe tudo (onisciente) ou apenas o que um personagem sabe (focalização interna)?
+* Dispositivos Retóricos: A detecção de ironia, sarcasmo, metáforas estendidas e simbolismo é vital. Modelos estatísticos falham aqui, exigindo o uso de LLMs instruídos especificamente para atuar como críticos literários, identificando padrões retóricos que dão "sabor" ao texto.
+2.3 RAG vs. Fine-Tuning para Transferência de Estilo
+Uma decisão arquitetural crítica é a escolha entre Fine-Tuning (ajuste fino do modelo) e RAG (Geração Aumentada por Recuperação).
+Característica
+	Fine-Tuning (PEFT/LoRA)
+	RAG Estilístico (Proposto)
+	Adaptabilidade
+	Baixa. Requer treino novo para cada autor.
+	Alta. Instantâneo para qualquer novo texto.
+	Custo Computacional
+	Alto (requer GPUs para treino).
+	Baixo (apenas inferência e armazenamento vetorial).
+	Gerenciamento
+	Complexo (gestão de múltiplos modelos/adaptadores).
+	Simples (gestão de perfis JSON e índices vetoriais).
+	Fidelidade de Estilo
+	Alta para padrões profundos, mas risco de catastrophic forgetting.
+	Alta quando combinado com Few-Shot Prompting dinâmico.
+	A pesquisa atual 1 indica que o RAG, especialmente quando enriquecido com exemplos contrastivos e metadados de autor, supera o fine-tuning em cenários de personalização dinâmica onde o usuário troca frequentemente de "persona". Portanto, a arquitetura da Luna será fundamentada em um RAG Estilístico, onde o estilo é recuperado sob demanda e injetado no contexto de geração.
+________________
+3. Visão Geral da Arquitetura do Sistema
+A implementação do "Modo de Estudo" na Luna será estruturada como um pipeline de dados sequencial composto por quatro módulos principais. Este design modular facilita a manutenção, a escalabilidade e a integração com o sistema existente de Canvas e Artifacts.
+3.1 Diagrama de Componentes Lógicos
+1. Módulo de Ingestão (The Reader): Responsável por aceitar URLs ou arquivos (PDF, EPUB, TXT), limpar o conteúdo, remover ruído (índices, rodapés) e realizar a segmentação semântica (Semantic Chunking).
+2. Motor Analítico (The Critic): Um sistema híbrido que processa os segmentos de texto.
+   * Sub-módulo Quantitativo: Executa scripts Python (TextDescriptives, FastStylometry) para extrair métricas estatísticas.
+   * Sub-módulo Qualitativo: Utiliza chamadas de LLM com prompts especializados para extrair traços de personalidade, tom e retórica.
+3. Gestor de Perfil (The Librarian): Consolida os dados em um "Perfil de Autor" (Artefato JSON) e indexa os fragmentos de texto mais representativos em um Banco de Vetores (Vector Store), enriquecidos com metadados estilísticos.
+4. Motor de Geração (The Writer): O componente que interage com o usuário no Canvas. Ele orquestra a montagem do prompt final, utilizando Dynamic Few-Shot Prompting baseado no perfil carregado para gerar ou editar texto com alta fidelidade estilística.
+3.2 Fluxo de Dados do Usuário
+O fluxo de interação projetado para o usuário no ecossistema Luna é o seguinte:
+1. Upload: O usuário arrasta um livro (ex: "MemoriasPostumas.pdf") para o Canvas da Luna.
+2. Processamento: A Luna exibe um status de "Lendo e Analisando Estilo...".
+3. Criação de Artefato: Um novo Artefato do tipo Author Profile aparece no Canvas, exibindo um resumo visual do estilo (ex: "Tom: Irônico/Pessimista", "Complexidade: Alta").
+4. Ativação: O usuário "ativa" este perfil.
+5. Geração: O usuário solicita "Escreva um conto sobre um desenvolvedor de IA no século XIX". A Luna gera o texto aplicando o estilo analisado.
+6. Edição: O usuário seleciona um parágrafo e pede "Torne isso mais cínico", e a Luna ajusta baseada nos parâmetros de cinismo do perfil.
+________________
+4. Módulo 1: Ingestão e Processamento de Documentos ("The Reader")
+A qualidade da análise estilística é diretamente dependente da qualidade da ingestão dos dados. "Ruído" no texto, como números de página, cabeçalhos repetidos ou quebras de linha incorretas em PDFs, pode distorcer métricas de comprimento de sentença e confundir a análise semântica.
+4.1 Estratégias de Parsing de Documentos
+Para suportar a variedade de formatos solicitados (Links e Arquivos), utilizaremos uma abordagem agnóstica de formato que converte tudo para uma representação intermediária limpa (Markdown).
+4.1.1 Processamento de PDFs e Arquivos Ricos
+A extração de texto de PDFs é notoriamente difícil devido à falta de estrutura lógica interna do formato. Bibliotecas tradicionais como PyPDF2 frequentemente falham em reconstruir parágrafos, gerando quebras de linha duras no meio de sentenças.
+A recomendação técnica é a utilização da biblioteca Docling 3, desenvolvida pela IBM, ou soluções como Unstructured. O Docling emprega modelos de visão computacional e layout para:
+* Identificar e remover cabeçalhos e rodapés recorrentes.
+* Reconstruir o fluxo de leitura de colunas múltiplas.
+* Detectar tabelas e legendas de imagens (que devem ser excluídas da análise estilística puramente textual).
+* Converter o documento em um formato Markdown estruturado, preservando a hierarquia de títulos e parágrafos, o que é essencial para entender a macroestrutura da narrativa.
+4.1.2 Processamento de URLs
+Para links, o sistema deve diferenciar entre páginas web genéricas e artigos/livros online.
+* Utilização de bibliotecas como Trafilatura ou Newspaper3k para extrair o conteúdo principal ("main content"), descartando menus, barras laterais e anúncios.
+* Para sites dinâmicos ou protegidos por JS, um renderizador headless (como Selenium ou Puppeteer) pode ser necessário, embora aumente a latência.
+4.2 Segmentação Semântica (Semantic Chunking)
+Uma vez extraído o texto bruto, ele precisa ser dividido em pedaços (chunks) para análise. A abordagem ingênua de "cortar a cada 500 palavras" é destrutiva para a análise de estilo, pois pode separar um sujeito de seu predicado ou quebrar um arco retórico.
+Implementaremos o Semantic Chunking.4 Este método utiliza um modelo de embedding leve (como all-MiniLM-L6-v2) para calcular a similaridade semântica entre sentenças consecutivas.
+1. O sistema percorre o texto sentença por sentença.
+2. Calcula-se a similaridade de cosseno entre a sentença $S_i$ e $S_{i+1}$.
+3. Se a similaridade cair abaixo de um limiar pré-definido (indicando mudança de tópico ou cena), insere-se uma quebra de chunk.
+4. Restrição de Tamanho: Os chunks resultantes devem ter um tamanho ideal para o contexto do LLM (ex: 512 a 1024 tokens). Se um chunk semântico for muito grande, ele é subdividido recursivamente respeitando limites de parágrafo.
+Esta técnica garante que cada fragmento enviado para análise seja uma unidade de pensamento coerente, permitindo que o "Motor Analítico" avalie a coerência e a estrutura narrativa de forma justa.
+________________
+5. Módulo 2: O Motor Analítico ("The Critic")
+Este é o núcleo da inteligência do sistema. O Motor Analítico opera em duas faixas paralelas para construir uma visão holística do autor: a análise quantitativa (objetiva) e a análise qualitativa (subjetiva).
+5.1 Análise Quantitativa: A Via Python
+Nesta faixa, utilizamos bibliotecas de NLP determinísticas para extrair métricas brutas. Isso é crucial para evitar as "alucinações" comuns aos LLMs, que podem inventar que um autor usa frases curtas quando, na verdade, não usa. As métricas calculadas aqui servirão como hard constraints na geração futura.
+5.1.1 Pipeline com TextDescriptives
+A biblioteca TextDescriptives 6, construída sobre o ecossistema spaCy, será a ferramenta primária. O pipeline processará os chunks de texto para extrair:
+* Métricas de Sentença: Comprimento médio, mediana e desvio padrão. O desvio padrão é particularmente revelador sobre a dinâmica do texto.
+* Métricas de Legibilidade: Índices como Flesch Reading Ease, Gunning Fog e SMOG. Estes números ajudam a calibrar a complexidade do vocabulário que a Luna deverá usar.
+* Proporções Part-of-Speech (POS): A razão entre verbos, adjetivos, advérbios e substantivos.
+   * Alta densidade de adjetivos: Sugere estilo descritivo/barroco (ex: Lovecraft).
+   * Alta densidade de verbos: Sugere estilo focado em ação/direto (ex: Thrillers).
+* Distância de Dependência: Mede a complexidade cognitiva da sintaxe.
+5.1.2 Estilometria de Autoria com FastStylometry
+Para capturar a "impressão digital" do autor, utilizaremos a FastStylometry.8 Esta biblioteca implementa o algoritmo Burrows' Delta.
+* O sistema extrai as 50-100 palavras mais frequentes do corpus ingerido.
+* Calcula os Z-scores dessas palavras (quão longe da média padrão da língua elas estão).
+* Gera um vetor de estilo.
+* Uso Prático: Embora a Luna não precise "identificar" o autor, esses vetores podem ser usados para comparar o texto gerado pela Luna com o texto original durante a fase de validação, garantindo que a mimese está estatisticamente próxima do alvo.
+5.2 Análise Qualitativa: A Via LLM (LLM-as-a-Judge)
+Métricas numéricas não capturam ironia, sarcasmo, tom solene ou a "atmosfera" de um texto. Para isso, empregamos um LLM (ex: GPT-4o ou Claude 3.5 Sonnet) configurado com um System Prompt analítico.
+Este processo utiliza a técnica de Prompt Chaining para extrair metadados estruturados.
+5.2.1 Prompt de Extração de DNA Literário
+O sistema seleciona amostras estratégicas do texto (Início, Meio, Clímax) e envia para o LLM com o seguinte objetivo:
+"Analise o texto fornecido sob a perspectiva de um crítico literário e linguista. Ignore o enredo e foque exclusivamente na FORMA e ESTILO. Extraia as seguintes informações em formato JSON rigoroso:
+1. Tom e Atmosfera: Adjetivos que descrevem a sensação do texto (ex: Melancólico, Urgente, Clínico).
+2. Voz Narrativa: Identifique a pessoa (1ª, 3ª), a proximidade (íntima, distante) e a confiabilidade.
+3. Figuras de Linguagem Predominantes: Liste metáforas recorrentes, símiles, aliterações ou padrões retóricos específicos.
+4. Peculiaridades Lexicais: O autor usa arcaísmos? Neologismos? Gírias de uma época específica?
+5. Estrutura de Diálogo: Como os personagens falam? Há muito subtexto? Os diálogos são longos ou staccato?"
+Esta extração qualitativa preenche as lacunas deixadas pela estatística, permitindo que a Luna entenda como aplicar as regras gramaticais que aprendeu.
+________________
+6. Módulo 3: O Perfil Estilístico e Gestão de Artefatos ("The Librarian")
+O resultado da análise deve ser persistido de forma que possa ser reutilizado e manipulado no Canvas da Luna.
+6.1 O Artefato JSON de Perfil de Autor
+Definimos aqui o esquema (Schema) do artefato JSON que será visível ao usuário e legível pela máquina. Este artefato é o "produto" do Modo de Estudo.
+
+
+JSON
+
+
+
+
+{
+ "$schema": "https://luna-ai.com/schemas/author-profile-v1.json",
+ "metadata": {
+   "author_name": "Machado de Assis (Detectado)",
+   "source_title": "Memórias Póstumas de Brás Cubas",
+   "analysis_timestamp": "2023-10-27T10:00:00Z"
+ },
+ "stylometric_signature": {
+   "avg_sentence_length": 18.4,
+   "std_dev_sentence_length": 12.1,
+   "lexical_diversity_score": 0.78,
+   "readability_level": "Advanced",
+   "pos_ratios": {
+     "adjective": 0.08,
+     "verb": 0.12
+   }
+ },
+ "narrative_dna": {
+   "tone":,
+   "pov": "Primeira pessoa (Defunto-Autor)",
+   "rhetorical_devices": [
+     "Quebra da quarta parede (dirige-se ao leitor)",
+     "Metáforas irônicas sobre a condição humana",
+     "Uso de negativas para afirmar (litotes)"
+   ],
+   "vocabulary_style": "Erudito, com uso frequente de termos filosóficos e arcaísmos do séc. XIX."
+ },
+ "few_shot_examples": [
+   {
+     "tag": "ironia",
+     "text": "Marcela amou-me durante quinze meses e onze contos de réis..."
+   },
+   {
+     "tag": "reflexão",
+     "text": "Não tive filhos, não transmiti a nenhuma criatura o legado de nossa miséria."
+   }
+ ]
+}
+
+6.2 Estratégia de Armazenamento Vetorial Híbrido
+Além do JSON, o sistema armazena os chunks processados em um banco de vetores (Vector Database) como Pinecone ou ChromaDB. No entanto, uma busca vetorial padrão (baseada apenas em similaridade semântica) não é ideal para estilo.
+Inovação Proposta: Indexação com Metadados Estilísticos.
+Ao salvar cada chunk no banco vetorial, anexamos metadados derivados da análise (ex: sentiment: cynical, sentence_len: long).
+Isso permite que, no futuro, o motor de geração faça buscas filtradas: "Recupere exemplos deste autor onde o tom é Cínico e as frases são Longas". Isso refina drasticamente a qualidade dos exemplos usados para o Few-Shot Prompting.
+________________
+7. Módulo 4: O Motor de Geração ("The Writer")
+Com o perfil criado, a Luna deve ser capaz de gerar texto novo. A simples injeção do JSON no prompt de sistema ("Aja como Machado de Assis segundo este perfil...") é um bom começo, mas insuficiente para textos longos e coerentes. Implementaremos o Dynamic Few-Shot Prompting.9
+7.1 Dynamic Few-Shot Prompting: O Segredo da Mimese
+A técnica de Few-Shot consiste em dar ao modelo exemplos de "Input -> Output" desejados. A versão "Dinâmica" seleciona esses exemplos em tempo real baseando-se no que o usuário pediu para escrever.
+Cenário: O usuário pede: "Escreva uma crítica sobre redes sociais usando este perfil".
+1. Análise de Intenção: O sistema identifica que o tema é "futilidade moderna", "interação social", "vaidade".
+2. Recuperação (RAG): O sistema consulta o Banco de Vetores do autor buscando trechos que falem sobre "vaidade", "sociedade", "aparências".
+3. Montagem do Prompt: O sistema constrói o prompt final contendo:
+   * As instruções do Perfil JSON (Tom, Regras Gramaticais).
+   * 3 a 5 exemplos reais recuperados do livro original que tratam de temas análogos (Vaidade), servindo de "molde" para o tom.
+   * A solicitação do usuário.
+Esta abordagem garante que a IA tenha referências concretas de como o autor aborda temas similares, resultando em uma mimese muito mais convincente do que a mera instrução abstrata.
+7.2 Orquestração no Canvas e Edição Contínua
+A integração com o sistema de Canvas da Luna é fundamental. O texto gerado não é estático; é um Artifact vivo.
+7.2.1 Fluxo de "Continuar Escrevendo"
+Quando o usuário pede para a Luna "continuar" um texto:
+1. O sistema lê os últimos N parágrafos escritos (contexto local).
+2. Consulta o Perfil Estilístico Ativo (contexto global).
+3. Gera a continuação mantendo a consistência dos dois.
+7.2.2 Fluxo de Edição Local ("Magic Edit")
+Se o usuário seleciona um parágrafo e pede "Reescreva isso para ser mais melancólico":
+1. A Luna isola o parágrafo.
+2. Recupera do Perfil JSON as instruções específicas sobre "Melancolia" para aquele autor.
+3. Reescreve apenas o trecho selecionado, ajustando o vocabulário e a sintaxe para alinhar com o vetor de "Melancolia" do perfil, sem perder a informação original.
+________________
+8. UX/UI: Integração com Canvas e Artifacts
+A complexidade técnica deve ser invisível ao usuário. A interface no Canvas deve tratar o "Estilo" como um objeto tangível.
+8.1 Visualização do Perfil (O Card de Estilo)
+Quando a análise termina, o usuário vê um "Artifact" visual no Canvas representando o livro/autor.
+* Visualização Radar (Spider Chart): Um gráfico de radar 11 mostrando os eixos do estilo: Complexidade, Formalidade, Emocionalidade, Ironia, Descritivismo. Isso permite ao usuário entender rapidamente a "forma" do estilo capturado.
+* Controles Deslizantes (Sliders): O usuário pode querer "ajustar" o estilo. O Artifact pode ter sliders que permitem, por exemplo, aumentar a "Ironia" além do que foi detectado no livro original, criando uma versão hiperbólica do autor. Essas alterações atualizam o JSON do perfil em tempo real.
+8.2 Interação Multi-Modal
+O usuário pode conectar múltiplos perfis. Imagine um grafo no Canvas onde o usuário liga o perfil "Machado de Assis" e o perfil "Cyberpunk 2077" a uma caixa de texto de saída. O sistema interpretaria isso como uma instrução de fusão de estilos (Style Fusion), instruindo o LLM a misturar o vocabulário arcaico e sintaxe complexa de um com os temas e gírias tecnológicas do outro.
+________________
+9. Avaliação e Métricas de Sucesso
+Como validamos se o "Modo de Estudo" está funcionando?
+9.1 Validação Estilométrica (Loop Fechado)
+Podemos implementar um sistema de auto-avaliação.
+1. A Luna gera um texto no estilo do autor X.
+2. O texto gerado é passado pelo Motor Analítico (o mesmo usado na ingestão).
+3. O sistema compara as métricas do texto gerado com as métricas do perfil original (Distância Euclidiana entre os vetores de métricas).
+4. Se a distância for alta (o estilo não bateu), o sistema pode realizar uma auto-correção (Self-Correction) antes de mostrar o resultado ao usuário, ajustando os parâmetros do prompt.
+9.2 Feedback do Usuário
+Mecanismos simples de Thumps Up/Down no Canvas, especificamente atrelados à fidelidade estilística ("Isso soou como o autor?"), ajudam a refinar os System Prompts globais do modelo.
+________________
+10. Considerações Éticas e Legais
+A capacidade de mimese perfeita levanta questões sobre direitos autorais.
+* Direitos Autorais: A análise de obras para criação de perfis estilísticos geralmente cai sob doutrinas de Fair Use (uso transformativo) ou direito de estudo, desde que o texto original não seja reproduzido integralmente na saída. No entanto, a Luna deve incluir guardrails para evitar a reprodução literal de trechos longos de obras protegidas ("plágio verbatim").
+* Transparência: Textos gerados através de um Perfil de Autor devem conter metadados claros indicando que são "Pastiches Gerados por IA", evitando a desinformação ou a falsificação de autoria.
+________________
+11. Conclusão
+A implementação do "Modo de Estudo" na IA Luna representa um salto significativo na sofisticação de ferramentas de escrita assistida. Ao mover-se além de prompts genéricos e abraçar uma arquitetura baseada em dados estruturados de estilo (Estilometria + RAG), a Luna pode oferecer aos usuários uma ferramenta poderosa para análise literária, educação e criação artística. A integração deste sistema com a interface de Canvas e Artifacts transforma o conceito abstrato de "estilo literário" em um objeto manipulável, editável e combinável, abrindo novas fronteiras para a criatividade humana aumentada por máquina.
+________________
+Tabela Resumo de Implementação
+Fase
+	Componente
+	Tecnologia Chave
+	Objetivo
+	1
+	Ingestão
+	Docling, Unstructured
+	Converter PDF/URL em Markdown estruturado e limpo.
+	2
+	Chunking
+	Semantic Chunking (LangChain)
+	Dividir texto preservando contexto narrativo e parágrafos.
+	3
+	Análise Quantitativa
+	TextDescriptives, FastStylometry
+	Extrair métricas de sentença, POS e assinatura de autoria.
+	4
+	Análise Qualitativa
+	LLM (Prompt Chaining)
+	Extrair tom, voz, figuras de linguagem em JSON.
+	5
+	Armazenamento
+	JSON Schema, Vector DB (Pinecone)
+	Persistir perfil e indexar trechos para RAG.
+	6
+	Geração
+	Dynamic Few-Shot Prompting
+	Gerar texto injetando perfil + exemplos recuperados.
+	7
+	Interface
+	Canvas Artifacts (React/Vue)
+	Visualizar perfil (Radar Chart) e permitir edição.
+	Esta especificação técnica fornece o roteiro completo para transformar a Luna em uma especialista literária, capaz de ler como um crítico e escrever como um mestre.
+Referências citadas
+1. RAG vs. Fine-Tuning: How to Choose - Oracle, acessado em janeiro 2, 2026, https://www.oracle.com/artificial-intelligence/generative-ai/retrieval-augmented-generation-rag/rag-fine-tuning/
+2. Improving RAG for Personalization with Author Features and Contrastive Examples - arXiv, acessado em janeiro 2, 2026, https://arxiv.org/html/2504.08745v1
+3. How to Extract Data from Documents with Python: A Step-by-Step Guide Using Docling, acessado em janeiro 2, 2026, https://blog.dataengineerthings.org/how-to-extract-data-from-documents-with-python-a-step-by-step-guide-using-docling-8360264f1e87
+4. Semantic chunking using SemanticSplitterNodeParser | by Muhanad A Husn | Medium, acessado em janeiro 2, 2026, https://medium.com/@muhanad.a.husn/semantic-chunking-using-semanticsplitternodeparser-7b5b525e27fe
+5. A Visual Exploration of Semantic Text Chunking - Towards Data Science, acessado em janeiro 2, 2026, https://towardsdatascience.com/a-visual-exploration-of-semantic-text-chunking-6bb46f728e30/
+6. textdescriptives 2.8.4 documentation - GitHub Pages, acessado em janeiro 2, 2026, https://hlasse.github.io/TextDescriptives/
+7. (PDF) TextDescriptives: A Python package for calculating a large variety of statistics from text, acessado em janeiro 2, 2026, https://www.researchgate.net/publication/366902445_TextDescriptives_A_Python_package_for_calculating_a_large_variety_of_statistics_from_text
+8. faststylometry - PyPI, acessado em janeiro 2, 2026, https://pypi.org/project/faststylometry/
+9. Dynamic few-shot prompting to create captivating content - Data Science Dojo, acessado em janeiro 2, 2026, https://datasciencedojo.com/blog/dynamic-few-shot-prompting/
+10. Dynamic few-shot examples with LangSmith datasets - LangChain Blog, acessado em janeiro 2, 2026, https://blog.langchain.com/dynamic-few-shot-examples-langsmith-datasets/
+11. Data Visualization with Radar Charts - Domo, acessado em janeiro 2, 2026, https://www.domo.com/learn/charts/radar-charts
+12. Radar Charts 101: Overview and Use Cases - Inforiver, acessado em janeiro 2, 2026, https://inforiver.com/insights/radar-charts-usecases/

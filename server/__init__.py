@@ -1,0 +1,10 @@
+"""
+Luna Server Package
+-------------------
+Modular server components for Luna AI.
+"""
+
+from .main import app
+
+__version__ = "2.0.0"
+__all__ = ["app"]

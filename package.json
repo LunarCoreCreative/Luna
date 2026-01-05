@@ -8,9 +8,10 @@
     "dev": "vite --port 5173 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"python server/memory_server.py\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "start:dev": "npm run electron:dev",
-    "electron:start": "electron ."
+    "server": "python -m server.main",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"python -m server.main\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "start": "npm run electron:dev"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

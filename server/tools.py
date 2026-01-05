@@ -6,9 +6,15 @@ Ferramentas que a Luna pode usar para interagir com o sistema.
 
 import os
 import subprocess
-import glob
 from typing import Dict, Any, List
 from pathlib import Path
+
+# Load environment variables early
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Diretório base permitido (segurança)
 ALLOWED_BASE = Path(os.path.expanduser("~")).resolve()
@@ -27,23 +33,10 @@ def sanitize_path(path: str) -> Path:
 def run_command(command: str, cwd: str = None, background: bool = False) -> Dict[str, Any]:
     """
     Executa um comando no terminal.
-    
-    Args:
-        command: Comando a executar
-        cwd: Diretório de trabalho (opcional)
-        background: Se True, não espera o comando terminar (ideal para apps GUI)
-    
-    Returns:
-        {"success": bool, "output": str, "error": str, "message": str}
     """
     try:
         if background:
-            # No Windows, usamos creationflags para desvincular o processo
-            # e não abrir uma nova janela preta se não for necessário,
-            # ou usamos 'start' para garantir que abra de forma independente.
             if os.name == 'nt':
-                # CREATE_NEW_PROCESS_GROUP = 0x00000200
-                # DETACHED_PROCESS = 0x00000008
                 subprocess.Popen(
                     command,
                     shell=True,
@@ -86,67 +79,206 @@ def run_command(command: str, cwd: str = None, background: bool = False) -> Dict
     except Exception as e:
         return {"success": False, "output": "", "error": str(e)}
 
-
-
 def web_search(query: str) -> Dict[str, Any]:
     """
-    Realiza uma pesquisa na web usando scraping do DuckDuckGo HTML (Backup Robusto).
+    Realiza uma pesquisa na web usando múltiplos provedores em hierarquia:
+    1. Tavily API (primário, otimizado para LLMs)
+    2. SearXNG (fallback, meta-search open source)
+    3. DuckDuckGo/Bing/Google scraping (último recurso)
     """
-    try:
-        # Tenta importar dependências necessárias
+    import os
+    
+    # ==========================================================================
+    # PROVEDOR 1: TAVILY (API otimizada para LLMs)
+    # ==========================================================================
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if tavily_key:
         try:
-            import requests
-            from bs4 import BeautifulSoup
-        except ImportError:
-            return {"success": False, "content": "Erro: requests e beautifulsoup4 são necessários.", "error": "Missing dependencies"}
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        url = "https://html.duckduckgo.com/html/"
-        data = {'q': query}
-        
-        # Realiza a requisição
-        res = requests.post(url, data=data, headers=headers, timeout=15)
-        
-        if res.status_code != 200:
-             return {"success": False, "content": f"Erro na busca: Status {res.status_code}", "error": f"Status {res.status_code}"}
-
-        soup = BeautifulSoup(res.text, "html.parser")
-        results = []
-        
-        # Faz o parsing dos resultados
-        for item in soup.find_all("div", class_="result"):
-            try:
-                title_tag = item.find("a", class_="result__a")
-                snippet_tag = item.find("a", class_="result__snippet")
-                
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-                    link = title_tag["href"]
-                    desc = snippet_tag.get_text(strip=True) if snippet_tag else "Sem descrição"
-                    results.append(f"TITULO: {title}\nLINK: {link}\nRESUMO: {desc}")
-                    if len(results) >= 5: break
-            except: continue
-        
-        if not results:
-            return {"success": True, "content": "Nenhum resultado encontrado.", "error": ""}
+            from tavily import TavilyClient
+            client = TavilyClient(api_key=tavily_key)
+            response = client.search(
+                query=query,
+                search_depth="basic",
+                max_results=5,
+                include_answer=True
+            )
             
-        content = "\n\n".join(results)
-        return {"success": True, "content": content, "error": ""}
+            results = []
+            # Incluir answer se disponível
+            if response.get("answer"):
+                results.append(f"RESUMO DA PESQUISA:\n{response['answer']}\n")
+            
+            for r in response.get("results", []):
+                title = r.get("title", "Sem título")
+                url = r.get("url", "")
+                content = r.get("content", "Sem descrição")
+                results.append(f"TITULO: {title}\nLINK: {url}\nRESUMO: {content}")
+            
+            if results:
+                print(f"[DEBUG] Tavily search successful: {len(results)} results")
+                return {"success": True, "content": "\n\n".join(results), "error": "", "source": "tavily"}
+        except ImportError:
+            print("[DEBUG] Tavily not installed, trying next provider")
+        except Exception as e:
+            print(f"[DEBUG] Tavily search failed: {e}")
+    
+    # ==========================================================================
+    # PROVEDOR 2: SEARXNG (Meta-search open source)
+    # ==========================================================================
+    try:
+        import requests
+        # Instâncias públicas de SearXNG (rotação para evitar rate limiting)
+        searxng_instances = [
+            "https://searx.be",
+            "https://search.sapti.me",
+            "https://searx.tiekoetter.com",
+        ]
+        
+        for instance in searxng_instances:
+            try:
+                response = requests.get(
+                    f"{instance}/search",
+                    params={
+                        "q": query,
+                        "format": "json",
+                        "language": "pt-BR",
+                        "categories": "general"
+                    },
+                    headers={"User-Agent": "Luna AI Assistant/1.0"},
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    results = []
+                    for r in data.get("results", [])[:5]:
+                        title = r.get("title", "Sem título")
+                        url = r.get("url", "")
+                        content = r.get("content", "Sem descrição")
+                        results.append(f"TITULO: {title}\nLINK: {url}\nRESUMO: {content}")
+                    
+                    if results:
+                        print(f"[DEBUG] SearXNG ({instance}) successful: {len(results)} results")
+                        return {"success": True, "content": "\n\n".join(results), "error": "", "source": "searxng"}
+            except requests.exceptions.Timeout:
+                continue
+            except Exception as e:
+                print(f"[DEBUG] SearXNG {instance} failed: {e}")
+                continue
     except Exception as e:
-        return {"success": False, "content": "", "error": str(e)}
+        print(f"[DEBUG] SearXNG search failed: {e}")
+    
+    # ==========================================================================
+    # PROVEDOR 3: DUCKDUCKGO LIBRARY (suporta ddgs ou duckduckgo_search)
+    # ==========================================================================
+    try:
+        # Try new package name first
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+        
+        results = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=5):
+                title = r.get("title", "Sem título")
+                link = r.get("href", r.get("link", ""))
+                body = r.get("body", "Sem descrição")
+                results.append(f"TITULO: {title}\nLINK: {link}\nRESUMO: {body}")
+        
+        if results:
+            print(f"[DEBUG] DuckDuckGo search successful: {len(results)} results")
+            return {"success": True, "content": "\n\n".join(results), "error": "", "source": "duckduckgo"}
+    except Exception as e:
+        print(f"[DEBUG] DDG search failed: {e}")
+    
+    # ==========================================================================
+    # PROVEDOR 4: BING SCRAPING (último recurso)
+    # ==========================================================================
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+        
+        bing_url = f"https://www.bing.com/search?q={requests.utils.quote(query)}&setlang=pt-BR"
+        res = requests.get(bing_url, headers=headers, timeout=15)
+        
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "html.parser")
+            results = []
+            
+            for item in soup.select("li.b_algo")[:5]:
+                try:
+                    title_tag = item.select_one("h2 a")
+                    snippet_tag = item.select_one(".b_caption p")
+                    
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        link = title_tag.get("href", "")
+                        desc = snippet_tag.get_text(strip=True) if snippet_tag else "Sem descrição"
+                        results.append(f"TITULO: {title}\nLINK: {link}\nRESUMO: {desc}")
+                except:
+                    continue
+            
+            if results:
+                print(f"[DEBUG] Bing scraping successful: {len(results)} results")
+                return {"success": True, "content": "\n\n".join(results), "error": "", "source": "bing"}
+    except Exception as e:
+        print(f"[DEBUG] Bing scraping failed: {e}")
+    
+    # ==========================================================================
+    # PROVEDOR 5: GOOGLE SCRAPING (último recurso absoluto)
+    # ==========================================================================
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+        
+        google_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&hl=pt-BR"
+        res = requests.get(google_url, headers=headers, timeout=15)
+        
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "html.parser")
+            results = []
+            
+            for item in soup.select("div.g")[:5]:
+                try:
+                    title_tag = item.select_one("h3")
+                    link_tag = item.select_one("a")
+                    snippet_tag = item.select_one("div[data-sncf]") or item.select_one(".VwiC3b")
+                    
+                    if title_tag and link_tag:
+                        title = title_tag.get_text(strip=True)
+                        link = link_tag.get("href", "")
+                        desc = snippet_tag.get_text(strip=True) if snippet_tag else ""
+                        if link.startswith("http"):
+                            results.append(f"TITULO: {title}\nLINK: {link}\nRESUMO: {desc}")
+                except:
+                    continue
+            
+            if results:
+                print(f"[DEBUG] Google scraping successful: {len(results)} results")
+                return {"success": True, "content": "\n\n".join(results), "error": "", "source": "google"}
+    except Exception as e:
+        print(f"[DEBUG] Google scraping failed: {e}")
+    
+    return {"success": False, "content": "Não foi possível realizar a busca. Todos os motores de pesquisa falharam.", "error": "All search providers failed", "source": "none"}
+
 
 
 def read_url(url: str) -> Dict[str, Any]:
     """
     Lê e extrai o conteúdo de texto de uma URL.
-    
-    Args:
-        url: URL completa da página a ser lida
-    
-    Returns:
-        {"success": bool, "content": str, "title": str, "error": str}
     """
     try:
         import requests
@@ -168,23 +300,18 @@ def read_url(url: str) -> Dict[str, Any]:
         
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # Remove elementos desnecessários e ruidosos
         for element in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe", "svg", "form", "button"]):
             element.decompose()
         
-        # Tenta pegar o título
         title = soup.find("title")
         title_text = title.get_text(strip=True) if title else "Sem título"
         
-        # Extrai o conteúdo principal com estratégias de fallback
         main_content = None
-        
-        # Lista de seletores comuns para áreas de conteúdo (ordenados por probabilidade)
         selectors = [
             "article", "main", '[role="main"]', 
             "#content", ".content", ".post-content", ".entry-content", ".article-content",
             "#main-content", ".main-content", ".post-body", ".entry-body",
-            ".chapter-content", ".reading-content" # Comum em sites de leitura
+            ".chapter-content", ".reading-content"
         ]
         
         for selector in selectors:
@@ -192,21 +319,16 @@ def read_url(url: str) -> Dict[str, Any]:
             if main_content and len(main_content.get_text(strip=True)) > 200:
                 break
         
-        # Se não encontrou área principal robusta, usa o body
         if not main_content:
             main_content = soup.find("body")
         
         if not main_content:
             return {"success": False, "content": "", "error": "Não foi possível extrair conteúdo da página"}
         
-        # Extrai texto limpo
         text = main_content.get_text(separator="\n", strip=True)
-        
-        # Limpa linhas vazias múltiplas e excesso de espaços
         lines = [line.strip() for line in text.split("\n") if line.strip()]
         clean_text = "\n".join(lines)
         
-        # Aumenta limite para suportar capítulos longos (50k caracteres)
         MAX_CHARS = 50000
         if len(clean_text) > MAX_CHARS:
             clean_text = clean_text[:MAX_CHARS] + "\n\n... [Conteúdo muito longo, truncado para 50k caracteres]"
@@ -224,159 +346,60 @@ def read_url(url: str) -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "content": "", "error": str(e)}
 
-
 # =============================================================================
-# CANVAS/DOCUMENT TOOLS (Chamam API do memory_server)
+# CANVAS - CRIAÇÃO DE ARTEFATOS
 # =============================================================================
 
-import requests
-
-MEMORY_SERVER_URL = "http://127.0.0.1:8001"
-
-def create_document(title: str, content: str = "") -> Dict[str, Any]:
+def create_artifact(title: str, artifact_type: str, content: str, language: str = None) -> Dict[str, Any]:
     """
-    Cria um novo documento no Canvas.
+    Cria um artefato no Canvas.
+    
+    IMPORTANTE: Esta ferramenta DEVE ser usada para qualquer código, documento ou diagrama.
+    NUNCA escreva código diretamente no chat.
     
     Args:
-        title: Título do documento
-        content: Conteúdo inicial (opcional)
-    
-    Returns:
-        {"success": bool, "document_id": str, "message": str}
+        title: Título descritivo do artefato (ex: "Componente de Login")
+        artifact_type: Tipo do conteúdo (code, markdown, react, mermaid, svg)
+        content: Conteúdo COMPLETO e executável. Sem placeholders.
+        language: Linguagem de programação (python, javascript, typescript, etc)
     """
-    try:
-        response = requests.post(
-            f"{MEMORY_SERVER_URL}/documents",
-            json={"title": title, "content": content},
-            timeout=10
-        )
-        data = response.json()
-        if data.get("success"):
-            doc = data.get("document", {})
-            return {
-                "success": True,
-                "document_id": doc.get("id"),
-                "message": f"Documento '{title}' criado com sucesso!"
-            }
-        return {"success": False, "error": data.get("error", "Erro desconhecido")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    import uuid
+    from .artifacts import save_artifact as persist_artifact
+    
+    valid_types = ["code", "markdown", "react", "mermaid", "svg", "html"]
+    if artifact_type not in valid_types:
+        artifact_type = "code"
+    
+    art_id = str(uuid.uuid4())
+    safe_title = title.encode('ascii', 'replace').decode('ascii')
+    print(f"[DEBUG-ART] Criando artefato: {safe_title} (Tipo: {artifact_type}, ID: {art_id})")
+    
+    artifact = {
+        "id": art_id,
+        "title": title,
+        "type": artifact_type,
+        "language": language or "plaintext",
+        "content": content
+    }
+    
+    # Persist to storage
+    persist_artifact(artifact)
+    
+    return {
+        "success": True,
+        "artifact": artifact
+    }
 
-def write_document(document_id: str, content: str) -> Dict[str, Any]:
+def get_artifact(artifact_id: str) -> Dict[str, Any]:
     """
-    Escreve/substitui o conteúdo de um documento existente.
-    
-    Args:
-        document_id: ID do documento
-        content: Novo conteúdo completo
-    
-    Returns:
-        {"success": bool, "message": str}
+    Busca o conteúdo completo e metadados de um artefato pelo ID.
+    Útil para ler artefatos que não estão atualmente em foco ou verificar versões.
     """
-    try:
-        response = requests.put(
-            f"{MEMORY_SERVER_URL}/documents/{document_id}",
-            json={"content": content},
-            timeout=10
-        )
-        data = response.json()
-        if data.get("success"):
-            return {"success": True, "message": "Documento atualizado com sucesso!"}
-        return {"success": False, "error": data.get("error", "Documento não encontrado")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def append_document(document_id: str, content: str) -> Dict[str, Any]:
-    """
-    Adiciona conteúdo ao final de um documento existente.
-    
-    Args:
-        document_id: ID do documento
-        content: Conteúdo a adicionar
-    
-    Returns:
-        {"success": bool, "message": str}
-    """
-    try:
-        # First, get current content
-        get_response = requests.get(
-            f"{MEMORY_SERVER_URL}/documents/{document_id}",
-            timeout=10
-        )
-        get_data = get_response.json()
-        if not get_data.get("success"):
-            return {"success": False, "error": "Documento não encontrado"}
-        
-        current_content = get_data.get("document", {}).get("content", "")
-        new_content = current_content + "\n\n" + content if current_content else content
-        
-        # Then update
-        response = requests.put(
-            f"{MEMORY_SERVER_URL}/documents/{document_id}",
-            json={"content": new_content},
-            timeout=10
-        )
-        data = response.json()
-        if data.get("success"):
-            return {"success": True, "message": "Conteúdo adicionado ao documento!"}
-        return {"success": False, "error": data.get("error", "Erro ao atualizar")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def read_document(document_id: str = None) -> Dict[str, Any]:
-    """
-    Lê o conteúdo de um documento. Se document_id não for fornecido, lê o documento ativo.
-    
-    Args:
-        document_id: ID do documento (opcional, usa ativo se omitido)
-    
-    Returns:
-        {"success": bool, "title": str, "content": str}
-    """
-    try:
-        if document_id:
-            url = f"{MEMORY_SERVER_URL}/documents/{document_id}"
-        else:
-            url = f"{MEMORY_SERVER_URL}/documents/active"
-        
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data.get("success"):
-            doc = data.get("document")
-            if not doc:
-                return {"success": True, "content": "", "message": "Nenhum documento ativo no momento."}
-            return {
-                "success": True,
-                "document_id": doc.get("id"),
-                "title": doc.get("title", "Sem título"),
-                "content": doc.get("content", "")
-            }
-        return {"success": False, "error": data.get("error", "Documento não encontrado")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def list_documents() -> Dict[str, Any]:
-    """
-    Lista todos os documentos disponíveis no Canvas.
-    
-    Returns:
-        {"success": bool, "documents": [{"id": str, "title": str, "updated_at": str}]}
-    """
-    try:
-        response = requests.get(f"{MEMORY_SERVER_URL}/documents", timeout=10)
-        data = response.json()
-        if data.get("success"):
-            docs = data.get("documents", [])
-            if not docs:
-                return {"success": True, "content": "Nenhum documento encontrado no Canvas."}
-            doc_list = "\n".join([f"- {d['title']} (ID: {d['id']})" for d in docs])
-            return {"success": True, "content": f"Documentos disponíveis:\n{doc_list}"}
-        return {"success": False, "error": data.get("error", "Erro ao listar")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
+    from .artifacts import get_artifact as fetch_art
+    art = fetch_art(artifact_id)
+    if not art:
+        return {"success": False, "error": f"Artefato {artifact_id} não encontrado."}
+    return {"success": True, "artifact": art}
 
 # =============================================================================
 # REGISTRY DE TOOLS
@@ -394,20 +417,20 @@ TOOLS = {
     },
     "web_search": {
         "function": web_search,
-        "description": "Pesquisa na internet por informações atualizadas, documentação e tendências tecnológicas",
+        "description": "Pesquisa na internet por informações gerais. Use APENAS quando NÃO tiver uma URL específica. Se o usuário fornecer um link (http/https), use read_url ao invés.",
         "parameters": {
             "query": {"type": "string", "description": "Termo de busca detalhado", "required": True}
         }
     },
     "read_url": {
         "function": read_url,
-        "description": "Lê e extrai o conteúdo de texto de uma URL/página web específica. Use quando precisar acessar o conteúdo de um link.",
+        "description": "OBRIGATÓRIO quando o usuário fornecer um link/URL específico (http:// ou https://). Lê e extrai o conteúdo de texto da página web. Use SEMPRE que houver uma URL na mensagem do usuário.",
         "parameters": {
             "url": {"type": "string", "description": "URL completa da página (ex: https://exemplo.com/pagina)", "required": True}
         }
     },
     "add_knowledge": {
-        "function": None, # Será mapeado no execute_tool para chamar o memory_server se necessário, ou injetado aqui
+        "function": None, 
         "description": "Salva um novo padrão de código ou conhecimento técnico na base RAG da Luna",
         "parameters": {
             "title": {"type": "string", "description": "Título curto do conhecimento (ex: Modern Tkinter Button)", "required": True},
@@ -422,55 +445,49 @@ TOOLS = {
             "detailed_thought": {"type": "string", "description": "Seu pensamento puro e profundo. Decida aqui se precisará de outras ferramentas.", "required": True}
         }
     },
-    "screen_capture": {
-        "function": None, # Injetado no execute_tool via pc_observer
-        "description": "Captura uma imagem da tela atual do usuário. Use para ver o que ele está vendo, ler janelas, entender o contexto visual ou quando ele perguntar 'o que tem na minha tela?'.",
-        "parameters": {}
-    },
-    "get_running_apps": {
-        "function": None,
-        "description": "Lista todas as janelas/aplicativos abertos e visíveis no PC do usuário. Use quando ele perguntar 'o que está aberto?', 'quais apps estão rodando?' ou quiser saber o contexto geral do desktop.",
-        "parameters": {}
-    },
-    # === CANVAS/DOCUMENT TOOLS ===
-    "create_document": {
-        "function": create_document,
-        "description": "Cria um novo documento no Canvas de escrita. Use quando o usuário pedir para escrever algo longo (artigo, história, livro, documento).",
+    "create_artifact": {
+        "function": create_artifact,
+        "description": "Cria um NOVO artefato do zero. Use APENAS para novos arquivos ou quando o usuário pedir explicitamente para criar algo novo. NÃO use para atualizar.",
         "parameters": {
-            "title": {"type": "string", "description": "Título do documento", "required": True},
-            "content": {"type": "string", "description": "Conteúdo inicial do documento (opcional)", "required": False}
+            "title": {"type": "string", "description": "Título descritivo do artefato", "required": True},
+            "artifact_type": {
+                "type": "string", 
+                "enum": ["code", "markdown", "react", "mermaid", "svg", "html"],
+                "description": "Tipo do conteúdo", 
+                "required": True
+            },
+            "content": {"type": "string", "description": "Conteúdo COMPLETO e direto.", "required": True},
+            "language": {"type": "string", "description": "Linguagem (python, js, etc)", "required": False}
         }
     },
-    "write_document": {
-        "function": write_document,
-        "description": "Escreve/substitui o conteúdo completo de um documento existente no Canvas.",
+    "edit_artifact": {
+        "function": None, # Handled specially in agent.py
+        "description": "Edita o artefato existente. PREFERIDA para QUALQUER alteração, correção ou melhoria. O sistema aceita buscas aproximadas (fuzzy), então não precisa ser perfeito.",
         "parameters": {
-            "document_id": {"type": "string", "description": "ID do documento", "required": True},
-            "content": {"type": "string", "description": "Novo conteúdo completo do documento", "required": True}
+            "artifact_id": {"type": "string", "description": "ID do artefato a editar", "required": True},
+            "changes": {
+                "type": "array",
+                "description": "Lista de alterações sequenciais (Search & Replace).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "search": {"type": "string", "description": "Bloco exato de texto original para buscar. Copie exatamente do artefato."},
+                        "replace": {"type": "string", "description": "Novo bloco de texto para substituir"}
+                    },
+                    "required": ["search", "replace"]
+                },
+                "required": True
+            }
         }
     },
-    "append_document": {
-        "function": append_document,
-        "description": "Adiciona conteúdo ao final de um documento existente. Ideal para continuar escrevendo um texto longo.",
+    "get_artifact": {
+        "function": get_artifact,
+        "description": "Busca o conteúdo completo e metadados de um artefato pelo ID. Use quando quiser apenas ler ou quando o usuário pedir para você 'dar uma olhada' em um artefato específico sem necessariamente editá-lo.",
         "parameters": {
-            "document_id": {"type": "string", "description": "ID do documento", "required": True},
-            "content": {"type": "string", "description": "Conteúdo a adicionar ao final", "required": True}
+            "artifact_id": {"type": "string", "description": "ID do artefato a ser lido", "required": True}
         }
-    },
-    "read_document": {
-        "function": read_document,
-        "description": "Lê o conteúdo de um documento para consultar o que já foi escrito. Use antes de continuar escrevendo.",
-        "parameters": {
-            "document_id": {"type": "string", "description": "ID do documento (opcional, usa o documento ativo se omitido)", "required": False}
-        }
-    },
-    "list_documents": {
-        "function": list_documents,
-        "description": "Lista todos os documentos disponíveis no Canvas.",
-        "parameters": {}
     }
 }
-
 
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Executa uma tool pelo nome."""
@@ -480,40 +497,16 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     tool = TOOLS[tool_name]
     try:
         print(f"[DEBUG] Executando tool: {tool_name} com args: {args}")
-        # Failsafe para ferramentas de memória que residem no memory_server
+        
         if tool_name == "add_knowledge":
-            from memory_server import save_technical_knowledge
+            from .memory import save_technical_knowledge
             success = save_technical_knowledge(**args)
             return {"success": success, "message": "Conhecimento técnico indexado com sucesso!" if success else "Falha ao indexar."}
         
-        if tool_name == "screen_capture":
-            try:
-                from server.pc_observer import observer
-            except ImportError:
-                from pc_observer import observer
-            
-            img_b64 = observer.capture_screen()
-            if img_b64:
-                return {"success": True, "image_url": f"data:image/jpeg;base64,{img_b64}", "content": "[FOTO DA TELA CAPTURADA. ANALISE A IMAGEM AGORA.]"}
-            else:
-                return {"success": False, "error": "Falha ao capturar a tela."}
-        
-        if tool_name == "get_running_apps":
-            try:
-                from server.pc_observer import observer
-            except ImportError:
-                from pc_observer import observer
-            
-            apps = observer.get_open_windows()
-            return {"success": True, "content": f"Janelas Abertas:\n- " + "\n- ".join(apps)}
-        
-
-
         result = tool["function"](**args)
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
-
 
 def get_tools_schema() -> List[Dict]:
     """Retorna o schema das tools para o modelo."""
@@ -529,6 +522,10 @@ def get_tools_schema() -> List[Dict]:
                     "properties": {
                         param_name: {
                             "type": param_info["type"],
+                            "description": param_info["description"]
+                        } if "enum" not in param_info else {
+                            "type": param_info["type"],
+                            "enum": param_info["enum"],
                             "description": param_info["description"]
                         }
                         for param_name, param_info in tool["parameters"].items()
