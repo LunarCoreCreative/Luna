@@ -1,16 +1,21 @@
 # Nixpacks config for Railway
-# This ensures both Python and Node.js are installed
+# Force Python provider with Node.js support
+
+providers = ["python", "node"]
 
 [phases.setup]
-nixPkgs = ["python311", "nodejs_20"]
+nixPkgs = ["python311", "python311Packages.pip", "nodejs_20"]
 
 [phases.install]
+dependsOn = ["setup"]
 cmds = [
-    "npm ci",
-    "pip install -r requirements.txt"
+    "pip install --upgrade pip",
+    "pip install -r requirements.txt",
+    "npm ci"
 ]
 
 [phases.build]
+dependsOn = ["install"]
 cmds = ["npm run build"]
 
 [start]
