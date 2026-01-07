@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
         nextRefill: null // Timestamp em ms para recarga (apenas se zerar)
     });
 
-    // UID do criador (Ethan/Shadow) - IMUTÁVEL
+    // UID do criador - IMUTÁVEL
     const CREATOR_UID = "aKp1czWVMqWQdJ9nAIcIKgxKNu92";
 
     useEffect(() => {

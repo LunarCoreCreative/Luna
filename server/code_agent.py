@@ -42,7 +42,7 @@ Sua execução é um loop de controle contínuo. Ao terminar uma tarefa, verifiq
 
 ## FERRAMENTAS DISPONÍVEIS
 ### Gestão de Raciocínio:
-- **manage_artifact**: Criar/Atualizar arquivos de "cérebro" (`implementation_plan.md`, `task.md`, `walkthrough.md`). **Dica**: Sempre emita uma narração textual após gerenciar um artefato para manter o Ethãn informado.
+- **manage_artifact**: Criar/Atualizar arquivos de "cérebro" (`implementation_plan.md`, `task.md`, `walkthrough.md`). **Dica**: Sempre emita uma narração textual após gerenciar um artefato para manter o usuário informado.
 
 ### Sistema de Arquivos e Inteligência:
 - list_directory, read_file, write_file, replace_block, search_files, get_repo_map, find_symbol.
@@ -113,6 +113,8 @@ class CodeAgentState:
         self.tool_history: List[Dict[str, Any]] = []
         self.pending_approval: Optional[Dict[str, Any]] = None
         self.active_chat_id: Optional[str] = None
+        self.user_id: Optional[str] = None
+        self.user_name: Optional[str] = "Usuário"
 
     def load_session(self, chat_data: dict):
         """Carrega o estado a partir de um chat salvo."""
@@ -196,8 +198,11 @@ class CodeAgentState:
                 tech_items_str = "\n".join([f"- {item}" for item in all_items])
         
         # Injetar identidade dinâmica
-        from .identity import get_identity_prompt, CREATOR_UID
-        identity_prompt = get_identity_prompt(CREATOR_UID, "Ethan")
+        from .identity import get_identity_prompt
+        identity_prompt = get_identity_prompt(
+            self.user_id, 
+            self.user_name or "Usuário"
+        )
         
         prompt = identity_prompt + "\n\n" + CODE_AGENT_SYSTEM_PROMPT.format(
             workspace_info=workspace_info,
@@ -586,11 +591,18 @@ async def code_agent_generator(
             study_context += f"\n--- Fonte {i}: {result['title']} ---\n{result['text'][:1000]}\n"
 
     # Prepara mensagens para API
+    from .agent import safe_print
+    safe_print(f"[DEBUG-IDENTITY-CODE] Request UserID: {state.user_id}")
+    safe_print(f"[DEBUG-IDENTITY-CODE] Request UserName: {state.user_name}")
+
     system_prompt = state.get_system_prompt(
         memories=all_memories, 
         study_context=study_context,
         vision_context=vision_context
     )
+    
+    # Log the first few lines of the generated identity prompt
+    safe_print(f"[DEBUG-IDENTITY-CODE] Prompt Start: {system_prompt[:100]}...")
     msgs = [{"role": "system", "content": system_prompt}] + state.messages[-12:] # Aumentado um pouco o contexto curto
     tools = get_code_agent_tools()
     

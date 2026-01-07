@@ -28,12 +28,15 @@ class ChatRequest(BaseModel):
     agent_mode: bool = True
     deep_thinking: bool = False
     active_artifact_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_name: Optional[str] = "Usuário"
 
 class SaveChatRequest(BaseModel):
     chat_id: Optional[str] = None
     thread_id: Optional[str] = None
     messages: List[Dict]
     title: Optional[str] = None
+    user_id: Optional[str] = None  # Added for user isolation
 
 class CreateThreadRequest(BaseModel):
     title: Optional[str] = None
@@ -46,17 +49,23 @@ class ChatManager:
     """Manages persistent chat storage."""
     
     @staticmethod
-    def list_chats(storage_dir: Path = CHAT_DIR) -> List[Dict]:
-        """List all saved chats."""
+    def list_chats(storage_dir: Path = CHAT_DIR, user_id: str = None) -> List[Dict]:
+        """List all saved chats, optionally filtering by user_id."""
         chats = []
         for f in storage_dir.glob("*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
+                
+                # Filter by user_id if provided
+                if user_id and data.get("user_id") and data.get("user_id") != user_id:
+                    continue
+                    
                 threads = data.get("threads", [])
                 chats.append({
                     "id": data.get("id"),
                     "title": data.get("title", "Sem título"),
                     "updated_at": data.get("updated_at", ""),
+                    "user_id": data.get("user_id"),
                     "thread_count": len(threads),
                     "threads": [{"id": t["id"], "title": t.get("title", "Thread")} for t in threads],
                     "preview": data.get("messages", [])[-1].get("content", "")[:60] if data.get("messages") else ""
@@ -81,7 +90,7 @@ class ChatManager:
         return data
     
     @staticmethod
-    def save_chat(chat_id: str, messages: List[Dict], title: str = None, thread_id: str = None, storage_dir: Path = CHAT_DIR) -> Dict:
+    def save_chat(chat_id: str, messages: List[Dict], title: str = None, thread_id: str = None, user_id: str = None, storage_dir: Path = CHAT_DIR) -> Dict:
         """Save or update a chat."""
         if not chat_id:
             chat_id = str(uuid.uuid4())
@@ -97,6 +106,10 @@ class ChatManager:
                     current_data["threads"] = []
             except Exception:
                 pass
+        
+        # Preserve existing user_id or set new one if creating/claiming
+        if user_id:
+            current_data["user_id"] = user_id
         
         if thread_id:
             threads = current_data.get("threads", [])

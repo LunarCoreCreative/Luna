@@ -181,7 +181,6 @@ const EnergyDisplay = () => {
     );
 };
 
-import { TitleBar } from "./components/TitleBar";
 
 function App() {
     // Boot state
@@ -210,6 +209,9 @@ function App() {
     const [learningNotification, setLearningNotification] = useState(null);
     const auth = useAuth();
     const { user, profile } = auth;
+
+    // Energy check - available component-wide
+    const hasEnergy = (!auth.isAuthenticated) || (auth.plan === 'nexus') || (auth.energy?.current > 0);
 
     // Custom hooks
     const chat = useChat();
@@ -377,7 +379,9 @@ function App() {
                         messages: next,
                         agent_mode: true,
                         deep_thinking: thinkingMode,
-                        active_artifact_id: artifacts.activeArtifact?.id // Injeta o ID do artefato ativo se houver
+                        active_artifact_id: artifacts.activeArtifact?.id, // Injeta o ID do artefato ativo se houver
+                        user_id: user?.uid || null,
+                        user_name: profile?.displayName || user?.displayName || "Usuário"
                     }
                 }));
             };
@@ -615,6 +619,11 @@ function App() {
 
             const next = [...chat.messages, newMessage];
             chat.setMessages(next);
+
+            // Start Streaming State
+            chat.isStreamingRef.current = true;
+            setIsStreaming(true);
+
             // Input clearing handled by components or setHomeInput above
             attachmentsHook.clearAttachments(); // Clear attachments immediately
             setStreamBuffer("");
@@ -875,45 +884,21 @@ function App() {
         );
     }
 
-    // Componente de Energia (Topo Direito)
-    const EnergyDisplay = () => {
-        if (!auth.isAuthenticated) return null;
-
-        const isNexus = auth.plan === 'nexus';
-        const percent = isNexus ? 100 : Math.min(100, (auth.energy.current / auth.energy.max) * 100);
-
-        return (
-            <div className="absolute top-4 right-16 z-50 flex items-center gap-2 bg-[var(--bg-secondary)]/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-full shadow-lg cursor-help transition-all hover:scale-105 group" title="Sua Energia Diária">
-                <Zap size={14} className={isNexus ? "text-amber-400 fill-amber-400 animate-pulse" : "text-yellow-400"} />
-                <span className={`text-xs font-bold font-mono ${isNexus ? 'text-amber-300' : 'text-gray-200'}`}>
-                    {isNexus ? "∞" : auth.energy.current}
-                </span>
-
-                {/* Tooltip Detalhado */}
-                <div className="absolute top-full right-0 mt-2 w-48 p-3 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col gap-2">
-                    <div className="flex justify-between items-center text-xs text-gray-400">
-                        <span>ENERGY</span>
-                        <span>{isNexus ? "ILIMITADA" : `${auth.energy.current}/${auth.energy.max}`}</span>
-                    </div>
-                    {!isNexus && (
-                        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full bg-yellow-400 transition-all duration-500" style={{ width: `${percent}%` }} />
-                        </div>
-                    )}
-                    <span className="text-[10px] text-gray-500 text-center">
-                        {isNexus ? "Você é Luna Nexus." : "Reseta à meia-noite."}
-                    </span>
-                </div>
-            </div>
-        );
-    };
 
     return (
         <div className={`flex h-screen w-screen bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden relative ${artifacts.canvasOpen ? 'split-view' : ''}`}>
 
 
+            {/* Sidebar Backdrop - Click to close */}
+            {sidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[150] transition-opacity animate-in fade-in duration-300"
+                    onClick={() => setSidebarOpen(false)}
+                />
+            )}
+
             {/* Sidebar (Overlay/Slide) */}
-            <div className={`fixed inset-y-0 left-0 z-40 w-[280px] bg-[var(--bg-glass-solid)] backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+            <div className={`fixed inset-y-0 left-0 z-[160] w-[280px] bg-[var(--bg-glass-solid)] backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
                 <div className="p-4 pt-12 flex flex-col h-full">
                     <button onClick={startNewChat} className="flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 mb-3">
                         <Plus size={18} />
@@ -1314,7 +1299,7 @@ function App() {
                                 <div className="relative">
                                     <ChatInput
                                         ref={chatInputRef}
-                                        onSend={handleSend}
+                                        onSend={sendMessage}
                                         isStreaming={isStreaming}
                                         onStop={stopGeneration}
                                         attachmentsHook={attachmentsHook}

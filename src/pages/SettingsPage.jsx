@@ -443,7 +443,7 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
                                 <Shield size={20} className="text-[var(--accent-primary)]" />
                                 Configurações de Identidade
                             </h3>
-                            <p className="text-sm text-[var(--text-secondary)] mb-6">Esta aba é restrita ao criador da Luna (Ethan).</p>
+                            <p className="text-sm text-[var(--text-secondary)] mb-6">Esta aba é restrita ao criador da Luna.</p>
 
                             <div className="space-y-4">
                                 <div className="p-4 bg-[var(--bg-secondary)] border border-white/10 rounded-xl">
@@ -577,8 +577,8 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
             {toast && (
                 <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className={`px-6 py-3 rounded-2xl shadow-2xl backdrop-blur-xl border flex items-center gap-3 ${toast.type === 'success'
-                            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-                            : 'bg-red-500/20 border-red-500/30 text-red-400'
+                        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                        : 'bg-red-500/20 border-red-500/30 text-red-400'
                         }`}>
                         {toast.type === 'success' ? <Sparkles size={18} /> : <X size={18} />}
                         <span className="text-sm font-medium">{toast.message}</span>

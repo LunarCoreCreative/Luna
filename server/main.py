@@ -130,8 +130,8 @@ async def upload_file(file: UploadFile = File(...)):
 # =============================================================================
 
 @app.get("/chats")
-async def get_chats():
-    return {"success": True, "chats": ChatManager.list_chats()}
+async def get_chats(user_id: Optional[str] = None):
+    return {"success": True, "chats": ChatManager.list_chats(user_id=user_id)}
 
 @app.get("/chats/{chat_id}")
 async def get_chat_details(chat_id: str, thread_id: Optional[str] = None):
@@ -142,7 +142,7 @@ async def get_chat_details(chat_id: str, thread_id: Optional[str] = None):
 
 @app.post("/chats")
 async def save_chat_endpoint(req: SaveChatRequest):
-    data = ChatManager.save_chat(req.chat_id, req.messages, req.title, req.thread_id)
+    data = ChatManager.save_chat(req.chat_id, req.messages, req.title, req.thread_id, user_id=req.user_id)
     return {"success": True, "chat": data}
 
 @app.delete("/chats/{chat_id}")
@@ -541,7 +541,9 @@ async def ws_agent(websocket: WebSocket):
                     messages=messages, 
                     agent_mode=True, 
                     deep_thinking=deep_thinking,
-                    active_artifact_id=active_artifact_id # CRITICAL: Pass active artifact ID
+                    active_artifact_id=active_artifact_id,
+                    user_id=req_data.get("user_id"),
+                    user_name=req_data.get("user_name", "Usuário")
                 )
                 
                 print(f"[WS] Starting stream for {len(messages)} messages")
@@ -635,6 +637,12 @@ async def ws_code_agent(websocket: WebSocket):
             elif msg.get("type") == "message":
                 user_message = msg.get("content", "")
                 images = msg.get("images", [])
+                
+                # Update identity if provided
+                if msg.get("user_id"):
+                    state.user_id = msg.get("user_id")
+                if msg.get("user_name"):
+                    state.user_name = msg.get("user_name")
                 
                 print(f"[WS-CODE] Processing message: {user_message[:50]}... (Images: {len(images)})")
                 

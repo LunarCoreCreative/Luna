@@ -504,9 +504,16 @@ CONTEÚDO ATUAL (versão mais recente do disco):
             safe_print(f"[DEBUG-CTX] Artefato Ativo Injetado: {active_artifact_title} (ID: {art_id})")
 
     # Build system prompt with current date and user identity
-    # TODO: Receber user_id da requisição quando integração completa
-    from .identity import CREATOR_UID
-    prompt = get_system_prompt(user_id=CREATOR_UID, user_name="Ethan")
+    safe_print(f"[DEBUG-IDENTITY] Request UserID: {request.user_id}")
+    safe_print(f"[DEBUG-IDENTITY] Request UserName: {request.user_name}")
+    
+    prompt = get_system_prompt(
+        user_id=request.user_id,
+        user_name=request.user_name or "Usuário"
+    )
+    
+    # Log the first few lines of the generated identity prompt to verify override
+    safe_print(f"[DEBUG-IDENTITY] Prompt Start: {prompt[:100]}...")
     
     if active_artifact_content:
         prompt += f"\n\n{active_artifact_content}"

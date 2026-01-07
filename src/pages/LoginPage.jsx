@@ -226,7 +226,7 @@ export const LoginPage = ({ onSuccess }) => {
 
                 {/* Footer */}
                 <p className="text-center mt-6 text-gray-600 text-xs">
-                    Criada com 💜 por Ethan (Shadow)
+                    Luna AI 💜 Conectando Mundos
                 </p>
             </div>
         </div>
