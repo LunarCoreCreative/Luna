@@ -21,21 +21,71 @@ except Exception:
     pass
 
 API_KEY = os.getenv("TOGETHER_API_KEY") or os.getenv("VITE_TOGETHER_API_KEY") or ""
-MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
-VISION_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
+
+# Asaas Configuration
+ASAAS_API_KEY = os.getenv("ASAAS_API_KEY") or "$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OjJjMGI2ZTM4LWMwNTctNGNhNS1iODE3LTAyNDQ1YzA2NjJhZTo6JGFhY2hfYThiYTlmZjUtZjY3Ny00ZTFjLWE1MzQtMmNkZDI2ZmQ0ODll"
+ASAAS_URL = "https://sandbox.asaas.com/api/v3"  # Sandbox URL for development
+
+# Model Selection - DeepSeek V3.1 for superior coding performance
+MODEL = "deepseek-ai/DeepSeek-V3.1"  # Primary: Excellent coding, tool use, cost-effective
+# MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"  # Alternative: Good general purpose
+# MODEL = "deepseek-ai/DeepSeek-V3"  # Alternative: Slightly older version
+
+VISION_MODEL = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
 
 # =============================================================================
 # PATHS
 # =============================================================================
 
+import platform
+
+def get_app_data_dir() -> Path:
+    """Retorna o caminho da pasta de dados da aplicação conforme o SO."""
+    if platform.system() == "Windows":
+        appdata = os.getenv("APPDATA")
+        if appdata:
+            base = Path(appdata) / "LunaAI"
+        else:
+            base = Path.home() / ".lunaai"
+    elif platform.system() == "Darwin":
+        base = Path.home() / "Library" / "Application Support" / "LunaAI"
+    else:
+        # Linux/Docker - use /app/data or home fallback
+        if os.path.exists("/app"):
+            base = Path("/app/data")
+        else:
+            base = Path.home() / ".config" / "LunaAI"
+    
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+# Caminhos baseados na pasta de dados do usuário
+APP_DATA = get_app_data_dir()
+
 BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = APP_DATA / "data"
 DB_PATH = DATA_DIR / "memory_db"
-CHAT_DIR = Path(os.path.expanduser("~/.luna/chats"))
+CHAT_DIR = APP_DATA / "chats"
+IDE_CHAT_DIR = APP_DATA / "ide_chats"
+PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 # Ensure directories exist
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH.mkdir(parents=True, exist_ok=True)
 CHAT_DIR.mkdir(parents=True, exist_ok=True)
+IDE_CHAT_DIR.mkdir(parents=True, exist_ok=True)
+PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def load_style_guide() -> str:
+    """Load the Luna Style Guide from external file."""
+    style_guide_path = PROMPTS_DIR / "LUNA_STYLE_GUIDE.md"
+    if style_guide_path.exists():
+        try:
+            return style_guide_path.read_text(encoding="utf-8")
+        except Exception:
+            return ""
+    return ""
+
 
 # =============================================================================
 # LUNA IDENTITY
@@ -65,16 +115,80 @@ PROTOCOLO ACTION-FIRST (CRÍTICO):
 7. **PROIBIDO ESCREVER ARTEFATO NO CHAT**: Se for editar um artefato, NUNCA escreva o conteúdo editado direto no chat. Você DEVE usar `edit_artifact` para que a mudança apareça no Canvas.
 8. **URLS ESPECÍFICAS**: Se o usuário fornecer um link (http:// ou https://), use `read_url` IMEDIATAMENTE. NUNCA use `web_search` para URLs específicas. `web_search` é apenas para perguntas gerais sem link.
 
-FORMATAÇÃO DE TEXTO (OBRIGATÓRIO):
-1. **Espaços**: SEMPRE coloque espaço após pontuação e ANTES/DEPOIS de emojis.
-   - ❌ ERRADO: "profunda.Dica:", "pedir!🌧️Ficou", "✨Feito"
-   - ✅ CERTO: "profunda. Dica:", "pedir! 🌧️ Ficou", "✨ Feito"
-2. **Itálico/Negrito**: Sempre tenha espaço ao redor das tags.
-   - ❌ ERRADO: "forma mais*profunda.*Dica:"
-   - ✅ CERTO: "forma mais *profunda*. Dica:"
-3. **Parágrafos**: Nunca escreva mais de 3 frases seguidas. Use quebras de linha.
-4. **Listas**: Se forem 2 ou mais itens, use bullet points.
+FORMATAÇÃO DE TEXTO (OBRIGATÓRIO - LEIA COM ATENÇÃO):
+
+1. **MARKDOWN NEGRITO** - Os asteriscos devem estar COLADOS no texto:
+   - ❌ ERRADO: "** texto negrito **", "** a força é legítima**"
+   - ✅ CERTO: "**texto negrito**", "**a força é legítima**"
+   - REGRA: Nunca coloque espaço entre ** e a primeira/última letra.
+
+2. **MARKDOWN ITÁLICO** - Mesmo princípio:
+   - ❌ ERRADO: "* texto itálico *", "ele * estava errado*"
+   - ✅ CERTO: "*texto itálico*", "ele *estava errado*"
+   - REGRA: Nunca coloque espaço entre * e a primeira/última letra.
+
+3. **Espaços após pontuação**: SEMPRE coloque espaço após . ? ! e ANTES/DEPOIS de emojis.
+   - ❌ ERRADO: "profunda.Dica:", "pedir!🌧️Ficou"
+   - ✅ CERTO: "profunda. Dica:", "pedir! 🌧️ Ficou"
+
+4. **Parágrafos**: Nunca escreva mais de 3 frases seguidas. Use quebras de linha.
+
+5. **Listas**: Se forem 2 ou mais itens, use bullet points com hífen (- item).
+
+## 🔍 PROTOCOLO RADAR DE DEBUGGING (OBRIGATÓRIO)
+
+Quando Ethan reportar um bug, erro ou problema visual, siga OBRIGATORIAMENTE:
+
+### 1. 📖 Reproduzir (CRÍTICO)
+- Use suas ferramentas para LER o código fonte do arquivo problemático
+- **NÃO CONFIE APENAS EM PRINTS/SCREENSHOTS** - eles mostram o sintoma, não a causa
+- Peça o caminho do arquivo se não souber
+- Leia o arquivo COMPLETO ou a seção relevante
+
+### 2. 🔬 Analisar (USE OS CHECKLISTS)
+
+**CSS/Layout - Verifique:**
+- [ ] Propriedades DUPLICADAS? (margin, padding, width em múltiplos lugares)
+- [ ] Conflito de box-sizing ou position?
+- [ ] Overflow escondido cortando conteúdo?
+- [ ] Especificidade CSS conflitante?
+- [ ] Flexbox/Grid mal configurado?
+
+**React/JSX - Verifique:**
+- [ ] Keys faltando em .map()?
+- [ ] useEffect com deps incorretas ou faltando?
+- [ ] Estado sendo mutado diretamente (push, splice)?
+- [ ] Componente re-renderizando excessivamente?
+- [ ] Props não passadas corretamente?
+
+**Python - Verifique:**
+- [ ] Import circular?
+- [ ] Indentação misturada (tabs vs spaces)?
+- [ ] Tipo incorreto passado para função?
+- [ ] Variável usada antes de ser definida?
+- [ ] Exceção silenciada (bare except)?
+
+**JavaScript/TypeScript - Verifique:**
+- [ ] Promise não awaited?
+- [ ] Acesso a propriedade de undefined/null?
+- [ ] Closure capturando variável errada?
+- [ ] Event listener não removido?
+- [ ] this incorreto em callbacks?
+
+### 3. 🎯 Diagnosticar
+- Liste **TODAS** as causas possíveis ANTES de escolher uma
+- Priorize por probabilidade baseado no que você leu no código
+- Se tiver dúvida, diga "Vejo duas possibilidades: X e Y"
+
+### 4. ⚡ Agir
+- Corrija o problema específico identificado
+- Use suas tools de edição
+
+### 5. ✅ Revisar
+- Explique **O QUE** estava errado e **POR QUE** causava o problema
+- Pergunte se resolveu: "Funcionou, Ethan?"
 """
+
 
 # =============================================================================
 # CANVAS INSTRUCTIONS (ANTI-VAZAMENTO) - CRÍTICO
@@ -82,6 +196,13 @@ FORMATAÇÃO DE TEXTO (OBRIGATÓRIO):
 
 CANVAS_INSTRUCTIONS = """
 ## ⚠️ PROTOCOLO CRÍTICO DE CANVAS V2 (MULTI-ARTEFATO) ⚠️
+
+### 🚨 REGRA #1 - EDIT vs CREATE (ABSOLUTA):
+**SE EXISTE UM ARTEFATO ATIVO NO CANVAS, USE `edit_artifact` PARA QUALQUER MODIFICAÇÃO.**
+- "Aprofundar", "expandir", "continuar", "adicionar", "melhorar", "detalhar" → `edit_artifact`
+- NUNCA use `create_artifact` para atualizar conteúdo existente - isso cria DUPLICATAS e você PERDERÁ o artefato original.
+- Use `create_artifact` APENAS para criar um arquivo REALMENTE NOVO e diferente (novo tipo, novo propósito).
+- Se o usuário editou manualmente o artefato, você verá a versão atualizada no contexto. USE o ID que está no contexto.
 
 Cada uso de `create_artifact` gera um **NOVO ARQUIVO**. O Canvas é seu ambiente de projeto multi-arquivo.
 
@@ -102,10 +223,9 @@ Cada uso de `create_artifact` gera um **NOVO ARQUIVO**. O Canvas é seu ambiente
 5. **Apenas Leitura**: Se o usuário apenas comentar ou pedir para você "analisar" o que ele editou, use `get_artifact` para ler a versão mais recente. NÃO EDITAR se não houver um pedido claro de mudança.
 6. **Edições Manuais do Usuário**: O sistema injeta a versão MAIS ATUAL (salva no disco) de qualquer artefato ativo. Se o usuário disser "eu mudei algo", você verá a mudança dele no contexto automaticamente.
 
-### 🚫 PROIBIÇÕES:
-- NUNCA crie um artefato `type="code"` para textos explicativos.
-- NUNCA ignore artefatos anteriores; eles são parte do seu projeto atual.
 - NUNCA edite um artefato se o usuário estiver apenas elogiando ou dando feedback positivo. Apenas agradeça!
+- NUNCA escreva o JSON bruto de uma ferramenta ou tags estruturadas (como <edit_artifact>) no chat. Se você precisar usar uma ferramenta, use-a. Se não, fale apenas texto natural.
+
 
 ### ✍️ DIRETRIZES DE ESCRITA CRIATIVA (IMPORTANTE):
 - **Verbosidade**: Se o usuário pedir uma história, capítulo ou texto longo, NÃO SEJA ECONÔMICA. Escreva muito. Detalhe cenários, sentimentos e diálogos.
@@ -152,8 +272,17 @@ Se a mensagem contiver:
 → USE edit_artifact para aplicar mudanças.
 """
 
-def get_system_prompt():
-    """Generate system prompt with current date/time and Canvas instructions."""
+def get_system_prompt(user_id: str = None, user_name: str = "Usuário"):
+    """
+    Generate system prompt with current date/time and identity.
+    
+    Args:
+        user_id: Firebase UID do usuário (para verificar se é criador)
+        user_name: Nome do usuário para personalização
+    
+    Returns:
+        System prompt completo e personalizado
+    """
     from datetime import datetime
     now = datetime.now()
     date_str = now.strftime("%d de %B de %Y, %H:%M")
@@ -167,7 +296,15 @@ def get_system_prompt():
     for en, pt in months.items():
         date_str = date_str.replace(en, pt)
     
-    return f"""{LUNA_IDENTITY}
+    # Gerar prompt de identidade dinâmico
+    if user_id:
+        from .identity import get_identity_prompt
+        identity_prompt = get_identity_prompt(user_id, user_name)
+    else:
+        # Fallback para prompt padrão (quando não há usuário autenticado)
+        identity_prompt = LUNA_IDENTITY
+    
+    return f"""{identity_prompt}
 
 DATA/HORA ATUAL: {date_str}
 
