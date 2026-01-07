@@ -3,8 +3,8 @@
 
 const IS_PRODUCTION = import.meta.env.PROD;
 
-// Square Cloud URL (Production)
-const CLOUD_API_URL = "https://luna.squareweb.app";
+// Railway URL (Production)
+const CLOUD_API_URL = "https://luna-production-94f2.up.railway.app";
 const LOCAL_API_URL = "http://127.0.0.1:8001";
 
 export const API_CONFIG = {

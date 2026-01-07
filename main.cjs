@@ -10,7 +10,7 @@ let linkService = null;
 
 // SaaS Mode: Only start Python locally in development
 const USE_LOCAL_PYTHON = isDev;
-const CLOUD_WS_URL = 'wss://luna.squareweb.app/ws/link'; // Luna Link tunnel
+const CLOUD_WS_URL = 'wss://luna-production-94f2.up.railway.app/ws/link'; // Luna Link tunnel
 
 function startPythonServer() {
     if (!USE_LOCAL_PYTHON) {
