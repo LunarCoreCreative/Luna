@@ -20,7 +20,7 @@ async def call_api_json(
     tool_choice: str = "auto",
     max_tokens: int = 4000,
     model: str = MODEL,
-    temperature: float = 0.6
+    temperature: float = 0.3
 ) -> Dict[str, Any]:
     """Make a non-streaming API call."""
     payload = {
@@ -60,7 +60,7 @@ async def call_api_stream(
     tool_choice: str = "auto",
     max_tokens: int = 8192,
     model: str = MODEL,
-    temperature: float = 0.6
+    temperature: float = 0.3
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Make a streaming API call, yielding chunks."""
     payload = {
@@ -109,22 +109,58 @@ async def call_api_stream(
 
 async def get_vision_description(image_base64: str, user_msg: str = "") -> str:
     """Analyze an image using vision model."""
+    # Detectar tipo MIME da imagem
+    mime_type = "image/jpeg"  # Default
+    
+    if image_base64.startswith("data:"):
+        # Formato: data:image/png;base64,xxxxx
+        try:
+            header_part = image_base64.split(",")[0]
+            if "image/png" in header_part:
+                mime_type = "image/png"
+            elif "image/webp" in header_part:
+                mime_type = "image/webp"
+            elif "image/gif" in header_part:
+                mime_type = "image/gif"
+            elif "image/jpeg" in header_part or "image/jpg" in header_part:
+                mime_type = "image/jpeg"
+        except:
+            pass
+    
+    # Extrair apenas o base64 (remover o prefixo data:...)
     clean_image = image_base64.split(",")[-1] if "," in image_base64 else image_base64
-    prompt = "Analise esta imagem. "
+    
+    # Debug: Verificar se a imagem está válida
+    print(f"[DEBUG-VISION] Tipo MIME detectado: {mime_type}")
+    print(f"[DEBUG-VISION] Tamanho do base64: {len(clean_image)} chars")
+    print(f"[DEBUG-VISION] Início do base64: {clean_image[:50]}...")
+    
+    # Validação básica
+    if len(clean_image) < 100:
+        return "[Erro visão: Imagem muito pequena ou corrompida]"
+    
+    prompt = "Analise esta imagem em detalhes. Descreva o que você vê de forma completa e precisa. "
     if user_msg:
-        prompt += f"Contexto: '{user_msg}'."
+        prompt += f"Contexto do usuário: '{user_msg}'."
     
     messages = [
         {"role": "user", "content": [
             {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_image}"}}
+            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{clean_image}"}}
         ]}
     ]
     
     try:
-        response = await call_api_json(messages, model=VISION_MODEL)
+        print(f"[DEBUG-VISION] Chamando API de visão com modelo: {VISION_MODEL}")
+        response = await call_api_json(messages, model=VISION_MODEL, max_tokens=1024)
+        
         if "error" in response:
+            print(f"[DEBUG-VISION] Erro da API: {response['error']}")
             return f"[Erro visão: {response['error']}]"
-        return response["choices"][0]["message"]["content"]
+        
+        result = response["choices"][0]["message"]["content"]
+        print(f"[DEBUG-VISION] Resposta recebida: {result[:100]}...")
+        return result
     except Exception as e:
+        print(f"[DEBUG-VISION] Exceção: {str(e)}")
         return f"[Falha imagem: {str(e)}]"

@@ -16,3 +16,7 @@ requests>=2.31.0
 EbookLib>=0.18
 trafilatura>=1.6.0
 spacy>=3.7.0
+
+# Production & Security
+firebase-admin>=6.5.0
+python-dotenv>=1.0.1

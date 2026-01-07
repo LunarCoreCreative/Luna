@@ -176,23 +176,27 @@ export function Canvas({ artifact, artifacts = [], onSelectArtifact, isOpen, onC
         }
 
         // DETECÇÃO INTELIGENTE DE MARKDOWN
-        // Verifica se é markdown por: type, language, ou conteúdo
-        const isMarkdownContent =
-            type === "markdown" ||
-            language === "markdown" ||
-            // Detecta conteúdo markdown por padrões comuns
-            (artifact.content && (
-                artifact.content.startsWith("# ") ||
-                artifact.content.includes("\n## ") ||
-                artifact.content.includes("\n### ") ||
-                artifact.content.includes("\n- ") ||
-                artifact.content.includes("\n* ")
-            ));
+        // Prioridade: 1) language="markdown", 2) type="markdown", 3) padrões de conteúdo
+        const isMarkdownByLang = language === "markdown";
+        const isMarkdownByType = type === "markdown";
+        const isMarkdownByContent = artifact.content && (
+            artifact.content.startsWith("# ") ||
+            artifact.content.includes("\n## ") ||
+            artifact.content.includes("\n### ") ||
+            artifact.content.includes("\n- ") ||
+            artifact.content.includes("\n* ") ||
+            artifact.content.includes("\n> ")
+        );
+
+        // Se a linguagem é markdown, SEMPRE renderiza como markdown (ignora type)
+        const shouldRenderAsMarkdown = isMarkdownByLang ||
+            (isMarkdownByType && type !== "code") ||
+            (isMarkdownByContent && type !== "code" && type !== "react" && type !== "html");
 
         // Renderiza Markdown
-        if (isMarkdownContent && type !== "code" && type !== "react" && type !== "html") {
+        if (shouldRenderAsMarkdown) {
             return (
-                <div className="canvas-markdown">
+                <div className="canvas-markdown prose prose-invert max-w-none">
                     <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
@@ -212,7 +216,19 @@ export function Canvas({ artifact, artifacts = [], onSelectArtifact, isOpen, onC
                                         {children}
                                     </code>
                                 );
-                            }
+                            },
+                            // Better heading styles
+                            h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-white border-b border-white/10 pb-2">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-xl font-semibold mt-5 mb-3 text-white">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2 text-gray-200">{children}</h3>,
+                            p: ({ children }) => <p className="my-3 text-gray-300 leading-relaxed">{children}</p>,
+                            blockquote: ({ children }) => <blockquote className="border-l-4 border-violet-500 pl-4 my-4 italic text-gray-400">{children}</blockquote>,
+                            ul: ({ children }) => <ul className="list-disc pl-6 my-3 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-6 my-3 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li className="text-gray-300">{children}</li>,
+                            hr: () => <hr className="my-6 border-white/10" />,
+                            strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
+                            em: ({ children }) => <em className="italic text-violet-300">{children}</em>,
                         }}
                     >
                         {artifact.content}

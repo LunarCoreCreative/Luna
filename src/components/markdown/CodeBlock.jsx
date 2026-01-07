@@ -34,8 +34,8 @@ export const CodeBlock = ({ language, children }) => {
                     borderRadius: "0.75rem",
                     padding: "1rem",
                     fontSize: "0.85rem",
-                    background: "rgba(30, 30, 46, 0.8)",
-                    border: "1px solid rgba(255,255,255,0.1)"
+                    background: "var(--bg-tertiary)",
+                    border: "1px solid var(--border-color)"
                 }}
             >
                 {code}

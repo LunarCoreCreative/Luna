@@ -5,12 +5,35 @@
 export const filterSummaryText = (text) => {
     if (!text) return "";
     let t = String(text);
+
+    // Remove code blocks
     t = t.replace(/```[\s\S]*?```/g, "");
-    t = t.replace(/\((\s*)create_artifact[\s\S]*?\)/gi, "");
+
+    // Remove JSON tool call patterns (the main leak)
+    t = t.replace(/\{"name":\s*"create_artifact"[\s\S]*?"content":\s*"/g, "");
+    t = t.replace(/\{"name":\s*"edit_artifact"[\s\S]*?"changes":\s*\[/g, "");
+    t = t.replace(/\{"name":\s*"\w+"[\s\S]*?\}/g, "");
+
+    // Remove partial JSON artifacts
+    t = t.replace(/"artifact_type":\s*"\w+"/g, "");
+    t = t.replace(/"title":\s*"[^"]*"/g, "");
+    t = t.replace(/"language":\s*"\w+"/g, "");
+    t = t.replace(/"content":\s*"/g, "");
+
+    // Remove tool call markers
+    t = t.replace(/\(\s*create_artifact[\s\S]*?\)/gi, "");
     t = t.replace(/<\|[^|]*\|>/g, "");
     t = t.replace(/<\/?tool_call[^>]*>/gi, "");
     t = t.replace(/<\/?[\w-]+\/?>/g, "");
+
+    // Remove orphaned JSON fragments
+    t = t.replace(/\{[^}]{0,20}$/g, ""); // Incomplete JSON at end
+    t = t.replace(/^[^{]*\}/g, ""); // Incomplete JSON at start
+    t = t.replace(/\\n/g, "\n"); // Fix escaped newlines
+
+    // Remove lines with only special characters
     t = t.replace(/^[\s\[\]\{\}\(\)<>\-_=|`~]+$/gm, "");
+
     const lines = t.split("\n").filter(l => {
         const s = l.trim();
         if (!s) return false;
@@ -18,6 +41,9 @@ export const filterSummaryText = (text) => {
         if (/^(def |class |import |from |print\(|#|\/\/|function |const |let |var |public |private |return |if\s*\(|for\s*\(|while\s*\()/.test(s)) return false;
         if (/^\s*<\w+/.test(s)) return false;
         if (/Processo de Pensamento/i.test(s)) return false;
+        // Filter out JSON-like lines
+        if (/^[\s]*[\{\}\[\]":,]+[\s]*$/.test(s)) return false;
+        if (/^"?\w+"?\s*:\s*"/.test(s)) return false;
         return true;
     });
     t = lines.join("\n").trim();

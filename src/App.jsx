@@ -34,21 +34,154 @@ import {
     PanelRight,
     Code,
     XCircle,
-    BookOpen
+    BookOpen,
+    LogOut
 } from "lucide-react";
 import { Canvas } from "./components/Canvas";
 import { StudyMode } from "./components/StudyMode";
 import { Markdown } from "./components/markdown/Markdown";
 import { TypingIndicator } from "./components/chat/TypingIndicator";
+import { MessageList } from "./components/chat/MessageList";
+import { ChatInput } from "./components/chat/ChatInput";
+import IDEView from "./components/ide/IDEView";
+
 import { useChat } from "./hooks/useChat";
 import { useArtifacts } from "./hooks/useArtifacts";
 import { useAttachments } from "./hooks/useAttachments";
-import { generateArtifactSummary } from "./utils/artifactUtils";
+import { generateArtifactSummary, filterSummaryText } from "./utils/artifactUtils";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { LoginPage } from "./pages/LoginPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { SidebarProfile } from "./components/sidebar/SidebarProfile";
 import { parseThought, getGreeting } from "./utils/messageUtils";
+import { API_CONFIG } from "./config/api";
 
-const MEMORY_SERVER = "http://127.0.0.1:8001";
+const MEMORY_SERVER = API_CONFIG.BASE_URL;
+
+const filterToolCallLeaks = (text) => {
+    if (!text) return "";
+
+    // Check if the string contains a tool call JSON pattern or its start
+    // This handles both full chunks and partial JSON objects during streaming
+    if (text.includes('{"name":') || text.includes('{"name" :') || text.includes('{"artifact_id":')) {
+        // 1. Remove full JSON blocks (including nested braces like {"name":..., "args":{...}})
+        // matches until it finds 1, 2 or 3 closing braces
+        let filtered = text.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}\s*\}?/g, "");
+        filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\]\s*\}\s*\}?/g, "");
+        filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}?/g, "");
+
+        // 2. Remove partial JSON starts (safety for streaming)
+        filtered = filtered.replace(/\{"name"\s*:\s*"[^"]*"?/g, "");
+        filtered = filtered.replace(/"arguments"\s*:\s*\{?/g, "");
+        filtered = filtered.replace(/"artifact_id"\s*:\s*"[^"]*"?/g, "");
+        filtered = filtered.replace(/"changes"\s*:\s*\[?/g, "");
+
+        return filtered.trim();
+    }
+
+    // Return the text unchanged - don't manipulate it
+    return text;
+};
 
 
+
+// Energy Components with Timer Support
+const EnergyDisplay = () => {
+    const { energy, plan } = useAuth();
+    const [timeLeft, setTimeLeft] = useState("");
+
+    // Hook para atualizar o timer a cada minuto se estiver em cooldown
+    useEffect(() => {
+        if (energy.nextRefill && energy.current <= 0) {
+            const updateTimer = () => {
+                const diff = Math.max(0, energy.nextRefill - Date.now());
+                if (diff <= 0) {
+                    // Refresh opcional ou deixar o contexto lidar
+                }
+                const h = Math.floor(diff / 3600000);
+                const m = Math.floor((diff % 3600000) / 60000);
+                setTimeLeft(`${h}h ${m}m`);
+            };
+
+            updateTimer(); // Initial
+            const interval = setInterval(updateTimer, 60000);
+
+            return () => clearInterval(interval);
+        }
+    }, [energy.nextRefill, energy.current]);
+
+    if (!energy) return null;
+
+    const isInfinite = ['nexus', 'eclipse'].includes(plan);
+    const isEmpty = energy.current <= 0;
+
+    return (
+        <div className="fixed top-4 right-4 z-50 text-white animate-in slide-in-from-top-4 fade-in duration-500 select-none group">
+            <div className={`
+                flex items-center gap-2 pl-3 pr-4 py-2 rounded-full border shadow-lg backdrop-blur-md transition-all
+                ${isEmpty
+                    ? 'bg-red-500/10 border-red-500/30 shadow-red-500/10'
+                    : isInfinite
+                        ? plan === 'eclipse' ? 'bg-violet-500/10 border-violet-500/30' : 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-gray-800/80 border-white/10'
+                }
+            `}>
+                <div className={`
+                    w-6 h-6 rounded-full flex items-center justify-center
+                    ${isEmpty ? 'bg-red-500/20 text-red-400' : isInfinite ? (plan === 'eclipse' ? 'bg-violet-500/20 text-violet-400' : 'bg-amber-500/20 text-amber-400') : 'bg-white/10 text-yellow-400'}
+                `}>
+                    {isEmpty ? <ZapOff size={14} /> : <Zap size={14} className={isInfinite ? "" : "fill-current"} />}
+                </div>
+
+                <div className="flex flex-col leading-none">
+                    <span className={`text-xs font-bold font-mono ${isEmpty ? 'text-red-400' : 'text-gray-200'}`}>
+                        {isInfinite ? "∞" : isEmpty ? timeLeft || "..." : `${energy.current}/${energy.max}`}
+                    </span>
+                    <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">
+                        {plan === 'eclipse' ? 'A G E N T' : plan === 'nexus' ? 'N E X U S' : isEmpty ? 'COOLDOWN' : 'ENERGY'}
+                    </span>
+                </div>
+            </div>
+
+            {/* Tooltip Detalhado */}
+            <div className="absolute top-full right-0 mt-2 w-56 p-3 bg-[#161b22] border border-white/10 rounded-xl shadow-xl opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 pointer-events-none transition-all z-[100]">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-gray-300 uppercase">Seu Plano</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${plan === 'eclipse' ? 'bg-violet-500/20 text-violet-400' :
+                        plan === 'nexus' ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-700 text-gray-300'
+                        }`}>
+                        {plan}
+                    </span>
+                </div>
+
+                {plan === 'spark' && (
+                    <div className="space-y-2">
+                        <div className="w-full bg-gray-700 h-1.5 rounded-full overflow-hidden">
+                            <div
+                                className={`h-full transition-all duration-500 ${isEmpty ? 'bg-red-500' : 'bg-yellow-400'}`}
+                                style={{ width: `${(energy.current / energy.max) * 100}%` }}
+                            />
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-tight">
+                            {isEmpty
+                                ? "Você esgotou seu pool de energia. Aguarde o contador zerar para continuar."
+                                : "Energia recarrega automaticamente após esgotar (Cooldown de 3h)."
+                            }
+                        </p>
+                    </div>
+                )}
+
+                {isInfinite && (
+                    <p className="text-[10px] text-gray-400 leading-tight">
+                        Você tem poder ilimitado. Use com sabedoria, {plan === 'eclipse' ? 'Agente' : 'Mestre'}.
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+};
+
+import { TitleBar } from "./components/TitleBar";
 
 function App() {
     // Boot state
@@ -56,7 +189,8 @@ function App() {
     const [bootStatus, setBootStatus] = useState("Conectando ao núcleo...");
 
     // UI state
-    const [input, setInput] = useState("");
+    const [homeInput, setHomeInput] = useState("");
+
     const [isStreaming, setIsStreaming] = useState(false);
     const [streamBuffer, setStreamBuffer] = useState("");
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -71,6 +205,11 @@ function App() {
     const [streamThought, setStreamThought] = useState(null);
     const [isThinkingMode, setIsThinkingMode] = useState(false);
     const [studyModeOpen, setStudyModeOpen] = useState(false);
+    const [ideMode, setIdeMode] = useState(false);
+    const [settingsTab, setSettingsTab] = useState("general");
+    const [learningNotification, setLearningNotification] = useState(null);
+    const auth = useAuth();
+    const { user, profile } = auth;
 
     // Custom hooks
     const chat = useChat();
@@ -80,7 +219,8 @@ function App() {
     // Refs
     const wsRef = useRef(null);
     const messagesEndRef = useRef(null);
-    const inputRef = useRef(null);
+    const homeInputRef = useRef(null);
+    const chatInputRef = useRef(null);
 
     // Solicitar permissão de notificação no montar
     useEffect(() => {
@@ -90,9 +230,29 @@ function App() {
     }, []);
 
     // Theme Effect
+    // Theme Effect (Sync Cloud <-> Local)
     useEffect(() => {
-        document.documentElement.classList.toggle("light", theme === "light");
+        // 1. Load from Cloud (Priority)
+        if (profile?.preferences?.theme && profile.preferences.theme !== theme) {
+            setTheme(profile.preferences.theme);
+        }
+    }, [profile]);
+
+    useEffect(() => {
+        // 2. Apply Theme
+        document.documentElement.classList.remove("light", "dark", "glass", "neon");
+        document.documentElement.classList.add(theme);
         localStorage.setItem("luna-theme", theme);
+
+        // 3. Persist to Cloud
+        if (user && profile?.preferences && profile.preferences.theme !== theme) {
+            const timer = setTimeout(() => {
+                auth.updateProfile({
+                    preferences: { ...profile.preferences, theme }
+                });
+            }, 1000); // Debounce to avoid rapid writes
+            return () => clearTimeout(timer);
+        }
     }, [theme]);
 
     const toggleTheme = () => setTheme(prev => prev === "dark" ? "light" : "dark");
@@ -137,13 +297,13 @@ function App() {
         }
     }, [chat.view]);
 
-    // Auto-resize Input
+    // Auto-resize Input (Home only)
     useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.style.height = "auto";
-            inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 160) + "px";
+        if (homeInputRef.current) {
+            homeInputRef.current.style.height = "auto";
+            homeInputRef.current.style.height = Math.min(homeInputRef.current.scrollHeight, 160) + "px";
         }
-    }, [input]);
+    }, [homeInput]);
 
     const startNewChat = () => {
         if (chat.isStreamingRef.current) return;
@@ -203,7 +363,7 @@ function App() {
             let currentArtifact = null;
             let summaryText = "";
             try {
-                ws = new WebSocket("ws://127.0.0.1:8001/ws/agent");
+                ws = new WebSocket(API_CONFIG.WS_AGENT);
                 wsRef.current = ws; // Store for cancellation
             } catch (e) {
                 reject(e);
@@ -234,7 +394,7 @@ function App() {
                     if (data.partial_artifact) {
                         const part = data.partial_artifact;
                         const art = {
-                            id: part.id || "temp",
+                            id: part.id || `temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
                             title: part.title || "Gerando...",
                             type: part.type || "code",
                             language: part.language || "markdown",
@@ -307,8 +467,16 @@ function App() {
                             setStreamBuffer("");
                         }
                         // Handle web_search / read_url content
-                        else if (result.success && result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
+                        else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
                             chat.setMessages(prev => [...prev, { role: "tool-card", content: result.content, type: result.content.includes("TITULO:") ? "search" : "read" }]);
+                        }
+                    }
+                    // Handle learning events
+                    if (data.learning) {
+                        const titles = Array.isArray(data.learning) ? data.learning : [data.learning];
+                        if (titles.length > 0) {
+                            setLearningNotification(titles[0]); // Mostra o primeiro título
+                            setTimeout(() => setLearningNotification(null), 4000);
                         }
                     }
                     if (data.content) {
@@ -319,7 +487,9 @@ function App() {
                         for (const token of specialTokens) {
                             filteredContent = filteredContent.replace(token, '');
                         }
-                        if (filteredContent) {
+                        // Filter out JSON tool call leaks
+                        filteredContent = filterToolCallLeaks(filteredContent);
+                        if (filteredContent && filteredContent.trim()) {
                             if (hasArtifact) {
                                 summaryText += filterSummaryText(filteredContent);
                             } else {
@@ -381,276 +551,305 @@ function App() {
         });
     };
 
-    const sendMessage = async (overrideInput = null) => {
+    const sendMessage = async (textInput = null) => {
         // Prevent race conditions / double submits synchronously
         if (chat.isStreamingRef.current) return;
+        // Determine text source: argument (from ChatInput/Suggestions) or homeInput state
+        const text = (typeof textInput === 'string' ? textInput : homeInput).trim();
 
-        const text = (overrideInput || input).trim();
         // Allow sending if there are attachments even if text is empty
-        if (!text && attachmentsHook.attachments.length === 0 && attachmentsHook.documentAttachments.length === 0) return;
+        // Efeito de bloqueio se sem energia
+        const hasEnergy = (!auth.isAuthenticated) || (auth.plan === 'nexus') || (auth.energy.current > 0);
 
-        chat.isStreamingRef.current = true; // Lock immediately
-        setIsStreaming(true); // Update UI state
-        setToolStatus(null); // Reset status
-        setActiveTool(null); // Reset active tool
-        setStreamThought(null); // Reset thought
+        const handleSend = async (text, attachments = [], documentAttachments = []) => {
+            if (!text.trim() && attachments.length === 0 && documentAttachments.length === 0) return;
 
-        // If coming from home, switch view first
-        if (chat.view === "HOME") {
-            chat.setView("CHAT");
-        }
-
-        const currentAttachments = [...attachmentsHook.attachments];
-        const currentDocuments = [...attachmentsHook.documentAttachments];
-
-        // Build message content with document context
-        let messageContent = text;
-        if (currentDocuments.length > 0) {
-            const docContext = currentDocuments.map(doc =>
-                `[DOCUMENTO: ${doc.filename}]\n${doc.content.slice(0, 15000)}`  // Limit per doc
-            ).join("\n\n");
-            messageContent = text ? `${text}\n\n--- Documentos anexados ---\n${docContext}` : `Analise estes documentos:\n${docContext}`;
-        }
-
-        // Prepare Message
-        const newMessage = {
-            role: "user",
-            content: messageContent || (currentAttachments.length > 0 ? "Analise estas imagens:" : "."),
-            images: currentAttachments,
-            documents: currentDocuments.map(d => d.filename), // Store filenames for display
-            timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-        };
-
-        const next = [...chat.messages, newMessage];
-        chat.setMessages(next);
-        setInput("");
-        attachmentsHook.clearAttachments(); // Clear attachments immediately
-        setStreamBuffer("");
-
-        // Persist immediately after user message to ensure it's there even if stream fails
-        // AWAIT this to get the real ID if it was null
-        let activeChatId = chat.currentChatId;
-        const newId = await chat.persistChat(next, activeChatId);
-        if (newId) {
-            activeChatId = newId;
-            // setCurrentChatId(newId); // Already done in chat.persistChat, but good for local clarity if needed
-        }
-
-        try {
-            try {
-                const ok = await streamAgentViaWS(next, isThinkingMode, activeChatId);
-                if (ok) return;
-            } catch { }
-            const response = await fetch(`${MEMORY_SERVER}/agent/stream`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    messages: next,
-                    agent_mode: true,
-                    deep_thinking: isThinkingMode,
-                    active_artifact_id: activeArtifact?.id // Injeta o ID do artefato ativo se houver
-                }),
-            });
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            let fullText = "";
-            let currentThought = null;
-            let hasArtifact = false;
-            let currentArtifact = null;
-            let summaryText = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const lines = decoder.decode(value).split("\n");
-                for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    try {
-                        const data = JSON.parse(line.slice(6));
-
-                        // Handle Status Updates
-                        if (data.status) {
-                            setToolStatus({ message: data.status, type: 'info' });
-                        }
-
-                        // Handle Phase Updates (Thinking vs Response)
-                        if (data.phase === "thinking") {
-                            // Backend indicates it started thinking
-                            setToolStatus({ message: "Pensando...", type: 'info' });
-                        }
-
-                        // Handle Pure Thinking (Meta-Reasoning)
-                        if (data.thinking) {
-                            currentThought = (currentThought || "") + data.thinking;
-                            setStreamThought(currentThought);
-                        }
-
-                        if (data.partial_artifact) {
-                            const part = data.partial_artifact;
-                            const art = {
-                                id: part.id || "temp",
-                                title: part.title || "Gerando...",
-                                type: part.type || "code",
-                                language: part.language || "markdown",
-                                content: part.content || ""
-                            };
-                            artifacts.setActiveArtifact(art);
-                            currentArtifact = art;
-                            artifacts.setCanvasOpen(true);
-                            hasArtifact = true;
-                            setStreamBuffer("");
-                        }
-
-                        // Handle Tool Calls (Visual Feedback & Logic)
-                        if (data.tool_call) {
-                            const toolName = data.tool_call.name;
-                            console.log("[TOOL_CALL RECEIVED]", toolName, data.tool_call.args);
-
-                            // Special Handling for 'think' tool
-                            if (toolName === "think") {
-                                const thoughtArg = data.tool_call.args.detailed_thought;
-                                const cleanThought = parseThought(thoughtArg);
-                                currentThought = cleanThought;
-                                setStreamThought(cleanThought); // Update stream view
-                            } else {
-                                // Usar estado dedicado para ferramenta ativa
-                                let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
-                                if (toolName === "web_search") {
-                                    toolInfo.message = `Pesquisando: ${data.tool_call.args.query || '...'}`;
-                                    toolInfo.icon = "search";
-                                }
-                                if (toolName === "read_url") {
-                                    toolInfo.message = `Lendo página: ${data.tool_call.args.url || '...'}`;
-                                    toolInfo.icon = "read";
-                                }
-
-
-
-                                console.log("[SETTING ACTIVE TOOL]", toolInfo);
-                                setActiveTool(toolInfo);
-                                activeToolRef.current = toolInfo; // Atualiza ref também
-
-                                // Record to tool history
-                                chat.setToolHistory(prev => [...prev, {
-                                    ...toolInfo,
-                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                }]);
-                            }
-                        }
-
-                        // Tool Results
-                        if (data.tool_result) {
-                            const result = data.tool_result;
-
-                            if (result.success) {
-                                // Handle create_artifact - Open Canvas!
-                                if (result.artifact) {
-                                    console.log("[CANVAS] Artifact received:", result.artifact.title);
-                                    currentArtifact = result.artifact; // Save locally
-                                    artifacts.setActiveArtifact(result.artifact);
-                                    artifacts.setCanvasOpen(true);
-                                    setActiveTool(null);
-                                    activeToolRef.current = null;
-                                    hasArtifact = true; // Mark artifact generated
-                                    fullText = ""; // Clear pre-artifact text
-                                    setStreamBuffer(""); // Clear buffer
-                                }
-                                // Handle web_search / read_url content cards
-                                else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
-                                    chat.setMessages(prev => {
-                                        const updated = [...prev, {
-                                            role: "tool-card",
-                                            content: result.content,
-                                            type: result.content.includes("TITULO:") ? "search" : "read"
-                                        }];
-                                        return updated;
-                                    });
-                                }
-                            }
-                        }
-
-                        if (data.content) {
-                            // Quando começar a receber conteúdo, limpa o activeTool usando ref
-                            if (activeToolRef.current) {
-                                console.log("[CLEARING ACTIVE TOOL] - content received");
-                                setActiveTool(null);
-                                activeToolRef.current = null;
-                            }
-
-                            // Filter out special model tokens that may leak
-                            let filteredContent = data.content;
-                            const specialTokens = ['<|tool_calls_begin|>', '<|tool_calls_end|>', '< | tool_calls_begin | >', '< | tool_calls_end | >', '<tool_call>', '</tool_call>'];
-                            for (const token of specialTokens) {
-                                filteredContent = filteredContent.replace(token, '');
-                            }
-
-                            if (filteredContent) {
-                                if (hasArtifact) {
-                                    summaryText += filterSummaryText(filteredContent);
-                                } else {
-                                    fullText += filteredContent;
-                                    setStreamBuffer(prev => prev + filteredContent);
-                                }
-                            }
-                        }
-
-                        if (data.done) {
-                            // Only add message if there's content AND no artifact was generated
-                            if (fullText.trim() && !hasArtifact) {
-                                const finalAssistantMsg = {
-                                    role: "assistant",
-                                    content: fullText,
-                                    thought: data.thought || currentThought,
-                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                };
-
-                                chat.setMessages(prev => {
-                                    const finalMessages = [...prev, finalAssistantMsg];
-                                    chat.persistChat(finalMessages, activeChatId);
-                                    return finalMessages;
-                                });
-                            } else if (hasArtifact) {
-                                // If we have an artifact, add a small note message
-                                const noteMsg = {
-                                    role: "assistant",
-                                    content: generateArtifactSummary(currentArtifact, summaryText),
-                                    artifact: currentArtifact, // Attach artifact
-                                    thought: currentThought,
-                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                };
-                                chat.setMessages(prev => {
-                                    const finalMessages = [...prev, noteMsg];
-                                    chat.persistChat(finalMessages, activeChatId);
-                                    return finalMessages;
-                                });
-                            }
-
-                            setStreamBuffer("");
-                            setStreamThought(null);
-                            setToolStatus(null);
-                            setActiveTool(null);
-                            activeToolRef.current = null;
-
-                            chat.isStreamingRef.current = false;
-                            setIsStreaming(false);
-
-                            chat.loadChats();
-                        }
-                    } catch { }
+            // Verificar Energia antes de enviar
+            if (auth.isAuthenticated && auth.plan !== 'nexus') {
+                const cost = 1; // Basic chat cost
+                if (!auth.consumeEnergy(cost)) {
+                    // Show upgrade prompt (idealmente um toast ou modal, por enquanto só log)
+                    console.log("Sem energia!");
+                    return;
                 }
             }
-        } catch (e) {
-            chat.setMessages(prev => [...prev, { role: "assistant", content: `Erro: ${e.message}` }]);
-            setToolStatus({ message: "Erro na conexão", type: 'error' });
-            setTimeout(() => setToolStatus(null), 3000);
 
-            chat.isStreamingRef.current = false;
-            setIsStreaming(false);
-        }
+            // Prevent race conditions / double submits synchronously
+            if (chat.isStreamingRef.current) return;
+
+            // Ocultar mensagem de boas-vindas se for a primeira mensagem
+            // Assuming setShowWelcome is a state setter for a welcome message
+            // If not defined, this line might cause an error or needs to be removed/adapted.
+            // For now, I'll assume it's defined or can be ignored if not relevant.
+            // setShowWelcome(false); // Update UI state
+            setToolStatus(null); // Reset status
+            setActiveTool(null); // Reset active tool
+            setStreamThought(null); // Reset thought
+
+            // If coming from home, switch view first
+            if (chat.view === "HOME") {
+                chat.setView("CHAT");
+                setHomeInput(""); // Clear home input
+            }
+
+            const currentAttachments = [...attachments];
+            const currentDocuments = [...documentAttachments];
+
+            // Build message content with document context
+            let messageContent = text;
+            if (currentDocuments.length > 0) {
+                const docContext = currentDocuments.map(doc =>
+                    `[DOCUMENTO: ${doc.filename}]\n${doc.content.slice(0, 15000)}`  // Limit per doc
+                ).join("\n\n");
+                messageContent = text ? `${text}\n\n--- Documentos anexados ---\n${docContext}` : `Analise estes documentos:\n${docContext}`;
+            }
+
+            // Prepare Message
+            const newMessage = {
+                role: "user",
+                content: messageContent || (currentAttachments.length > 0 ? "Analise estas imagens:" : "."),
+                images: currentAttachments,
+                documents: currentDocuments.map(d => d.filename), // Store filenames for display
+                timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+            };
+
+            const next = [...chat.messages, newMessage];
+            chat.setMessages(next);
+            // Input clearing handled by components or setHomeInput above
+            attachmentsHook.clearAttachments(); // Clear attachments immediately
+            setStreamBuffer("");
+
+            // Persist immediately after user message to ensure it's there even if stream fails
+            // AWAIT this to get the real ID if it was null
+            let activeChatId = chat.currentChatId;
+            const newId = await chat.persistChat(next, activeChatId);
+            if (newId) {
+                activeChatId = newId;
+                // setCurrentChatId(newId); // Already done in chat.persistChat, but good for local clarity if needed
+            }
+
+            try {
+                try {
+                    const ok = await streamAgentViaWS(next, isThinkingMode, activeChatId);
+                    if (ok) return;
+                } catch { }
+                const response = await fetch(`${MEMORY_SERVER}/agent/stream`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        messages: next,
+                        agent_mode: true,
+                        deep_thinking: isThinkingMode,
+                        active_artifact_id: artifacts.activeArtifact?.id // Injeta o ID do artefato ativo se houver
+                    }),
+                });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                let fullText = "";
+                let currentThought = null;
+                let hasArtifact = false;
+                let currentArtifact = null;
+                let summaryText = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const lines = decoder.decode(value).split("\n");
+                    for (const line of lines) {
+                        if (!line.startsWith("data: ")) continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+
+                            // Handle Status Updates
+                            if (data.status) {
+                                setToolStatus({ message: data.status, type: 'info' });
+                            }
+
+                            // Handle Phase Updates (Thinking vs Response)
+                            if (data.phase === "thinking") {
+                                // Backend indicates it started thinking
+                                setToolStatus({ message: "Pensando...", type: 'info' });
+                            }
+
+                            // Handle Pure Thinking (Meta-Reasoning)
+                            if (data.thinking) {
+                                currentThought = (currentThought || "") + data.thinking;
+                                setStreamThought(currentThought);
+                            }
+
+                            if (data.partial_artifact) {
+                                const part = data.partial_artifact;
+                                const art = {
+                                    id: part.id || `temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+                                    title: part.title || "Gerando...",
+                                    type: part.type || "code",
+                                    language: part.language || "markdown",
+                                    content: part.content || ""
+                                };
+                                artifacts.setActiveArtifact(art);
+                                currentArtifact = art;
+                                artifacts.setCanvasOpen(true);
+                                hasArtifact = true;
+                                setStreamBuffer("");
+                            }
+
+                            // Handle Tool Calls (Visual Feedback & Logic)
+                            if (data.tool_call) {
+                                const toolName = data.tool_call.name;
+                                console.log("[TOOL_CALL RECEIVED]", toolName, data.tool_call.args);
+
+                                // Special Handling for 'think' tool
+                                if (toolName === "think") {
+                                    const thoughtArg = data.tool_call.args.detailed_thought;
+                                    const cleanThought = parseThought(thoughtArg);
+                                    currentThought = cleanThought;
+                                    setStreamThought(cleanThought); // Update stream view
+                                } else {
+                                    // Usar estado dedicado para ferramenta ativa
+                                    let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
+                                    if (toolName === "web_search") {
+                                        toolInfo.message = `Pesquisando: ${data.tool_call.args.query || '...'}`;
+                                        toolInfo.icon = "search";
+                                    }
+                                    if (toolName === "read_url") {
+                                        toolInfo.message = `Lendo página: ${data.tool_call.args.url || '...'}`;
+                                        toolInfo.icon = "read";
+                                    }
+
+
+
+                                    console.log("[SETTING ACTIVE TOOL]", toolInfo);
+                                    setActiveTool(toolInfo);
+                                    activeToolRef.current = toolInfo; // Atualiza ref também
+
+                                    // Record to tool history
+                                    const historyEntry = {
+                                        ...toolInfo,
+                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    };
+                                    chat.setToolHistory(prev => [...prev, historyEntry]);
+                                }
+                            }
+
+                            // Tool Results
+                            if (data.tool_result) {
+                                const result = data.tool_result;
+
+                                if (result.success) {
+                                    // Handle create_artifact - Open Canvas!
+                                    if (result.artifact) {
+                                        console.log("[CANVAS] Artifact received:", result.artifact.title);
+                                        // currentArtifact removed (undeclared)
+                                        artifacts.setActiveArtifact(result.artifact);
+                                        artifacts.setCanvasOpen(true);
+                                        setActiveTool(null);
+                                        activeToolRef.current = null;
+                                        hasArtifact = true; // Mark artifact generated
+                                        fullText = ""; // Clear pre-artifact text
+                                        setStreamBuffer(""); // Clear buffer
+                                    }
+                                    // Handle web_search / read_url content cards
+                                    else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
+                                        chat.setMessages(prev => {
+                                            const updated = [...prev, {
+                                                role: "tool-card",
+                                                content: result.content,
+                                                type: result.content.includes("TITULO:") ? "search" : "read"
+                                            }];
+                                            return updated;
+                                        });
+                                    }
+                                }
+                            }
+
+                            if (data.content) {
+                                // Quando começar a receber conteúdo, limpa o activeTool usando ref
+                                if (activeToolRef.current) {
+                                    console.log("[CLEARING ACTIVE TOOL] - content received");
+                                    setActiveTool(null);
+                                    activeToolRef.current = null;
+                                }
+
+                                // Filter out special model tokens that may leak
+                                let filteredContent = data.content;
+                                const specialTokens = ['<|tool_calls_begin|>', '<|tool_calls_end|>', '< | tool_calls_begin | >', '< | tool_calls_end | >', '<tool_call>', '</tool_call>'];
+                                for (const token of specialTokens) {
+                                    filteredContent = filteredContent.replace(token, '');
+                                }
+                                // Filter out JSON tool call leaks
+                                filteredContent = filterToolCallLeaks(filteredContent);
+
+                                if (filteredContent && filteredContent.trim()) {
+                                    if (hasArtifact) {
+                                        summaryText += filterSummaryText(filteredContent);
+                                    } else {
+                                        fullText += filteredContent;
+                                        setStreamBuffer(prev => prev + filteredContent);
+                                    }
+                                }
+                            }
+
+                            if (data.done) {
+                                // Only add message if there's content AND no artifact was generated
+                                if (fullText.trim() && !hasArtifact) {
+                                    const finalAssistantMsg = {
+                                        role: "assistant",
+                                        content: fullText,
+                                        thought: data.thought || currentThought,
+                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    };
+
+                                    chat.setMessages(prev => {
+                                        const finalMessages = [...prev, finalAssistantMsg];
+                                        chat.persistChat(finalMessages, activeChatId);
+                                        return finalMessages;
+                                    });
+                                } else if (hasArtifact) {
+                                    // If we have an artifact, add a small note message
+                                    const noteMsg = {
+                                        role: "assistant",
+                                        content: generateArtifactSummary(currentArtifact, summaryText),
+                                        artifact: currentArtifact, // Attach artifact
+                                        thought: currentThought,
+                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    };
+                                    chat.setMessages(prev => {
+                                        const finalMessages = [...prev, noteMsg];
+                                        chat.persistChat(finalMessages, activeChatId);
+                                        return finalMessages;
+                                    });
+                                }
+
+                                setStreamBuffer("");
+                                setStreamThought(null);
+                                setToolStatus(null);
+                                setActiveTool(null);
+                                activeToolRef.current = null;
+
+                                chat.isStreamingRef.current = false;
+                                setIsStreaming(false);
+
+                                chat.loadChats();
+                            }
+                        } catch { }
+                    }
+                }
+            } catch (e) {
+                chat.setMessages(prev => [...prev, { role: "assistant", content: `Erro: ${e.message}` }]);
+                setToolStatus({ message: "Erro na conexão", type: 'error' });
+                setTimeout(() => setToolStatus(null), 3000);
+
+                chat.isStreamingRef.current = false;
+                setIsStreaming(false);
+            }
+        };
+
+        // Call the new handleSend function with current inputs
+        await handleSend(text, attachmentsHook.attachments, attachmentsHook.documentAttachments);
     };
 
-    const handleKeyDown = (e) => {
+    const handleHomeKeyDown = (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
@@ -659,8 +858,8 @@ function App() {
 
     if (appState === "BOOTING") {
         return (
-            <div className="flex h-screen w-screen bg-[#060b1e] items-center justify-center flex-col text-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#1e2645_0%,_#000000_100%)] opacity-50" />
+            <div className="flex h-screen w-screen bg-[var(--bg-primary)] items-center justify-center flex-col text-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--bg-secondary)_0%,_var(--bg-primary)_100%)] opacity-50" />
                 <div className="z-10 flex flex-col items-center gap-6 animate-in fade-in zoom-in duration-1000">
                     <div className="relative">
                         <div className="w-24 h-24 bg-violet-600/20 rounded-full animate-ping absolute inset-0" />
@@ -676,16 +875,45 @@ function App() {
         );
     }
 
+    // Componente de Energia (Topo Direito)
+    const EnergyDisplay = () => {
+        if (!auth.isAuthenticated) return null;
 
+        const isNexus = auth.plan === 'nexus';
+        const percent = isNexus ? 100 : Math.min(100, (auth.energy.current / auth.energy.max) * 100);
 
+        return (
+            <div className="absolute top-4 right-16 z-50 flex items-center gap-2 bg-[var(--bg-secondary)]/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-full shadow-lg cursor-help transition-all hover:scale-105 group" title="Sua Energia Diária">
+                <Zap size={14} className={isNexus ? "text-amber-400 fill-amber-400 animate-pulse" : "text-yellow-400"} />
+                <span className={`text-xs font-bold font-mono ${isNexus ? 'text-amber-300' : 'text-gray-200'}`}>
+                    {isNexus ? "∞" : auth.energy.current}
+                </span>
+
+                {/* Tooltip Detalhado */}
+                <div className="absolute top-full right-0 mt-2 w-48 p-3 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col gap-2">
+                    <div className="flex justify-between items-center text-xs text-gray-400">
+                        <span>ENERGY</span>
+                        <span>{isNexus ? "ILIMITADA" : `${auth.energy.current}/${auth.energy.max}`}</span>
+                    </div>
+                    {!isNexus && (
+                        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-yellow-400 transition-all duration-500" style={{ width: `${percent}%` }} />
+                        </div>
+                    )}
+                    <span className="text-[10px] text-gray-500 text-center">
+                        {isNexus ? "Você é Luna Nexus." : "Reseta à meia-noite."}
+                    </span>
+                </div>
+            </div>
+        );
+    };
 
     return (
-        <div className={`flex h-screen w-screen text-gray-100 overflow-hidden relative ${artifacts.canvasOpen ? 'split-view' : ''}`}>
-            {/* Native Title Bar Drag Area */}
-            <div className="absolute top-0 left-0 w-full h-8 app-region-drag z-50 hover:bg-white/5 transition-colors" />
+        <div className={`flex h-screen w-screen bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden relative ${artifacts.canvasOpen ? 'split-view' : ''}`}>
+
 
             {/* Sidebar (Overlay/Slide) */}
-            <div className={`fixed inset-y-0 left-0 z-40 w-[280px] bg-[#0d1117]/95 backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+            <div className={`fixed inset-y-0 left-0 z-40 w-[280px] bg-[var(--bg-glass-solid)] backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
                 <div className="p-4 pt-12 flex flex-col h-full">
                     <button onClick={startNewChat} className="flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 mb-3">
                         <Plus size={18} />
@@ -769,6 +997,9 @@ function App() {
                             </div>
                         ))}
                     </div>
+
+                    {/* Profile & Settings Menu */}
+                    <SidebarProfile chat={chat} setSettingsTab={setSettingsTab} />
                 </div>
             </div>
 
@@ -790,73 +1021,91 @@ function App() {
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-full relative z-10">
                 {/* Header */}
-                <header className="absolute top-0 left-0 w-full p-4 flex items-center justify-between z-20 pointer-events-none">
-                    <div className="flex items-center gap-4 pointer-events-auto pt-2 pl-2">
-                        <button onClick={() => { setSidebarOpen(true); setUnreadCount(0); }} className="p-2 hover:bg-white/10 rounded-lg transition-colors relative">
-                            <Menu size={24} className="text-gray-300" />
-                            {unreadCount > 0 && (
-                                <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-4 w-4 bg-blue-500 text-[10px] items-center justify-center font-bold text-white shadow-lg">
-                                        {unreadCount}
+                {!ideMode && chat.view !== "SETTINGS" && (
+                    <header className="absolute top-0 left-0 w-full p-4 flex items-center justify-between z-20" style={{ WebkitAppRegion: "drag" }}>
+                        <div className="flex items-center gap-4 pointer-events-auto pt-2 pl-2 relative z-[60]" style={{ WebkitAppRegion: "no-drag" }}>
+                            <button onClick={() => { setSidebarOpen(true); setUnreadCount(0); }} className="p-2 hover:bg-white/10 rounded-lg transition-colors relative">
+                                <Menu size={24} className="text-gray-300" />
+                                {unreadCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-4 w-4 bg-blue-500 text-[10px] items-center justify-center font-bold text-white shadow-lg">
+                                            {unreadCount}
+                                        </span>
                                     </span>
-                                </span>
-                            )}
-                        </button>
-                        <div className="flex items-center gap-2 opacity-80" onClick={() => { chat.setView("HOME"); chat.setMessages([]); }} role="button">
-                            <Bot size={24} className="text-violet-500" />
-                            <span className="font-semibold text-lg tracking-tight">Luna</span>
+                                )}
+                            </button>
+                            <div className="flex items-center gap-2 opacity-80" onClick={() => { chat.setView("HOME"); chat.setMessages([]); }} role="button">
+                                <Bot size={24} className="text-violet-500" />
+                                <span className="font-semibold text-lg tracking-tight">Luna</span>
+                            </div>
                         </div>
-                    </div>
-                    <div className="pointer-events-auto pt-2 pr-2 flex items-center gap-2">
-                        {/* Canvas Toggle */}
-                        {artifacts.activeArtifact && (
+                        <div className="pointer-events-auto pt-2 pr-2 flex items-center gap-2 relative z-[60]" style={{ WebkitAppRegion: "no-drag" }}>
+                            {/* IDE Mode Toggle */}
                             <button
-                                onClick={() => artifacts.setCanvasOpen(!artifacts.canvasOpen)}
-                                className={`p-2 hover:bg-white/10 rounded-lg transition-colors ${artifacts.canvasOpen ? 'bg-violet-500/20 text-violet-400' : 'text-gray-400'}`}
-                                title={artifacts.canvasOpen ? "Fechar Canvas" : "Abrir Canvas"}
+                                onClick={() => {
+                                    if (auth.plan === 'eclipse') {
+                                        setIdeMode(!ideMode);
+                                    } else {
+                                        chat.setView("SETTINGS");
+                                        setSettingsTab("premium");
+                                    }
+                                }}
+                                className={`p-2 hover:bg-white/10 rounded-lg transition-colors ${ideMode ? 'bg-green-500/20 text-green-400' : 'text-gray-400'}`}
+                                title={ideMode ? "Voltar para Chat" : (auth.plan === 'eclipse' ? "Modo IDE" : "Modo IDE (Requer Eclipse)")}
                             >
-                                <PanelRight size={20} />
+                                <Code size={20} />
                             </button>
-                        )}
 
-                        {/* Tool History Toggle (only in CHAT view with history) */}
-                        {chat.view === "CHAT" && chat.toolHistory.length > 0 && (
-                            <button
-                                onClick={() => chat.setShowToolHistory(!chat.showToolHistory)}
-                                className={`p-2 hover:bg-white/10 rounded-lg transition-colors relative ${chat.showToolHistory ? 'bg-white/10' : ''}`}
-                                title="Histórico de Ferramentas"
-                            >
-                                <History size={18} className="text-cyan-400" />
-                                <span className="absolute -top-1 -right-1 bg-cyan-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                                    {chat.toolHistory.length}
-                                </span>
-                            </button>
-                        )}
+                            {/* Canvas Toggle */}
+                            {artifacts.activeArtifact && !ideMode && (
+                                <button
+                                    onClick={() => artifacts.setCanvasOpen(!artifacts.canvasOpen)}
+                                    className={`p-2 hover:bg-white/10 rounded-lg transition-colors ${artifacts.canvasOpen ? 'bg-violet-500/20 text-violet-400' : 'text-gray-400'}`}
+                                    title={artifacts.canvasOpen ? "Fechar Canvas" : "Abrir Canvas"}
+                                >
+                                    <PanelRight size={20} />
+                                </button>
+                            )}
+
+                            {/* Tool History Toggle (only in CHAT view with history) */}
+                            {chat.view === "CHAT" && chat.toolHistory.length > 0 && (
+                                <button
+                                    onClick={() => chat.setShowToolHistory(!chat.showToolHistory)}
+                                    className={`p-2 hover:bg-white/10 rounded-lg transition-colors relative ${chat.showToolHistory ? 'bg-white/10' : ''}`}
+                                    title="Histórico de Ferramentas"
+                                >
+                                    <History size={18} className="text-cyan-400" />
+                                    <span className="absolute -top-1 -right-1 bg-cyan-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                                        {chat.toolHistory.length}
+                                    </span>
+                                </button>
+                            )}
 
 
 
-                        {activeTool ? (
-                            <div className="bg-gradient-to-r from-blue-600/30 to-violet-600/30 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-blue-500/30 flex items-center gap-2 text-blue-200 shadow-lg">
-                                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-                                {activeTool.icon === "search" && <Globe size={12} className="text-blue-400" />}
-                                {activeTool.icon === "read" && <FileText size={12} className="text-violet-400" />}
-                                {activeTool.message}
-                            </div>
-                        ) : toolStatus ? (
-                            <div className="bg-blue-900/40 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-blue-500/20 flex items-center gap-2 animate-pulse text-blue-200">
-                                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-                                {toolStatus.message}
-                            </div>
-                        ) : (
-                            <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-white/5 flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                                Luna AI
-                            </div>
-                        )}
-                    </div>
+                            {activeTool ? (
+                                <div className="bg-gradient-to-r from-blue-600/30 to-violet-600/30 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-blue-500/30 flex items-center gap-2 text-blue-200 shadow-lg">
+                                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+                                    {activeTool.icon === "search" && <Globe size={12} className="text-blue-400" />}
+                                    {activeTool.icon === "read" && <FileText size={12} className="text-violet-400" />}
+                                    {activeTool.message}
+                                </div>
+                            ) : toolStatus ? (
+                                <div className="bg-blue-900/40 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-blue-500/20 flex items-center gap-2 animate-pulse text-blue-200">
+                                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+                                    {toolStatus.message}
+                                </div>
+                            ) : (
+                                <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium border border-white/5 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                    Luna AI
+                                </div>
+                            )}
+                        </div>
 
-                </header>
+                    </header>
+                )}
 
                 {/* Tool History Panel */}
                 {chat.showToolHistory && chat.toolHistory.length > 0 && (
@@ -870,7 +1119,7 @@ function App() {
                                 <X size={14} />
                             </button>
                         </div>
-
+                        {/* Energy Components with Timer Support */}
                         <div className="space-y-2">
                             {chat.toolHistory.map((tool, idx) => (
                                 <div key={idx} className="flex items-start gap-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
@@ -882,7 +1131,7 @@ function App() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between">
                                             <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{tool.name}</span>
-                                            <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>{tool.timestamp}</span>
+                                            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{tool.timestamp}</span>
                                         </div>
                                         <p className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
                                             {tool.args?.query || tool.args?.url || JSON.stringify(tool.args || {}).slice(0, 40)}
@@ -894,12 +1143,31 @@ function App() {
                     </div>
                 )}
 
+                {/* View: SETTINGS */}
+                {!ideMode && (chat.view === "SETTINGS") && (
+                    <SettingsPage
+                        initialTab={settingsTab}
+                        theme={theme}
+                        onThemeChange={setTheme}
+                        onBack={() => chat.setView("HOME")}
+                    />
+                )}
+
+                {/* IDE Mode View */}
+                {ideMode && (
+                    <div className={`flex-1 overflow-hidden ${ideMode ? '' : 'pt-12'}`}>
+                        <IDEView onClose={() => setIdeMode(false)} />
+                    </div>
+                )}
+
                 {/* View: HOME */}
-                {chat.view === "HOME" && (
+                {!ideMode && (chat.view === "HOME") && (
                     <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95 duration-500">
                         <div className="max-w-2xl w-full flex flex-col items-center gap-8">
                             <h1 className="text-4xl md:text-5xl font-semibold text-center leading-tight" style={{ color: 'var(--text-primary)' }}>
-                                <span className="block text-2xl mb-2 font-normal" style={{ color: 'var(--text-secondary)' }}>{getGreeting()}</span>
+                                <span className="block text-2xl mb-2 font-normal" style={{ color: 'var(--text-secondary)' }}>
+                                    {getGreeting()}, {profile?.name || (user?.email?.split('@')[0]) || 'usuário'}
+                                </span>
                                 Como posso ajudar você hoje?
                             </h1>
 
@@ -936,10 +1204,10 @@ function App() {
                                     </div>
                                 )}
                                 <textarea
-                                    ref={inputRef}
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={handleKeyDown}
+                                    ref={homeInputRef}
+                                    value={homeInput}
+                                    onChange={(e) => setHomeInput(e.target.value)}
+                                    onKeyDown={handleHomeKeyDown}
                                     onPaste={attachmentsHook.handlePaste}
                                     placeholder="Pergunte qualquer coisa..."
                                     className="w-full bg-transparent border-0 px-6 py-4 text-lg focus:ring-0 resize-none outline-none custom-scrollbar"
@@ -959,8 +1227,8 @@ function App() {
                                     </div>
                                     <button
                                         onClick={() => sendMessage()}
-                                        disabled={!input.trim() && attachmentsHook.attachments.length === 0}
-                                        className={`p-3 rounded-xl transition-all ${(input.trim() || attachmentsHook.attachments.length > 0) ? "bg-white text-black hover:scale-105" : "bg-white/10 text-gray-500"}`}
+                                        disabled={!homeInput.trim() && attachmentsHook.attachments.length === 0}
+                                        className={`p-3 rounded-xl transition-all ${(homeInput.trim() || attachmentsHook.attachments.length > 0) ? "bg-white text-black hover:scale-105" : "bg-white/10 text-gray-500"}`}
                                     >
                                         <Send size={20} />
                                     </button>
@@ -991,289 +1259,89 @@ function App() {
                 )}
 
                 {/* View: CHAT */}
-                {chat.view === "CHAT" && (
+                {!ideMode && (chat.view === "CHAT") && (
                     <div className="flex-1 flex flex-col h-full animate-in slide-in-from-bottom-10 duration-500">
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pt-20 pb-32">
-                            <div className="max-w-3xl mx-auto space-y-6">
-                                {chat.messages.map((m, i) => {
-                                    if (m.role === "tool-card") {
-                                        return (
-                                            <div key={i} className="flex justify-start w-full my-2 pl-4">
-                                                <div className="glass-panel border-l-4 border-blue-500/50 rounded-r-xl p-4 max-w-[80%] bg-blue-900/5 hover:bg-blue-900/10 transition-colors text-sm text-gray-300">
-                                                    <div className="flex items-center gap-2 mb-2 text-blue-400 font-medium">
-                                                        {m.type === 'search' ? <Globe size={14} /> : <FileText size={14} />}
-                                                        <span>{m.type === 'search' ? 'Resultados da Pesquisa' : 'Conteúdo da Página'}</span>
-                                                    </div>
-                                                    <div className="max-h-40 overflow-y-auto custom-scrollbar opacity-90 leading-relaxed whitespace-pre-wrap font-mono text-xs">
-                                                        {m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    }
+                        <MessageList
+                            messages={chat.messages}
+                            isStreaming={isStreaming}
+                            streamBuffer={streamBuffer}
+                            streamThought={streamThought}
+                            activeTool={activeTool}
+                            toolStatus={toolStatus}
+                            onRegenerate={regenerateResponse}
+                            onFavorite={(idx) => chat.setMessages(prev => prev.map((msg, i) => i === idx ? { ...msg, isFavorite: !msg.isFavorite } : msg))}
+                            onOpenArtifact={(art) => { artifacts.setActiveArtifact(art); artifacts.setCanvasOpen(true); }}
+                            onContinueArtifact={() => {
+                                chatInputRef.current?.setValue("Continue a escrita neste artefato.");
+                            }}
+                        />
 
-                                    return (
-                                        <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} message-enter`}>
-                                            <div
-                                                className={`max-w-[85%] rounded-2xl px-5 py-4 text-base leading-relaxed shadow-lg ${m.role === "user" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-sm border border-white/20 whitespace-pre-wrap" : "glass-panel rounded-tl-sm"}`}
-                                                style={{ color: m.role === "user" ? 'white' : 'var(--text-primary)' }}
-                                            >
-                                                {/* Render images if user sent them */}
-                                                {m.role === "user" && m.images && m.images.length > 0 && (
-                                                    <div className="flex flex-wrap gap-2 mb-2">
-                                                        {m.images.map((img, idx) => (
-                                                            <img key={idx} src={img} className="max-h-48 rounded-lg border border-white/10" />
-                                                        ))}
-                                                    </div>
-                                                )}
-
-                                                {/* Reasoning Block (Using 'thought' property from tool call) */}
-                                                {m.thought && (
-                                                    <details className="mb-4 group" open={false}>
-                                                        <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-semibold text-gray-400 hover:text-blue-300 transition-colors select-none mb-2">
-                                                            <div className="p-1 bg-white/5 rounded-md group-open:bg-blue-500/20 transition-colors">
-                                                                <div className="w-3.5 h-3.5 rounded-full flex items-center justify-center border border-current opacity-70">
-                                                                    <div className="w-1 h-1 rounded-full bg-current" />
-                                                                </div>
-                                                            </div>
-                                                            <span>Processo de Pensamento</span>
-                                                        </summary>
-                                                        <div className="pl-2 border-l-2 border-white/10 ml-1.5 my-2">
-                                                            <div className="text-sm text-gray-400 font-mono bg-[#0d1117] p-3 rounded-lg opacity-90 whitespace-pre-wrap">
-                                                                {parseThought(m.thought)}
-                                                            </div>
-                                                        </div>
-                                                    </details>
-                                                )}
-
-                                                {m.role === "assistant" ? (
-                                                    m.content === "✨ *Artefato gerado no Canvas* →" ? (
-                                                        <button
-                                                            onClick={() => {
-                                                                if (m.artifact) artifacts.setActiveArtifact(m.artifact);
-                                                                artifacts.setCanvasOpen(true);
-                                                            }}
-                                                            className="flex items-center gap-2 px-4 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl text-violet-300 hover:bg-violet-500/20 transition-all group"
-                                                        >
-                                                            <div className="p-2 bg-violet-500/20 rounded-lg group-hover:scale-110 transition-transform">
-                                                                <PanelRight size={18} />
-                                                            </div>
-                                                            <div className="flex flex-col items-start text-sm">
-                                                                <span className="font-semibold">Artefato gerado no Canvas</span>
-                                                                <span className="text-xs opacity-70">Clique para abrir e visualizar</span>
-                                                            </div>
-                                                        </button>
-                                                    ) : m.content && m.content.includes("[!RESUMO]") ? (
-                                                        <div className="glass-panel rounded-2xl rounded-tl-sm p-4 shadow-lg">
-                                                            <div className="flex items-center justify-between mb-3">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-violet-600/20 text-violet-200 text-xs tracking-wide">Resumo</span>
-                                                                    {isStreaming && (
-                                                                        <div className="h-1 w-12 bg-violet-500/20 rounded overflow-hidden">
-                                                                            <div className="h-1 w-1/2 bg-violet-400 animate-pulse" />
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                {m.artifact && (
-                                                                    <span className="text-xs opacity-60">{m.artifact.language || m.artifact.type}</span>
-                                                                )}
-                                                            </div>
-                                                            <div className="space-y-3">
-                                                                <Markdown content={cleanContent(m.content) || "..."} />
-                                                            </div>
-                                                            <div className="flex items-center gap-2 mt-3">
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (m.artifact) artifacts.setActiveArtifact(m.artifact);
-                                                                        artifacts.setCanvasOpen(true);
-                                                                    }}
-                                                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-200 text-xs transition-colors"
-                                                                    aria-label="Abrir Canvas"
-                                                                >
-                                                                    <PanelRight size={14} />
-                                                                    Abrir Canvas
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setInput("Continue a escrita neste artefato.");
-                                                                        inputRef.current?.focus();
-                                                                    }}
-                                                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-200 text-xs transition-colors"
-                                                                    aria-label="Continuar escrita"
-                                                                >
-                                                                    <PenTool size={14} />
-                                                                    Continuar escrita
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <Markdown content={cleanContent(m.content) || "..."} />
-                                                    )
-                                                ) : (
-                                                    <Markdown content={cleanContent(m.content) || "..."} />
-                                                )}
-
-                                                {/* Timestamp */}
-                                                {m.timestamp && (
-                                                    <div className={`text-[10px] mt-2 opacity-40 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                                                        {m.timestamp}
-                                                    </div>
-                                                )}
-
-                                                {/* Action buttons for assistant messages */}
-                                                {m.role === "assistant" && (
-                                                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-white/5">
-                                                        <button
-                                                            onClick={() => regenerateResponse(i)}
-                                                            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md hover:bg-white/10 transition-colors"
-                                                            style={{ color: 'var(--text-secondary)' }}
-                                                            title="Regenerar resposta"
-                                                        >
-                                                            <RotateCcw size={12} />
-                                                            Regenerar
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                chat.setMessages(prev => prev.map((msg, idx) =>
-                                                                    idx === i ? { ...msg, isFavorite: !msg.isFavorite } : msg
-                                                                ));
-                                                            }}
-                                                            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md hover:bg-white/10 transition-colors ${m.isFavorite ? 'text-yellow-400' : ''}`}
-                                                            style={{ color: m.isFavorite ? undefined : 'var(--text-secondary)' }}
-                                                            title={m.isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-                                                        >
-                                                            <Star size={12} fill={m.isFavorite ? "currentColor" : "none"} />
-                                                            {m.isFavorite ? "Favoritada" : "Favoritar"}
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
+                        {/* Input Area */}
+                        <div className="w-full max-w-4xl mx-auto px-4 pb-6 relative z-10">
+                            {!hasEnergy ? (
+                                <div className="glass-panel p-4 rounded-xl flex items-center justify-between gap-4 border-l-4 border-amber-500 animate-in slide-in-from-bottom-2 fade-in">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center relative">
+                                            <ZapOff size={20} className="text-amber-500" />
+                                            <div className="absolute inset-0 border border-amber-500/20 rounded-full animate-pulse" />
                                         </div>
-                                    )
-                                })}
-
-                                {isStreaming && (
-                                    <div className="flex flex-col items-start gap-2">
-                                        {/* Stream Thought (Active) */}
-                                        {streamThought && (
-                                            <div className="flex justify-start w-full mb-2 pl-1">
-                                                <div className="max-w-[85%] rounded-2xl px-5 py-4 glass-panel border border-blue-500/10">
-                                                    <div className="flex items-center gap-2 text-blue-400 mb-2 text-xs font-semibold uppercase tracking-wider">
-                                                        <Loader2 size={12} className="animate-spin" />
-                                                        Pensando...
-                                                    </div>
-                                                    <div className="text-xs text-gray-400 font-mono opacity-90">
-                                                        <Markdown content={streamThought} />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Streaming Content */}
-                                        {streamBuffer ? (
-                                            <div className="glass-panel text-gray-100 rounded-2xl rounded-tl-sm px-5 py-4 max-w-[85%] shadow-lg message-enter">
-                                                <Markdown content={streamBuffer} />
-                                                <span className="inline-block w-2 h-4 ml-1 bg-blue-400 animate-pulse align-middle" />
-                                            </div>
-                                        ) : !activeTool && !streamThought && (
-                                            /* Typing Indicator - Shows when waiting for Luna to start responding */
-                                            <TypingIndicator />
-                                        )}
-
-                                        {/* Active Tool Badge - Dedicated persistent badge */}
-                                        {activeTool && (
-                                            <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-blue-600/20 to-violet-600/20 border border-blue-500/30 rounded-2xl text-blue-200 text-sm ml-1 mb-2 shadow-lg shadow-blue-900/20">
-                                                <div className="relative">
-                                                    <div className="w-3 h-3 bg-blue-400 rounded-full animate-ping absolute" />
-                                                    <div className="w-3 h-3 bg-blue-400 rounded-full relative" />
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    {activeTool.icon === "search" && <Globe size={16} className="text-blue-400" />}
-                                                    {activeTool.icon === "read" && <FileText size={16} className="text-violet-400" />}
-                                                    {activeTool.icon === "doc" && <FileText size={16} className="text-cyan-400" />}
-                                                    <span className="font-medium">{activeTool.message}</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* General Status Messages (fallback) */}
-                                        {toolStatus && !activeTool && (
-                                            <div className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full text-blue-300 text-sm animate-pulse ml-1 mb-2">
-                                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-ping" />
-                                                {toolStatus.message}
-                                            </div>
-                                        )}
-
-                                        <div ref={messagesEndRef} />
+                                        <div>
+                                            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                                                Recarregando Energia
+                                                {auth.energy.nextRefill && (
+                                                    <span className="text-xs font-mono bg-black/30 px-2 py-0.5 rounded text-amber-400">
+                                                        {(() => {
+                                                            const diff = Math.max(0, auth.energy.nextRefill - Date.now());
+                                                            const h = Math.floor(diff / 3600000);
+                                                            const m = Math.floor((diff % 3600000) / 60000);
+                                                            return `${h}h ${m}m`;
+                                                        })()}
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <p className="text-xs text-gray-400">Aguarde o cooldown ou faça upgrade para liberar tudo.</p>
+                                        </div>
                                     </div>
-                                )}
-                                {!isStreaming && <div ref={messagesEndRef} />}
-                            </div>
-                        </div>
-
-                        {/* Chat Input Bar (Bottom) */}
-                        <div className="absolute bottom-6 left-0 w-full px-4">
-                            <div className="max-w-3xl mx-auto glass-bar rounded-3xl p-2 pl-2 shadow-2xl flex flex-col gap-2 transition-all focus-within:ring-1 focus-within:ring-white/20">
-                                {attachmentsHook.attachments.length > 0 && (
-                                    <div className="flex gap-2 px-4 pt-2 overflow-x-auto">
-                                        {attachmentsHook.attachments.map((img, idx) => (
-                                            <div key={idx} className="relative group shrink-0">
-                                                <img src={img} alt="attachment" className="h-16 w-16 object-cover rounded-lg border border-white/20" />
-                                                <button
-                                                    onClick={() => attachmentsHook.setAttachments(prev => prev.filter((_, i) => i !== idx))}
-                                                    className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                <div className="flex items-end gap-2 px-2 pb-1">
-                                    <button onClick={() => attachmentsHook.fileInputRef.current?.click()} className="p-2 mb-1 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-blue-400"><ImageIcon size={20} /></button>
                                     <button
-                                        onClick={() => setIsThinkingMode(!isThinkingMode)}
-                                        className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isThinkingMode ? "text-violet-400 bg-violet-500/10" : "text-gray-400"}`}
-                                        title="Ativar Pensamento Profundo"
+                                        onClick={() => setSettingsTab("planos")}
+                                        className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-amber-900/20 transition-all flex items-center gap-2 group"
                                     >
-                                        <Brain size={20} className={isThinkingMode ? "animate-pulse" : ""} />
+                                        <Zap size={14} className="fill-white group-hover:scale-110 transition-transform" />
+                                        VIRAR NEXUS
                                     </button>
-                                    <textarea
-                                        ref={inputRef}
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        onKeyDown={handleKeyDown}
-                                        onPaste={attachmentsHook.handlePaste}
-                                        placeholder="Responda..."
-                                        className="flex-1 bg-transparent border-0 text-white placeholder-gray-400 focus:ring-0 resize-none outline-none custom-scrollbar py-3"
-                                        rows={1}
-                                        style={{ minHeight: "24px", maxHeight: "160px" }}
-                                    />
-                                    {isStreaming ? (
-                                        <button
-                                            onClick={() => stopGeneration()}
-                                            className="p-3 rounded-full bg-red-600 text-white hover:bg-red-500 transition-all mb-1"
-                                            title="Parar geração"
-                                        >
-                                            <XCircle size={18} />
-                                        </button>
-                                    ) : (
-                                        <button
-                                            onClick={() => sendMessage()}
-                                            disabled={!input.trim() && attachmentsHook.attachments.length === 0}
-                                            className={`p-3 rounded-full transition-all mb-1 ${(input.trim() || attachmentsHook.attachments.length > 0) ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-white/5 text-gray-500"}`}
-                                        >
-                                            <Send size={18} />
-                                        </button>
-                                    )}
                                 </div>
+                            ) : (
+                                <div className="relative">
+                                    <ChatInput
+                                        ref={chatInputRef}
+                                        onSend={handleSend}
+                                        isStreaming={isStreaming}
+                                        onStop={stopGeneration}
+                                        attachmentsHook={attachmentsHook}
+                                        isThinkingMode={isThinkingMode}
+                                        setIsThinkingMode={setIsThinkingMode}
+                                    />
+                                </div>
+                            )}
+                            <div className="text-center mt-3">
+                                <a onClick={() => setSettingsTab("planos")} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full hover:bg-white/5 transition-colors cursor-pointer group">
+                                    {auth.plan === 'spark' && <div className="w-1.5 h-1.5 rounded-full bg-gray-500" />}
+                                    {auth.plan === 'nexus' && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.5)]" />}
+                                    {auth.plan === 'eclipse' && <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_5px_rgba(167,139,250,0.5)]" />}
+
+                                    <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-300 uppercase tracking-wider transition-colors">
+                                        {auth.plan === 'nexus' ? "Powered by Luna Nexus" :
+                                            auth.plan === 'eclipse' ? "Powered by Luna Eclipse" :
+                                                "Luna Spark • Ver Planos"}
+                                    </span>
+                                </a>
                             </div>
                         </div>
-
                     </div>
-                )
-                }
+                )}
 
+                {/* Energy Widget */}
+                {auth.isAuthenticated && <EnergyDisplay />}
 
             </main>
 
@@ -1296,74 +1364,64 @@ function App() {
                 onClose={() => setStudyModeOpen(false)}
             />
 
+            {/* Learning Notification Toast */}
+            {learningNotification && (
+                <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
+                    <div className="glass-panel px-4 py-3 rounded-xl border border-violet-500/30 shadow-lg shadow-violet-500/10 flex items-center gap-3 max-w-sm">
+                        <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center shrink-0">
+                            <Brain size={16} className="text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-xs text-violet-400 font-medium mb-0.5">Conhecimento Absorvido</div>
+                            <div className="text-sm text-gray-200 truncate">{learningNotification}</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div >
     );
 }
 
+// =============================================================================
+// WRAPPER COM AUTENTICAÇÃO
+// =============================================================================
 
+function AppWithAuth() {
+    const { user, loading, isAuthenticated, logout, profile } = useAuth();
 
-// Helper para limpar tags de pensamento vazadas e tokens internos + formatar texto
-function cleanContent(content) {
-    if (!content) return "";
+    // Loading state
+    if (loading) {
+        return (
+            <div className="flex h-screen w-screen bg-[#060b1e] items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 size={48} className="text-violet-500 animate-spin" />
+                    <p className="text-gray-400">Carregando...</p>
+                </div>
+            </div>
+        );
+    }
 
-    // Debug log (visível no console do Chrome/Edge)
-    if (content.includes('###')) console.log("[LUNA-CLEAN] Antes:", content.slice(0, 100));
+    // Not authenticated - show login
+    if (!isAuthenticated) {
+        return <LoginPage onSuccess={() => window.location.reload()} />;
+    }
 
-    // Normalização inicial
-    let cleaned = content.replace(/\r\n/g, "\n"); // Garantir line endings consistentes
-
-    // Remove blocos <think>...</think> (incluindo quebras de linha)
-    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, "");
-
-    // Remove tokens de controle da Together/DeepSeek
-    cleaned = cleaned.replace(/<\|.*?\|>/g, "");
-    cleaned = cleaned.replace(/<\s*\|\s*tool_calls_begin\s*\|\s*>/g, "");
-    cleaned = cleaned.replace(/<\s*\|\s*tool_calls_end\s*\|\s*>/g, "");
-    cleaned = cleaned.replace(/<\s*\|\s*tool_call_begin\s*\|\s*>/g, "");
-    cleaned = cleaned.replace(/<\s*\|\s*tool_call_end\s*\|\s*>/g, "");
-
-    // === NORMALIZAÇÃO DE MARKDOWN ABSOLUTA ===
-
-    // 1. Corrigir headers grudados no texto acima: "Texto###" -> "Texto\n\n###"
-    cleaned = cleaned.replace(/([^\n])(#{1,4}\s+)/g, '$1\n\n$2');
-
-    // 2. Corrigir headers grudados no texto abaixo: "### Header\nTexto" -> "### Header\n\nTexto"
-    cleaned = cleaned.replace(/^(#{1,4}\s+[^\n]+)\n([^\n#\s-])/gm, '$1\n\n$2');
-
-    // 3. Corrigir indentação acidental de headers: "  ###" -> "###"
-    cleaned = cleaned.replace(/^[ \t]+(#{1,4}\s)/gm, '$1');
-
-    // 4. Corrigir falta de espaço após hashes: "###Header" -> "### Header"
-    cleaned = cleaned.replace(/^(#{1,4})([^#\s\n])/gm, '$1 $2');
-
-    // 5. Corrigir falta de espaço APÓS o fechamento de itálico/negrito (apenas se houver texto grudado depois)
-    // Mas NUNCA adicionar espaço após o asterisco de abertura.
-    cleaned = cleaned.replace(/(\*[^* \n][^*]*\*)([a-zA-ZÁÉÍÓÚÇ0-9])/g, '$1 $2');
-    cleaned = cleaned.replace(/(\*\*[^* \n][^*]*\*\*)([a-zA-ZÁÉÍÓÚÇ0-9])/g, '$1 $2');
-
-    // === FORMATAÇÃO DE TEXTO (para legibilidade) ===
-
-    // 1. Quebra antes de bullet points: "Texto- **" -> "Texto\n\n- **"
-    cleaned = cleaned.replace(/([^\n\-])(\s*[\-\*]\s+\*\*)/g, '$1\n\n$2');
-
-    // 2. Quebra após parênteses fechado seguido de letra maiúscula: ")Frase" -> ")\n\nFrase"
-    cleaned = cleaned.replace(/\)([A-ZÁÉÍÓÚÇ])/g, ')\n\n$1');
-
-    // 3. Quebra após pontuação forte e emojis
-    const emojis = "✨💖🌙🎯📚🔧💡🎉⚡🌟❤️💕🌸☀️🌈🎨📝🚀💫🌺🔮✏️📖💻📱🎵🎶🌷📂🗂️🌍🌎🎭🌱";
-    const emojiRegex = new RegExp(`\\.([\\s]*[${emojis}])`, 'g');
-    cleaned = cleaned.replace(emojiRegex, '.\n\n$1');
-
-    const dotsEmojiRegex = new RegExp(`\\.\\.\\.([\\s]*[${emojis}])`, 'g');
-    cleaned = cleaned.replace(dotsEmojiRegex, '...\n\n$1');
-
-    // 4. Limita quebras de linha consecutivas a máximo 2
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-
-    // 5. Garantir que símbolos de status (⚡, 🔍, 📖, ✅, ❌) tenham espaço ou quebra antes de texto
-    cleaned = cleaned.replace(/([⚡🔍📖✅❌])([a-zA-ZÁÉÍÓÚÇ])/g, '$1 $2');
-
-    return cleaned.trim();
+    // Authenticated - show app
+    return <App />;
 }
 
-export default App;
+// =============================================================================
+// EXPORT COM PROVIDER
+// =============================================================================
+
+function AppRoot() {
+    return (
+        <AuthProvider>
+            <AppWithAuth />
+        </AuthProvider>
+    );
+}
+
+export default AppRoot;
+

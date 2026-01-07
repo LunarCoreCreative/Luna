@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
+import { API_CONFIG } from "../config/api";
 
-const MEMORY_SERVER = "http://127.0.0.1:8001";
+const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
 /**
  * useAttachments - Hook para gerenciamento de anexos (imagens e documentos)
@@ -10,6 +11,40 @@ export const useAttachments = (setToolStatus) => {
     const [documentAttachments, setDocumentAttachments] = useState([]);
     const fileInputRef = useRef(null);
 
+    // Função para redimensionar e comprimir imagens antes do upload
+    const optimizeImage = (base64Str, maxWidth = 1024, quality = 0.8) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.src = base64Str;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                // Redimensionar mantendo aspect ratio
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxWidth) {
+                        width *= maxWidth / height;
+                        height = maxWidth;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Converter para JPEG comprimido
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+        });
+    };
+
     const handlePaste = useCallback((e) => {
         const items = e.clipboardData.items;
         for (let i = 0; i < items.length; i++) {
@@ -17,8 +52,9 @@ export const useAttachments = (setToolStatus) => {
                 e.preventDefault();
                 const blob = items[i].getAsFile();
                 const reader = new FileReader();
-                reader.onload = (event) => {
-                    setAttachments(prev => [...prev, event.target.result]);
+                reader.onload = async (event) => {
+                    const optimized = await optimizeImage(event.target.result);
+                    setAttachments(prev => [...prev, optimized]);
                 };
                 reader.readAsDataURL(blob);
             }
@@ -34,8 +70,9 @@ export const useAttachments = (setToolStatus) => {
             // Handle images
             if (file.type.startsWith("image/")) {
                 const reader = new FileReader();
-                reader.onload = (event) => {
-                    setAttachments(prev => [...prev, event.target.result]);
+                reader.onload = async (event) => {
+                    const optimized = await optimizeImage(event.target.result);
+                    setAttachments(prev => [...prev, optimized]);
                 };
                 reader.readAsDataURL(file);
             }

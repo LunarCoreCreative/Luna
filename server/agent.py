@@ -6,14 +6,35 @@ Unified agent generator for streaming responses with tool support.
 
 import json
 import re
+import sys
 from typing import AsyncGenerator
 
 from .config import get_system_prompt, MODEL
-from .memory import search_memories, save_memory
+from .memory import search_memories, save_memory, search_study_documents
 from .api import call_api_stream, get_vision_description
 from .chat import ChatRequest
 from .tools import TOOLS, execute_tool, get_tools_schema
 from . import artifacts
+from .stream_parser import StreamStateParser  # IMPORTANTE: Importar o novo parser
+
+# =============================================================================
+# LOGGING SEGURO (Mapeamento de caracteres para evitar crash no Windows)
+# =============================================================================
+
+def safe_print(msg: str):
+    """Prints a message to stdout in a unicode-safe way (replacing errors)."""
+    try:
+        # Tenta imprimir normalmente
+        print(msg)
+    except UnicodeEncodeError:
+        # Se falhar, força encode/decode para ASCII/MBCS compatível
+        try:
+            # sys.stdout.encoding generally works, but fallback to ascii replace
+            enc = sys.stdout.encoding or 'ascii'
+            print(msg.encode(enc, 'replace').decode(enc))
+        except:
+             # Fallback final: apenas ASCII
+             print(msg.encode('ascii', 'replace').decode('ascii'))
 
 # =============================================================================
 # PÓS-PROCESSAMENTO DE FORMATAÇÃO (Força quebras de linha)
@@ -34,6 +55,37 @@ def format_chat_text(text: str) -> str:
     result = re.sub(r'\*Canvas atualizado\.?\*\s*', '', result)
     result = re.sub(r'⚡\s*\*Conteúdo atualizado[^*]*\*\s*', '', result)
     
+    # 0.1 CORRIGIR FORMATAÇÃO MARKDOWN QUEBRADA (espaços entre ** e texto)
+    # Estratégia: encontrar pares de ** ... ** e limpar espaços internos
+    
+    def fix_bold_spacing(match):
+        """Corrige espaços dentro de blocos **...**"""
+        content = match.group(1)
+        # Remove espaços no início e fim do conteúdo interno
+        return f"**{content.strip()}**"
+    
+    def fix_italic_spacing(match):
+        """Corrige espaços dentro de blocos *...*"""
+        content = match.group(1)
+        return f"*{content.strip()}*"
+    
+    # Corrigir negrito: ** texto ** -> **texto**
+    # Pattern: ** seguido de qualquer coisa (não-greedy) até **
+    result = re.sub(r'\*\*\s*([^*]+?)\s*\*\*', fix_bold_spacing, result)
+    
+    # Corrigir itálico: * texto * -> *texto* (não pegar **)
+    # Pattern mais cuidadoso para não pegar negrito
+    result = re.sub(r'(?<!\*)\*\s+([^*]+?)\s+\*(?!\*)', fix_italic_spacing, result)
+    
+    # Remover ** órfãos que ficaram sozinhos (sem par)
+    # Exemplo: "1. ** Abordagem**:" onde o primeiro ** não tem par válido
+    # Se ** aparece no início de linha seguido de espaço e depois texto e **, provavelmente é um negrito mal formatado
+    result = re.sub(r'^(\d+\.?\s*)\*\*\s+', r'\1**', result, flags=re.MULTILINE)
+    
+    # Corrigir caso especial: "****" (quando ** colou com **) -> remover
+    result = re.sub(r'\*{4,}', '', result)
+    
+
     # 1. Quebra antes de bullet points com negrito: "texto- **" -> "texto\n\n- **"
     result = re.sub(r'([^\n\-])(\s*-\s+\*\*)', r'\1\n\n\2', result)
     
@@ -88,7 +140,7 @@ def extract_partial_json(json_str: str) -> dict:
     except:
         pass
         
-    # 2. Extração de campos simples (title, type, etc)
+    # 2. Extração de campos simples (title, type, language, "id")
     for field in ["title", "type", "language", "id"]:
         # Busca por "field": "value" (capturando até a próxima aspa ou fim da string)
         match = re.search(rf'"{field}"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)', s)
@@ -230,14 +282,14 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
     """
     artifact_id = args.get("artifact_id")
     changes = args.get("changes", [])
-    print(f"[DEBUG-EDIT] Editando artefato ID: {artifact_id}, Mudanças: {len(changes)}")
+    safe_print(f"[DEBUG-EDIT] Editando artefato ID: {artifact_id}, Mudanças: {len(changes)}")
     
     # 1. Encontrar o artefato no histórico (do mais recente para o mais antigo)
     target_artifact = None
     for msg in reversed(messages):
         if msg.artifact and msg.artifact.get("id") == artifact_id:
             target_artifact = msg.artifact
-            print(f"[DEBUG-EDIT] Artefato alvo encontrado: {target_artifact.get('title')}")
+            safe_print(f"[DEBUG-EDIT] Artefato alvo encontrado: {target_artifact.get('title')}")
             break
             
     # Fallback: Verifica se é o artefato ativo
@@ -251,12 +303,12 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
             found = artifacts.get_artifact(artifact_id)
             if found:
                 target_artifact = found
-                print(f"[DEBUG-EDIT] Artefato encontrado via Store: {target_artifact.get('title')}")
+                safe_print(f"[DEBUG-EDIT] Artefato encontrado via Store: {target_artifact.get('title')}")
         except:
             pass
 
     if not target_artifact:
-        print(f"[DEBUG-EDIT] ERRO: Artefato {artifact_id} não encontrado no histórico!")
+        safe_print(f"[DEBUG-EDIT] ERRO: Artefato {artifact_id} não encontrado no histórico!")
         return {"success": False, "error": f"Artefato com ID {artifact_id} não encontrado no contexto recente."}
     
     current_content = target_artifact.get("content", "")
@@ -320,7 +372,7 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
             orig_start_line = start_mapping[0]
             orig_end_line = end_mapping[0]
             
-            print(f"[DEBUG-EDIT] Match Estrutural Encontrado! Linhas {orig_start_line} até {orig_end_line}")
+            safe_print(f"[DEBUG-EDIT] Match Estrutural Encontrado! Linhas {orig_start_line} até {orig_end_line}")
             
             # Substituir o intervalo total nas linhas originais
             # Isso substitui tudo entre a primeira e a última linha do match, 
@@ -333,7 +385,7 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
             continue
 
         # --- FALHA ---
-        print(f"[DEBUG-EDIT] Falha ao encontrar bloco:\n{search_norm[:100]}...")
+        safe_print(f"[DEBUG-EDIT] Falha ao encontrar bloco:\n{search_norm[:100]}...")
         # Adiciona erro mas continua tentando outras mudanças se houver
         errors.append(f"Não encontrei o bloco: '{search_block[:50]}...'")
 
@@ -349,7 +401,7 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
             if result.get("success") and result.get("artifact"):
                 updated_artifact = result["artifact"]
         except Exception as e:
-            print(f"[DEBUG-EDIT] Erro ao salvar: {e}")
+            safe_print(f"[DEBUG-EDIT] Erro ao salvar: {e}")
             return {"success": False, "error": f"Erro ao salvar artefato: {str(e)}"}
             
         return {
@@ -383,10 +435,20 @@ async def unified_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     last_msg = request.messages[-1]
     
     if last_msg.images:
+        safe_print(f"[DEBUG-IMAGES] Processando {len(last_msg.images)} imagem(ns)...")
         yield f"data: {json.dumps({'status': 'Luna está observando as imagens...', 'type': 'info'})}\n\n"
         for i, img_b64 in enumerate(last_msg.images):
-            desc = await get_vision_description(img_b64, last_msg.content)
-            images_descriptions.append(f"IMAGEM {i+1}: {desc}")
+            safe_print(f"[DEBUG-IMAGES] Analisando imagem {i+1}, tamanho base64: {len(img_b64)} chars")
+            try:
+                desc = await get_vision_description(img_b64, last_msg.content)
+                safe_print(f"[DEBUG-IMAGES] Resultado imagem {i+1}: {desc[:200]}...")
+                images_descriptions.append(f"IMAGEM {i+1}: {desc}")
+            except Exception as e:
+                err_msg = str(e)
+                safe_print(f"[DEBUG-IMAGES] ERRO imagem {i+1}: {err_msg}")
+                images_descriptions.append(f"IMAGEM {i+1}: [FALHA NO SISTEMA DE VISÃO: {err_msg}]")
+    else:
+        safe_print(f"[DEBUG-IMAGES] Nenhuma imagem detectada na mensagem")
     
     
     # Search memories
@@ -405,36 +467,79 @@ async def unified_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
         
         if found_art:
             active_artifact_title = found_art.get('title', 'Sem título')
+            art_id = found_art.get('id')
             # Injeta o conteúdo COMPLETO do artefato ativo para edição precisa
             active_artifact_content = f"""
-[ARTEFATO ATUALMENTE ABERTO NO CANVAS]
-ID: {found_art.get('id')}
+🚨🚨🚨 ATENÇÃO: ARTEFATO ATIVO DETECTADO 🚨🚨🚨
+
+[ARTEFATO ABERTO NO CANVAS - VOCÊ DEVE EDITAR ESTE, NÃO CRIAR NOVO]
+artifact_id OBRIGATÓRIO para edit_artifact: {art_id}
 TÍTULO: {active_artifact_title}
 TIPO: {found_art.get('type')}
-CONTEÚDO COMPLETO:
-{found_art.get('content')}
-[FIM DO ARTEFATO]
-[FIM DO ARTEFATO]
-Instrução ESTRATÉGICA: O usuário está visualizando este artefato.
-1. PREFERÊNCIA ABSOLUTA por 'edit_artifact' para *QUALQUER* modificação, seja pequena ou grande.
-2. NUNCA use 'create_artifact' para "atualizar", "melhorar" ou "refazer" o conteúdo atual. Isso cria duplicatas e confunde o usuário.
-3. Use 'create_artifact' APENAS se o usuário pedir explicitamente um "novo arquivo" ou se for um tipo diferente (ex: criar CSS para um HTML existente).
-4. BUSCA FLEXÍVEL: A ferramenta 'edit_artifact' é inteligente. Se você não tiver certeza da formatação exata (espaços, indentação), tente mesmo assim! O sistema encontrará o bloco mais próximo. NÃO DESISTA e não recrie.
-5. Se a edição for muito complexa, refaça blocos inteiros (funções/seções) via 'edit_artifact', mas não o arquivo todo.
-6. CONTINUAÇÃO: Se o usuário pedir para 'continuar' ou 'escrever mais', USE 'edit_artifact'. Busque o último parágrafo/linha existente e substitua por: [Último parágrafo] + \n\n + [Novo Conteúdo]. NÃO cri um arquivo separado.
-"""
-            print(f"[DEBUG-CTX] Artefato Ativo Injetado: {active_artifact_title}")
+LINGUAGEM: {found_art.get('language', 'N/A')}
 
-    # Build system prompt with current date
-    prompt = get_system_prompt()
+CONTEÚDO ATUAL (versão mais recente do disco):
+---
+{found_art.get('content')}
+---
+[FIM DO ARTEFATO]
+
+⚠️ INSTRUÇÃO CRÍTICA OBRIGATÓRIA:
+1. Para QUALQUER modificação (aprofundar, expandir, continuar, melhorar, detalhar), use APENAS:
+   edit_artifact(artifact_id="{art_id}", changes=[...])
+   
+2. Se você usar create_artifact, você VAI CRIAR UM ARQUIVO DUPLICADO e o usuário perderá o original!
+
+3. VERBOS QUE EXIGEM edit_artifact:
+   - "aprofundar" → edit_artifact
+   - "expandir" → edit_artifact  
+   - "continuar" → edit_artifact
+   - "melhorar" → edit_artifact
+   - "adicionar" → edit_artifact
+   - "detalhar" → edit_artifact
+   - "escrever mais" → edit_artifact
+
+4. ÚNICO CASO para create_artifact: usuário pede explicitamente "criar NOVO arquivo" ou é um tipo/propósito completamente diferente.
+"""
+            safe_print(f"[DEBUG-CTX] Artefato Ativo Injetado: {active_artifact_title} (ID: {art_id})")
+
+    # Build system prompt with current date and user identity
+    # TODO: Receber user_id da requisição quando integração completa
+    from .identity import CREATOR_UID
+    prompt = get_system_prompt(user_id=CREATOR_UID, user_name="Ethan")
     
     if active_artifact_content:
         prompt += f"\n\n{active_artifact_content}"
         
     if images_descriptions:
-        prompt += f"\n\n[LUNA ESTÁ VENDO]:\n" + "\n".join(images_descriptions)
+        vision_context = f"""
+🖼️ [SISTEMA DE VISÃO - INFORMAÇÕES VISUAIS]:
+Seu módulo de visão (Maverick) analisou as imagens enviadas e gerou as descrições abaixo. 
+USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO AS IMAGENS:
+
+{chr(10).join(images_descriptions)}
+
+⚠️ NOTA TÉCNICA: Apenas reporte erro de visão se você ver explicitamente a mensagem '[FALHA NO SISTEMA DE VISÃO]' acima. Caso contrário, aja como se a visão estivesse 100% funcional.
+"""
+        prompt += vision_context
+        safe_print(f"[DEBUG-VISION-INJECT] Injetadas {len(images_descriptions)} descrições de imagem no contexto")
     if memories:
         prompt += "\n\n[MEMÓRIAS]:\n" + "\n".join(memories)
+    
+    # Search Study Mode documents for relevant context
+    study_results = search_study_documents(user_msg, n=3)
+    if study_results:
+        study_context = "\n\n[CONHECIMENTO ESTUDADO (DOCUMENTOS DO USUÁRIO)]:\n"
+        for i, result in enumerate(study_results, 1):
+            study_context += f"\n--- Fonte {i}: {result['title']} (por {result['author']}) ---\n"
+            study_context += result['text'][:1500]  # Limit chunk size
+            if len(result['text']) > 1500:
+                study_context += "...[truncado]"
+            study_context += "\n"
+        study_context += "\n[FIM DO CONHECIMENTO ESTUDADO]\n"
+        study_context += "INSTRUÇÃO: Use estas informações dos documentos do usuário para responder. Cite a fonte quando relevante."
+        prompt += study_context
+        safe_print(f"[DEBUG-STUDY] Injetados {len(study_results)} chunks de documentos estudados")
     
     # Build message history
     final_messages = []
@@ -472,6 +577,7 @@ Instrução ESTRATÉGICA: O usuário está visualizando este artefato.
             current_content = ""
             current_tool_calls_buffer = {}
             announced_tools = set()
+            parser = StreamStateParser()  # Inicializar Parser
             
             # Tool choice strategy
             current_tool_choice = "auto"
@@ -558,7 +664,7 @@ Instrução ESTRATÉGICA: O usuário está visualizando este artefato.
                                 
                                 # Logs de depuração no servidor (Alta visibilidade)
                                 if len(args_str) % 50 < 4: # Loga a cada ~50 chars para não inundar o terminal
-                                    print(f"[STREAMING {fname}] Args len: {len(args_str)}")
+                                    safe_print(f"[STREAMING {fname}] Args len: {len(args_str)}")
 
                                 # Processa o JSON parcial
                                 partial = extract_partial_json(args_str)
@@ -574,135 +680,54 @@ Instrução ESTRATÉGICA: O usuário está visualizando este artefato.
                                 # Payload completo para o badge (para ver os campos surgindo)
                                 yield f"data: {json.dumps({'tool_call': {'name': fname, 'args': partial}})}\n\n"
                             except Exception as e:
-                                print(f"[DEBUG-STREAM] Falha: {str(e)}")
+                                safe_print(f"[DEBUG-STREAM] Falha: {str(e)}")
                 
-                # 3. Content (Filtro Inteligente: Detectar Tool Calls no Texto)
+                # 3. Content (Parser Inteligente via State Machine)
                 chunk_text = delta.get("content", "")
                 if chunk_text:
-                    # Se detectarmos início de tool call no texto, mudamos para modo "captura manual"
-                    # IMPORTANTE: Só bufferizar se for REALMENTE um tool call vazando, não qualquer token especial
-                    is_tool_call_leak = "tool_calls_begin" in chunk_text or "tool_calls_end" in chunk_text or ("<|" in chunk_text and "tool" in chunk_text.lower())
-                    if not current_tool_calls_buffer and is_tool_call_leak:
-                        # Bufferizar para ver se é um tool call real vazando
-                        current_content += chunk_text
-                        
-                        # Tentar extrair JSON se parecer completo (heurística simples)
-                        # Regex para capturar bloco: <|tool_calls_begin|> ... <|tool_calls_end|>
-                        # Ou variantes com espaços: < | tool_calls_begin | >
-                        # Permissive regex: < (spaces) |? (spaces) tool_calls_begin (spaces) |? (spaces) >
-                        tool_regex = re.search(r'<\s*\|?\s*tool_calls_begin\s*\|?\s*>([\s\S]*?)<\s*\|?\s*tool_calls_end\s*\|?\s*>', current_content)
-                        if tool_regex:
-                            json_content = tool_regex.group(1).strip()
-                            try:
-                                calls = json.loads(json_content)
-                                if isinstance(calls, list):
-                                    # Sucesso! Transformar em tool calls estruturados e limpar o content
-                                    print(f"[DEBUG-AGENT] Tool Call via Texto Detectado: {len(calls)} chamadas")
-                                    
-                                    # Limpar o content exibido (remover o lixo)
-                                    clean_content = re.sub(r'<\s*\|?\s*tool_calls_begin\s*\|?\s*>[\s\S]*?<\s*\|?\s*tool_calls_end\s*\|?\s*>', '', current_content) 
-                                    
-                                    # Se sobrou texto real antes do tool call, yield ele
-                                    if clean_content.strip():
-                                         yield f"data: {json.dumps({'content': clean_content})}\n\n"
-                                    
-                                    current_content = "" # Já processamos
-                                    
-                                    # Adicionar ao buffer de execução
-                                    for i, tc in enumerate(calls):
-                                        idx = 1000 + i # ID fictício alto para evitar colisão
-                                        current_tool_calls_buffer[idx] = {
-                                            "id": f"call_text_{idx}",
-                                            "name": tc.get("name"),
-                                            "arguments": json.dumps(tc.get("arguments"))
-                                        }
-                                        # Notificar UI
-                                        yield f"data: {json.dumps({'tool_call': {'name': tc.get('name'), 'args': tc.get('arguments')}})}\n\n"
-                            
-                            except json.JSONDecodeError:
-                                # JSON incompleto ou inválido ainda, continuar bufferizando
-                                pass
-                        
-                        # NOVA TENTATIVA: Capturar formato XML (tag específica da ferramenta)
-                        # Ex: <edit_artifact> <artifact_id>...</artifact_id> ... </edit_artifact>
-                        xml_tool_regex = re.search(r'<([a-zA-Z0-9_]+)>\s*<([a-zA-Z0-9_]+)>([\s\S]*?)</\1>', current_content) 
-                        # Procura algo como <tool> <arg>...</arg> </tool> - Simplificado
-                        
-                        # Se não for o regex genérico, vamos tentar capturar o específico do screenshot:
-                        # <edit_artifact> <artifact_id>...</artifact_id> <changes> ... </changes> </edit_artifact>
-                        
-                        # Regex mais robusto para capturar tags de ferramentas conhecidas
-                        known_tools = ["edit_artifact", "create_artifact", "get_artifact", "web_search", "run_command"]
-                        for kt in known_tools:
-                            if f"<{kt}>" in current_content and f"</{kt}>" in current_content:
-                                # Extrair o conteúdo interno
-                                content_match = re.search(f"<{kt}>([\s\S]*?)</{kt}>", current_content)
-                                if content_match:
-                                    inner_xml = content_match.group(1)
-                                    # Parse básico de XML para Dict
-                                    args = {}
-                                    
-                                    # Tentar extrair tags filhas de nível 1
-                                    # Regex para <tag>content</tag>
-                                    child_tags = re.findall(r'<([a-zA-Z0-9_]+)>([\s\S]*?)</\1>', inner_xml)
-                                    for tag, val in child_tags:
-                                        # Se for 'changes', é uma lista, precisa de tratamento especial ou assumir texto
-                                        if tag == "changes":
-                                            # Tentar capturar <search> e <replace> dentro
-                                            changes_list = []
-                                            # Isso é frágil via regex, mas vamos tentar o formato do screenshot:
-                                            # <search>...</search> pode não estar dentro de um <item>, mas direto em changes?
-                                            # O screenshot mostra <changes> <search>...</search> ...
-                                            
-                                            # Vamos assumir que changes contém múltiplos blocos search/replace
-                                            # Regex para pegar pares search/replace
-                                            sr_matches = re.findall(r'<search>([\s\S]*?)</search>\s*<replace>([\s\S]*?)</replace>', val)
-                                            for s, r in sr_matches:
-                                                changes_list.append({"search": s.strip(), "replace": r.strip()})
-                                                
-                                            # Fallback: se não achou pares, tenta <change> <search>...</change>
-                                            if not changes_list:
-                                                 simple_sr = re.findall(r'<search>([\s\S]*?)</search>', val)
-                                                 # Isto é muito arriscado. Se falhar, args['changes'] fica vazio e falha graciosamente.
-                                            
-                                            args[tag] = changes_list
-                                        else:
-                                            args[tag] = val.strip()
-                                    
-                                    print(f"[DEBUG-AGENT] XML Tool Call Detectado: {kt}")
-                                    
-                                    # Limpar do content
-                                    current_content = current_content.replace(content_match.group(0), "")
-                                    if current_content.strip():
-                                         yield f"data: {json.dumps({'content': current_content})}\n\n"
-                                    current_content = ""
-                                    
-                                    # Adicionar ao buffer
-                                    idx = 2000 # ID fictício para XML
-                                    current_tool_calls_buffer[idx] = {
-                                        "id": f"call_xml_{idx}",
-                                        "name": kt,
-                                        "arguments": json.dumps(args)
-                                    }
-                                    yield f"data: {json.dumps({'tool_call': {'name': kt, 'args': args}})}\n\n"
-                                    # Break loop de known_tools
-                                    break
-                        
-                        continue # Não yieldar o chunk cru enquanto estiver suspeitando de tool call
+                    # Ingesta via State Machine
+                    parser_events = parser.ingest(chunk_text)
                     
-                    # Comportamento normal (se não houver suspeita de tool call)
-                    if chunk_text.strip() and not current_tool_calls_buffer:
-                        # Filtragem básica de tokens soltos para não sujar o chat
-                        display_text = chunk_text
-                        if "<" in display_text and "tool_calls" in display_text:
-                            display_text = re.sub(r'<\s*\|?\s*tool_calls_.*?\s*\|?\s*>', '', display_text)
+                    for event in parser_events:
+                        if event["type"] == "content":
+                            # Safe text to display
+                            filtered = event["text"]
+                            # Hard filter for residual tokens (safety net)
+                            filtered = filtered.replace("<|tool_calls_begin|>", "").replace("<|tool_calls_end|>", "")
+                            
+                            if filtered:
+                                display_text = format_chat_text(filtered)
+                                current_content += filtered
+                                yield f"data: {json.dumps({'content': display_text})}\n\n"
                         
-                        if display_text:
-                            # Pós-processa formatação (força quebras de linha)
-                            display_text = format_chat_text(display_text)
-                            yield f"data: {json.dumps({'content': display_text})}\n\n"
-                        current_content += chunk_text
-            
+                        elif event["type"] == "tool_call_text":
+                            # Tool call recovered from text stream
+                            tc = event["json"]
+                            if isinstance(tc, list):
+                                for item in tc:
+                                    t_name = item.get("name")
+                                    t_args = item.get("arguments")
+                                    safe_print(f"[DEBUG-AGENT] Text Tool Call Detected via Parser: {t_name}")
+                                    idx = 2000 + len(current_tool_calls_buffer) 
+                                    current_tool_calls_buffer[idx] = {
+                                        "id": f"call_text_{idx}",
+                                        "name": t_name,
+                                        "arguments": json.dumps(t_args) if isinstance(t_args, (dict, list)) else str(t_args)
+                                    }
+                                    yield f"data: {json.dumps({'tool_call': {'name': t_name, 'args': t_args}})}\n\n"
+                            
+                            elif isinstance(tc, dict):
+                                t_name = tc.get("name")
+                                t_args = tc.get("arguments")
+                                safe_print(f"[DEBUG-AGENT] Text Tool Call Detected via Parser: {t_name}")
+                                idx = 2000 + len(current_tool_calls_buffer)
+                                current_tool_calls_buffer[idx] = {
+                                    "id": f"call_text_{idx}",
+                                    "name": t_name,
+                                    "arguments": json.dumps(t_args) if isinstance(t_args, (dict, list)) else str(t_args)
+                                }
+                                yield f"data: {json.dumps({'tool_call': {'name': t_name, 'args': t_args}})}\n\n" 
+
             # Process tool calls if any (Struct or Text-Based)
             if current_tool_calls_buffer:
                 tool_calls = list(current_tool_calls_buffer.values())
@@ -746,6 +771,12 @@ Instrução ESTRATÉGICA: O usuário está visualizando este artefato.
                     
                     yield f"data: {json.dumps({'tool_result': result})}\n\n"
                     
+                    # Verificar se houve aprendizado durante a ferramenta
+                    from .tools import get_learning_events
+                    learning_events = get_learning_events()
+                    if learning_events:
+                        yield f"data: {json.dumps({'learning': [e['title'] for e in learning_events]})}\n\n"
+                    
                     msgs.append({
                         "tool_call_id": tc_id,
                         "role": "tool",
@@ -786,7 +817,7 @@ INSTRUÇÕES CRÍTICAS PARA SUA RESPOSTA:
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[DEBUG-AGENT-ERROR] {str(e).encode('ascii', 'replace').decode('ascii')}")
+        safe_print(f"[DEBUG-AGENT-ERROR] {str(e).encode('ascii', 'replace').decode('ascii')}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     finally:
         # Save to memory

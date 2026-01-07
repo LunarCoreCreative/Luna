@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from .ingest import ingest_document
 from .chunk import chunk_document
+from ..memory import save_study_chunk, delete_study_document
 
 # Router
 router = APIRouter(prefix="/api/study", tags=["Study Mode"])
@@ -106,7 +107,17 @@ async def ingest_file(file: UploadFile = File(...)):
         full_text = result.pop("text")
         result["preview"] = full_text[:500] + "..." if len(full_text) > 500 else full_text
         
-        # Salva
+        # Salva cada chunk no vector store para RAG
+        for chunk in chunks:
+            save_study_chunk(
+                doc_id=result["id"],
+                chunk_index=chunk["index"],
+                text=chunk["text"],
+                title=result["title"],
+                author=result.get("author", "Desconhecido")
+            )
+        
+        # Salva metadados do documento
         save_document(result["id"], result)
         
         return {
@@ -148,7 +159,17 @@ async def ingest_url(request: URLIngestRequest):
         full_text = result.pop("text")
         result["preview"] = full_text[:500] + "..." if len(full_text) > 500 else full_text
         
-        # Salva
+        # Salva cada chunk no vector store para RAG
+        for chunk in chunks:
+            save_study_chunk(
+                doc_id=result["id"],
+                chunk_index=chunk["index"],
+                text=chunk["text"],
+                title=result["title"],
+                author=result.get("author", "Desconhecido")
+            )
+        
+        # Salva metadados do documento
         save_document(result["id"], result)
         
         return {
@@ -198,6 +219,9 @@ async def delete_document(doc_id: str):
         doc_path.unlink()
         if doc_id in _documents_cache:
             del _documents_cache[doc_id]
+        # Remove também do vector store
+        delete_study_document(doc_id)
         return {"success": True, "message": "Documento removido"}
     
     raise HTTPException(status_code=404, detail="Documento não encontrado")
+

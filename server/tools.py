@@ -30,6 +30,49 @@ def sanitize_path(path: str) -> Path:
 # TOOLS DISPONÍVEIS
 # =============================================================================
 
+# Fila global de eventos de aprendizado (para notificação no frontend)
+_learning_events = []
+
+def get_learning_events() -> list:
+    """Retorna e limpa a fila de eventos de aprendizado."""
+    global _learning_events
+    events = _learning_events.copy()
+    _learning_events = []
+    return events
+
+def _add_learning_event(title: str, source: str) -> None:
+    """Adiciona um evento de aprendizado à fila."""
+    global _learning_events
+    _learning_events.append({"title": title, "source": source})
+
+def _save_searched_knowledge(query: str, content: str, source: str) -> None:
+    """
+    Salva conhecimento obtido via pesquisa web automaticamente.
+    Chamado internamente após pesquisas bem-sucedidas.
+    """
+    try:
+        from .memory import save_technical_knowledge, is_duplicate_knowledge
+        
+        # Cria um resumo do conhecimento
+        title = f"Pesquisa: {query[:50]}..."
+        
+        # Limita o conteúdo para evitar salvar demais
+        max_content = content[:2000] if len(content) > 2000 else content
+        full_text = f"{query} {max_content}"
+        
+        # Verifica se já existe algo similar
+        if is_duplicate_knowledge(full_text, threshold=0.8):
+            print(f"[SEARCH-LEARN] Conhecimento similar já existe, pulando...")
+            return
+        
+        tags = f"web_search, {source}, auto_learned"
+        if save_technical_knowledge(title=title, content=max_content, tags=tags):
+            print(f"[SEARCH-LEARN] ✓ Conhecimento salvo: {title}")
+            # Adiciona evento para notificação no frontend
+            _add_learning_event(title, source)
+    except Exception as e:
+        print(f"[SEARCH-LEARN] Erro ao salvar: {e}")
+
 def run_command(command: str, cwd: str = None, background: bool = False) -> Dict[str, Any]:
     """
     Executa um comando no terminal.
@@ -116,7 +159,10 @@ def web_search(query: str) -> Dict[str, Any]:
             
             if results:
                 print(f"[DEBUG] Tavily search successful: {len(results)} results")
-                return {"success": True, "content": "\n\n".join(results), "error": "", "source": "tavily"}
+                content = "\n\n".join(results)
+                # Salva conhecimento pesquisado automaticamente
+                _save_searched_knowledge(query, content, "tavily")
+                return {"success": True, "content": content, "error": "", "source": "tavily"}
         except ImportError:
             print("[DEBUG] Tavily not installed, trying next provider")
         except Exception as e:
@@ -159,7 +205,9 @@ def web_search(query: str) -> Dict[str, Any]:
                     
                     if results:
                         print(f"[DEBUG] SearXNG ({instance}) successful: {len(results)} results")
-                        return {"success": True, "content": "\n\n".join(results), "error": "", "source": "searxng"}
+                        content = "\n\n".join(results)
+                        _save_searched_knowledge(query, content, "searxng")
+                        return {"success": True, "content": content, "error": "", "source": "searxng"}
             except requests.exceptions.Timeout:
                 continue
             except Exception as e:

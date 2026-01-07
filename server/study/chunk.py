@@ -22,21 +22,24 @@ def split_into_sentences(text: str) -> List[str]:
     """
     Divide texto em sentenças de forma inteligente.
     """
-    # Padrão para fim de sentença
-    # Considera: . ! ? seguidos de espaço e letra maiúscula
-    # Evita quebrar em abreviações como "Dr.", "Sr.", "etc."
+    # Abordagem simplificada: proteger abreviações comuns primeiro
+    # Substitui pontos de abreviações por marcador temporário
+    abbreviations = ['Dr.', 'Sr.', 'Sra.', 'Prof.', 'Dra.', 'Jr.', 'Mr.', 'Mrs.', 'Ms.', 'St.', 'etc.', 'vs.', 'ex.', 'i.e.', 'e.g.']
     
-    abbreviations = r'(?<!\b(?:Dr|Sr|Sra|Prof|Dra|Jr|Mr|Mrs|Ms|St|etc|vs|viz|ex|i\.e|e\.g))'
-    pattern = abbreviations + r'([.!?])\s+(?=[A-ZÁÉÍÓÚÀÈÌÒÙÃÕÂÊÎÔÛÇ])'
+    protected = text
+    for abbr in abbreviations:
+        protected = protected.replace(abbr, abbr.replace('.', '<<<DOT>>>'))
     
-    # Substitui por marcador temporário
-    marked = re.sub(pattern, r'\1|||SPLIT|||', text)
+    # Agora divide por pontuação final seguida de espaço e maiúscula
+    # Padrão simples: . ! ? seguido de espaço e letra maiúscula
+    pattern = r'([.!?])\s+(?=[A-ZÁÉÍÓÚÀÈÌÒÙÃÕÂÊÎÔÛÇ])'
+    marked = re.sub(pattern, r'\1|||SPLIT|||', protected)
     
     # Divide pelo marcador
     sentences = marked.split('|||SPLIT|||')
     
-    # Limpa e filtra sentenças vazias
-    return [s.strip() for s in sentences if s.strip()]
+    # Restaura os pontos das abreviações e limpa
+    return [s.replace('<<<DOT>>>', '.').strip() for s in sentences if s.strip()]
 
 
 def split_into_paragraphs(text: str) -> List[str]:

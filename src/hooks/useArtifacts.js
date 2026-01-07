@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
+import { API_CONFIG } from "../config/api";
 
-const MEMORY_SERVER = "http://127.0.0.1:8001";
+const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
 /**
  * useArtifacts - Hook para gerenciamento de artefatos e canvas

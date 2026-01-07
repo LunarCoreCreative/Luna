@@ -60,7 +60,7 @@ def clean_text(text: str) -> str:
 
 def extract_from_pdf(file_path: str) -> Tuple[str, dict]:
     """
-    Extrai texto de um arquivo PDF.
+    Extrai texto de um arquivo PDF, incluindo tabelas.
     
     Returns:
         Tuple[text, metadata]
@@ -72,7 +72,8 @@ def extract_from_pdf(file_path: str) -> Tuple[str, dict]:
     metadata = {
         "pages": 0,
         "title": Path(file_path).stem,
-        "format": "pdf"
+        "format": "pdf",
+        "has_tables": False
     }
     
     with pdfplumber.open(file_path) as pdf:
@@ -83,13 +84,71 @@ def extract_from_pdf(file_path: str) -> Tuple[str, dict]:
             metadata["title"] = pdf.metadata.get("Title", metadata["title"])
             metadata["author"] = pdf.metadata.get("Author", "Desconhecido")
         
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
+            page_content = []
+            
+            # 1. Extrai tabelas primeiro
+            tables = page.extract_tables()
+            table_regions = []
+            
+            if tables:
+                metadata["has_tables"] = True
+                for table in tables:
+                    if table and len(table) > 0:
+                        # Converte tabela para markdown
+                        md_table = _table_to_markdown(table)
+                        if md_table:
+                            page_content.append(f"\n[TABELA]\n{md_table}\n[/TABELA]\n")
+            
+            # 2. Extrai texto normal
             text = page.extract_text()
             if text:
-                full_text.append(text)
+                page_content.insert(0, text)  # Texto antes das tabelas
+            
+            if page_content:
+                full_text.append(f"--- Página {page_num} ---\n" + "\n".join(page_content))
     
     combined = "\n\n".join(full_text)
     return clean_text(combined), metadata
+
+
+def _table_to_markdown(table: list) -> str:
+    """
+    Converte uma tabela (lista de listas) para formato markdown.
+    """
+    if not table or len(table) == 0:
+        return ""
+    
+    # Limpa células None e converte para string
+    clean_table = []
+    for row in table:
+        if row:
+            clean_row = [str(cell).strip() if cell else "" for cell in row]
+            clean_table.append(clean_row)
+    
+    if not clean_table:
+        return ""
+    
+    # Encontra o número máximo de colunas
+    max_cols = max(len(row) for row in clean_table)
+    
+    # Normaliza todas as linhas para ter o mesmo número de colunas
+    for row in clean_table:
+        while len(row) < max_cols:
+            row.append("")
+    
+    lines = []
+    
+    # Header (primeira linha)
+    header = clean_table[0]
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+    
+    # Dados
+    for row in clean_table[1:]:
+        lines.append("| " + " | ".join(row) + " |")
+    
+    return "\n".join(lines)
 
 
 def extract_from_txt(file_path: str) -> Tuple[str, dict]:

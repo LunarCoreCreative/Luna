@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from "react";
 import { BookOpen, Upload, Link, X, Loader, FileText, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { API_CONFIG } from "../config/api";
 
-const MEMORY_SERVER = "http://127.0.0.1:8001";
+const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
 /**
  * StudyMode - Componente para ingestão de documentos para análise de estilo

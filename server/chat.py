@@ -46,10 +46,10 @@ class ChatManager:
     """Manages persistent chat storage."""
     
     @staticmethod
-    def list_chats() -> List[Dict]:
+    def list_chats(storage_dir: Path = CHAT_DIR) -> List[Dict]:
         """List all saved chats."""
         chats = []
-        for f in CHAT_DIR.glob("*.json"):
+        for f in storage_dir.glob("*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 threads = data.get("threads", [])
@@ -66,9 +66,9 @@ class ChatManager:
         return sorted(chats, key=lambda x: x["updated_at"], reverse=True)
     
     @staticmethod
-    def load_chat(chat_id: str, thread_id: str = None) -> Optional[Dict]:
+    def load_chat(chat_id: str, thread_id: str = None, storage_dir: Path = CHAT_DIR) -> Optional[Dict]:
         """Load a specific chat or thread."""
-        file_path = CHAT_DIR / f"{chat_id}.json"
+        file_path = storage_dir / f"{chat_id}.json"
         if not file_path.exists():
             return None
         
@@ -81,12 +81,12 @@ class ChatManager:
         return data
     
     @staticmethod
-    def save_chat(chat_id: str, messages: List[Dict], title: str = None, thread_id: str = None) -> Dict:
+    def save_chat(chat_id: str, messages: List[Dict], title: str = None, thread_id: str = None, storage_dir: Path = CHAT_DIR) -> Dict:
         """Save or update a chat."""
         if not chat_id:
             chat_id = str(uuid.uuid4())
         
-        file_path = CHAT_DIR / f"{chat_id}.json"
+        file_path = storage_dir / f"{chat_id}.json"
         now = datetime.now().isoformat()
         current_data = {"threads": []}
         
@@ -133,18 +133,18 @@ class ChatManager:
         return current_data
     
     @staticmethod
-    def delete_chat(chat_id: str) -> bool:
+    def delete_chat(chat_id: str, storage_dir: Path = CHAT_DIR) -> bool:
         """Delete a chat."""
-        file_path = CHAT_DIR / f"{chat_id}.json"
+        file_path = storage_dir / f"{chat_id}.json"
         if file_path.exists():
             file_path.unlink()
             return True
         return False
     
     @staticmethod
-    def create_thread(chat_id: str, title: str = None) -> Optional[Dict]:
+    def create_thread(chat_id: str, title: str = None, storage_dir: Path = CHAT_DIR) -> Optional[Dict]:
         """Create a new thread in a chat."""
-        file_path = CHAT_DIR / f"{chat_id}.json"
+        file_path = storage_dir / f"{chat_id}.json"
         if not file_path.exists():
             return None
         
@@ -169,9 +169,9 @@ class ChatManager:
         return new_thread
     
     @staticmethod
-    def delete_thread(chat_id: str, thread_id: str) -> bool:
+    def delete_thread(chat_id: str, thread_id: str, storage_dir: Path = CHAT_DIR) -> bool:
         """Delete a thread from a chat."""
-        file_path = CHAT_DIR / f"{chat_id}.json"
+        file_path = storage_dir / f"{chat_id}.json"
         if not file_path.exists():
             return False
         
