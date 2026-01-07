@@ -1,16 +1,42 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
+// const isDev = require('electron-is-dev'); 
 const { spawn } = require('child_process');
 const { LinkService } = require('./LinkService.cjs');
 
 let mainWindow;
 let pythonProcess = null;
 let linkService = null;
+let serverProcess = null; // Express server instance
+
+// Determine if we are in development mode reliably
+const isDev = !app.isPackaged;
 
 // SaaS Mode: Only start Python locally in development
 const USE_LOCAL_PYTHON = isDev;
 const CLOUD_WS_URL = 'wss://luna-production-94f2.up.railway.app/ws/link'; // Luna Link tunnel
+
+// Start local web server for production to support Firebase Auth (needs localhost)
+function startLocalWebServer() {
+    if (isDev) return; // Vite handles dev
+
+    console.log('[ELECTRON] Starting local Express server for production...');
+    const express = require('express');
+    const appServer = express();
+    const PORT = 4173;
+
+    // Serve static files
+    appServer.use(express.static(path.join(__dirname, 'dist')));
+
+    // SPA Fallback (using app.use for catch-all to avoid Express 5 regex issues)
+    appServer.use((req, res) => {
+        res.sendFile(path.join(__dirname, 'dist/index.html'));
+    });
+
+    serverProcess = appServer.listen(PORT, () => {
+        console.log(`[ELECTRON] Local server running on http://localhost:${PORT}`);
+    });
+}
 
 function startPythonServer() {
     if (!USE_LOCAL_PYTHON) {
@@ -41,8 +67,20 @@ function startPythonServer() {
 }
 
 function createWindow() {
-    // Inicia o servidor Python APENAS se estivermos em modo local
+    // Start services
     startPythonServer();
+    startLocalWebServer();
+
+    // Calculate preload path: 
+    // - In dev: same folder as main.cjs
+    // - In production: extraResources copies preload.cjs to resources folder
+    const preloadPath = isDev
+        ? path.join(__dirname, 'preload.cjs')
+        : path.join(process.resourcesPath, 'preload.cjs');
+
+    console.log('[ELECTRON] Preload path:', preloadPath);
+    console.log('[ELECTRON] isDev:', isDev);
+    console.log('[ELECTRON] resourcesPath:', process.resourcesPath);
 
     mainWindow = new BrowserWindow({
         width: 1200,
@@ -51,16 +89,16 @@ function createWindow() {
         autoHideMenuBar: true,
         backgroundColor: '#0d1117', // Match Luna background
         webPreferences: {
-            preload: path.join(__dirname, 'preload.cjs'),
+            preload: preloadPath,
             nodeIntegration: false,
             contextIsolation: true,
-            devTools: isDev,
+            devTools: true, // Enable for debugging preload issues
         },
     });
 
     const startURL = isDev
         ? 'http://localhost:5173'
-        : `file://${path.join(__dirname, 'dist/index.html')}`;
+        : 'http://localhost:4173'; // Use local express server
 
     mainWindow.loadURL(startURL);
 
@@ -109,7 +147,7 @@ ipcMain.on('window-controls:maximize', () => {
 
 // Overlay Controls
 
-// Luna Link IPC Handler
+// Luna Link IPC Handlers
 ipcMain.on('luna-link:connect', (event, token) => {
     if (!USE_LOCAL_PYTHON) {
         // Only connect to cloud in production mode
@@ -128,3 +166,22 @@ ipcMain.on('luna-link:disconnect', () => {
     }
 });
 
+// Luna Link: Folder Picker (invoked from renderer)
+ipcMain.handle('luna-link:pick-folder', async () => {
+    const { dialog } = require('electron');
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Selecione a pasta do projeto'
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+        return { success: false, error: 'Nenhuma pasta selecionada' };
+    }
+
+    return { success: true, path: result.filePaths[0] };
+});
+
+// Luna Link: Status check
+ipcMain.handle('luna-link:status', () => {
+    return linkService ? linkService.connected : false;
+});

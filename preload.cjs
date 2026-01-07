@@ -13,5 +13,12 @@ contextBridge.exposeInMainWorld('electron', {
         close: () => ipcRenderer.send('window-controls:close'),
         minimize: () => ipcRenderer.send('window-controls:minimize'),
         maximize: () => ipcRenderer.send('window-controls:maximize'),
+    },
+    // Luna Link: Bridge between cloud and local filesystem
+    lunaLink: {
+        connect: (token) => ipcRenderer.send('luna-link:connect', token),
+        disconnect: () => ipcRenderer.send('luna-link:disconnect'),
+        pickFolder: () => ipcRenderer.invoke('luna-link:pick-folder'),
+        isConnected: () => ipcRenderer.invoke('luna-link:status'),
     }
 });

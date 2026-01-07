@@ -104,3 +104,10 @@ async def link_exec_command(uid: str, command: str, cwd: str = None) -> dict:
         "command": command,
         "cwd": cwd
     }, timeout=60.0)  # Commands may take longer
+
+async def link_pick_folder(uid: str) -> dict:
+    """Open a native folder picker dialog on the user's local machine via Luna Link."""
+    return await send_link_command(uid, {
+        "type": "PICK_FOLDER"
+    }, timeout=120.0)  # User may take time to browse
+

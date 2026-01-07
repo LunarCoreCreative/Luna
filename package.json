@@ -2,6 +2,8 @@
   "name": "luna-ui",
   "private": true,
   "version": "1.0.0",
+  "description": "Luna AI Assistant",
+  "author": "Lunar Core Creative",
   "type": "module",
   "main": "main.cjs",
   "scripts": {
@@ -11,7 +13,35 @@
     "server": "python -m server.main",
     "electron": "electron .",
     "electron:dev": "concurrently \"python -m server.main\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "start": "npm run electron:dev"
+    "start": "npm run electron:dev",
+    "dist": "vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.lunarcore.luna",
+    "productName": "LunaAI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs",
+      "LinkService.cjs",
+      "server/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "preload.cjs",
+        "to": "preload.cjs"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
@@ -25,13 +55,16 @@
     "@monaco-editor/react": "^4.7.0",
     "@uiw/codemirror-themes": "^4.25.4",
     "@uiw/react-codemirror": "^4.25.4",
+    "electron-is-dev": "^3.0.1",
+    "express": "^5.2.1",
     "firebase": "^12.7.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.6.1",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
@@ -41,7 +74,7 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.1",
     "electron": "^39.2.7",
-    "electron-is-dev": "^3.0.1",
+    "electron-builder": "^26.4.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "vite": "^6.0.5",

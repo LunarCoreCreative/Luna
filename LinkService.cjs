@@ -91,12 +91,43 @@ class LinkService {
                 case 'TERM_EXEC':
                     return await this.handleTermExec(requestId, command.command, command.cwd);
 
+                case 'PICK_FOLDER':
+                    // This is handled by the main process, so we need IPC
+                    // For now, we'll use a callback mechanism
+                    return this.handlePickFolder(requestId);
+
                 default:
                     return { request_id: requestId, success: false, error: `Unknown command: ${type}` };
             }
         } catch (e) {
             return { request_id: requestId, success: false, error: e.message };
         }
+    }
+
+    // --- Folder Picker Handler (uses Electron dialog via main process) ---
+    handlePickFolder(requestId) {
+        // Since we're in the main process context (LinkService runs in main.cjs),
+        // we can directly use the dialog module
+        const { dialog } = require('electron');
+        const { BrowserWindow } = require('electron');
+
+        return new Promise(async (resolve) => {
+            try {
+                const focusedWindow = BrowserWindow.getFocusedWindow();
+                const result = await dialog.showOpenDialog(focusedWindow, {
+                    properties: ['openDirectory'],
+                    title: 'Luna: Selecione a pasta do projeto'
+                });
+
+                if (result.canceled || !result.filePaths.length) {
+                    resolve({ request_id: requestId, success: false, error: 'Nenhuma pasta selecionada' });
+                } else {
+                    resolve({ request_id: requestId, success: true, path: result.filePaths[0] });
+                }
+            } catch (e) {
+                resolve({ request_id: requestId, success: false, error: e.message });
+            }
+        });
     }
 
     // --- File System Handlers ---

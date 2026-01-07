@@ -186,7 +186,7 @@ def save_memory(user: str, assistant: str, metadata: dict = None):
     """Save a conversation exchange to memory."""
     try:
         # Aumentamos o limite para o Code Agent não perder detalhes técnicos
-        text = f"Ethan: {user} | Luna: {assistant}"
+        text = f"Usuário: {user} | Luna: {assistant}"
         
         # Garante metadados básicos
         meta = metadata or {"type": "conversation"}
@@ -347,7 +347,7 @@ async def consolidate_learning(messages: List[Dict]) -> List[str]:
 
     prompt = f"""Você é um sistema de extração de conhecimento técnico.
 
-Analise esta sessão de interação entre Usuário (Ethan) e Assistente (Luna).
+Analise esta sessão de interação entre Usuário e Assistente (Luna).
 Seu objetivo é extrair APRENDIZADOS REUTILIZÁVEIS, especialmente:
 
 1. **ERROS e suas CORREÇÕES** - O que estava errado e como foi corrigido

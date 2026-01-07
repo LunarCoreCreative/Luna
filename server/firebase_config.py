@@ -20,6 +20,10 @@ def initialize_firebase() -> bool:
     """
     Inicializa o Firebase Admin SDK.
     
+    Suporta duas formas de credenciais:
+    1. Variável de ambiente FIREBASE_CREDENTIALS (JSON ou Base64)
+    2. Arquivo local na pasta documentação
+    
     Returns:
         True se inicializado com sucesso
     """
@@ -31,16 +35,42 @@ def initialize_firebase() -> bool:
     try:
         import firebase_admin
         from firebase_admin import credentials, firestore
+        import json
+        import base64
         
-        # Caminho para a chave de serviço
-        base_dir = Path(__file__).parent.parent
-        key_path = base_dir / "documentação" / "luna-8787d-firebase-adminsdk-fbsvc-506288a734.json"
+        cred = None
         
-        if not key_path.exists():
-            print(f"[FIREBASE] ⚠️ Chave não encontrada: {key_path}")
-            return False
+        # Opção 1: Variável de ambiente (para Railway/Cloud)
+        firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
+        if firebase_creds_env:
+            try:
+                # Tenta como JSON direto
+                cred_dict = json.loads(firebase_creds_env)
+                cred = credentials.Certificate(cred_dict)
+                print("[FIREBASE] ✅ Credenciais carregadas da variável de ambiente!")
+            except json.JSONDecodeError:
+                # Tenta como Base64
+                try:
+                    decoded = base64.b64decode(firebase_creds_env).decode('utf-8')
+                    cred_dict = json.loads(decoded)
+                    cred = credentials.Certificate(cred_dict)
+                    print("[FIREBASE] ✅ Credenciais carregadas (Base64)!")
+                except Exception as e:
+                    print(f"[FIREBASE] ⚠️ Erro ao decodificar FIREBASE_CREDENTIALS: {e}")
         
-        cred = credentials.Certificate(str(key_path))
+        # Opção 2: Arquivo local (para desenvolvimento)
+        if cred is None:
+            base_dir = Path(__file__).parent.parent
+            key_path = base_dir / "documentação" / "luna-8787d-firebase-adminsdk-fbsvc-506288a734.json"
+            
+            if key_path.exists():
+                cred = credentials.Certificate(str(key_path))
+                print(f"[FIREBASE] ✅ Credenciais carregadas do arquivo local!")
+            else:
+                print(f"[FIREBASE] ⚠️ Chave não encontrada: {key_path}")
+                print("[FIREBASE] ⚠️ Configure a variável de ambiente FIREBASE_CREDENTIALS para produção.")
+                return False
+        
         _firebase_app = firebase_admin.initialize_app(cred)
         _firestore_client = firestore.client()
         

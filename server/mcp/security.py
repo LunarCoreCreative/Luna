@@ -50,18 +50,33 @@ class SecurityManager:
         if workspace_root:
             self.set_workspace(workspace_root)
     
-    def set_workspace(self, workspace_root: str) -> bool:
+    def set_workspace(self, workspace_root: str, force: bool = False) -> bool:
         """
         Define o diretório de workspace permitido.
         
         Args:
             workspace_root: Caminho absoluto ou relativo ao workspace.
+            force: If True, skip existence check (for cloud mode with Luna Link).
             
         Returns:
             True se o workspace foi definido com sucesso.
         """
+        import platform
+        
         try:
-            # Expande ~ e resolve para caminho absoluto
+            # Detect cloud mode: Linux server but Windows path
+            is_windows_path = workspace_root.startswith(('C:\\', 'D:\\', 'E:\\', '/mnt/c/', '/mnt/d/'))
+            is_linux_server = platform.system() == "Linux"
+            cloud_mode = is_linux_server and is_windows_path
+            
+            if cloud_mode or force:
+                # Cloud mode: Trust the path, will be validated via Luna Link
+                # Store path as-is without resolving (Windows paths don't resolve on Linux)
+                self._workspace_root = Path(workspace_root)
+                print(f"[SecurityManager] Cloud mode: workspace set to {workspace_root}")
+                return True
+            
+            # Local mode: Validate path exists
             resolved = Path(workspace_root).expanduser().resolve()
             
             if not resolved.exists():
@@ -72,7 +87,8 @@ class SecurityManager:
             
             self._workspace_root = resolved
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[SecurityManager] Error setting workspace: {e}")
             return False
     
     @property

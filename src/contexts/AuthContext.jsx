@@ -71,6 +71,18 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 console.log("[AUTH] Usuário autenticado:", firebaseUser.email);
+
+                // ===== LUNA LINK: Conectar ao servidor cloud =====
+                // Só funciona em ambiente Electron (app desktop)
+                if (typeof window !== 'undefined' && window.electron?.lunaLink) {
+                    try {
+                        const idToken = await firebaseUser.getIdToken();
+                        window.electron.lunaLink.connect(idToken);
+                        console.log("[AUTH] Luna Link connection requested.");
+                    } catch (e) {
+                        console.warn("[AUTH] Could not connect Luna Link:", e.message);
+                    }
+                }
             } else {
                 setUser(null);
                 setProfile(null);
@@ -78,6 +90,11 @@ export const AuthProvider = ({ children }) => {
                 // Reset para defaults anônimos se necessário, ou manter estado local
                 setPlan('spark');
                 checkCooldown(); // Verifica cooldown do usuário anônimo
+
+                // Disconnect Luna Link when logged out
+                if (typeof window !== 'undefined' && window.electron?.lunaLink) {
+                    window.electron.lunaLink.disconnect();
+                }
             }
             setLoading(false);
         });

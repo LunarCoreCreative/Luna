@@ -212,11 +212,33 @@ from .code_agent import CodeAgentState, code_agent_generator
 code_agent_state = CodeAgentState()
 
 @app.post("/system/pick-folder")
-async def system_pick_folder():
-    """Opens a native Windows folder picker dialog on the server side."""
+async def system_pick_folder(request: Request):
+    """
+    Opens a native folder picker dialog.
+    - In production: Uses Luna Link to trigger dialog in user's Electron app
+    - In local dev: Uses local PowerShell dialog (Windows only)
+    """
+    import platform
+    
+    # Try to get user ID from request header (for Luna Link routing)
+    uid = request.headers.get("X-User-ID")
+    
+    # Check if Luna Link is available for this user
+    if uid and link_manager.has_active_link(uid):
+        # Route via Luna Link (Electron client)
+        result = await link_manager.link_pick_folder(uid)
+        return result
+    
+    # Fallback: Local mode (only works on Windows in local dev)
+    if platform.system() != "Windows":
+        return {
+            "success": False, 
+            "error": "Luna Link não conectado. Abra o app Luna Desktop para usar o IDE."
+        }
+    
+    # Local Windows fallback (development mode)
     import subprocess
     
-    # PowerShell command to open FolderBrowserDialog
     ps_script = """
     Add-Type -AssemblyName System.Windows.Forms
     $f = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -228,7 +250,6 @@ async def system_pick_folder():
     """
     
     try:
-        # Run PowerShell command
         result = subprocess.run(
             ["powershell", "-Command", ps_script], 
             capture_output=True, 

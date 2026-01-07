@@ -5,11 +5,15 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { API_CONFIG } from '../config/api';
 
-const WS_URL = "ws://localhost:8001/ws/code-agent";
-const API_URL = "http://localhost:8001";
+// Use centralized config for API URLs
+const WS_URL = API_CONFIG.WS_AGENT;
+const API_URL = API_CONFIG.BASE_URL;
 
 export function useCodeAgent() {
+    const { user, profile } = useAuth();
     // Estado do workspace
     const [workspace, setWorkspace] = useState(null);
     const [isConfigured, setIsConfigured] = useState(false);
@@ -516,9 +520,11 @@ export function useCodeAgent() {
         wsRef.current.send(JSON.stringify({
             type: 'message',
             content,
-            images
+            images,
+            user_id: user?.uid || null,
+            user_name: profile?.displayName || user?.displayName || "Usuário"
         }));
-    }, [connect]);
+    }, [connect, user, profile]);
 
     const approveCommand = useCallback((approved) => {
         if (!wsRef.current || !pendingApproval) return;

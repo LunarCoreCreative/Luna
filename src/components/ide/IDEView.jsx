@@ -45,8 +45,9 @@ import FileExplorer from './FileExplorer';
 import IDETerminal from './Terminal';
 import { ChatInput } from '../chat/ChatInput';
 import ProgressTimeline from './ProgressTimeline';
+import { API_CONFIG } from '../../config/api';
 
-const API_URL = "http://localhost:8001";
+const API_URL = API_CONFIG.BASE_URL;
 
 // =============================================================================
 // WORKSPACE SELECTOR (Initial Screen)
@@ -97,8 +98,36 @@ function WorkspaceSelector({ onSelect }) {
 
     const handleNativePick = async () => {
         setLoading(true);
+        setError('');
+
+        // Check if running in Electron - use direct IPC for folder picker
+        if (window.electron?.lunaLink?.pickFolder) {
+            try {
+                const result = await window.electron.lunaLink.pickFolder();
+                if (result.success && result.path) {
+                    await handleSelect(result.path);
+                } else if (result.error && result.error !== "Nenhuma pasta selecionada") {
+                    setError(result.error);
+                }
+            } catch (e) {
+                setError("Falha ao abrir seletor de pastas.");
+            }
+            setLoading(false);
+            return;
+        }
+
+        // Fallback: API call (for web or dev mode)
         try {
-            const res = await fetch(`${API_URL}/system/pick-folder`, { method: 'POST' });
+            // Get user ID from auth context if available
+            const userId = localStorage.getItem('luna_current_user_id') || '';
+
+            const res = await fetch(`${API_URL}/system/pick-folder`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                }
+            });
             const data = await res.json();
 
             if (data.success && data.path) {
@@ -120,14 +149,35 @@ function WorkspaceSelector({ onSelect }) {
 
     const startCreateProject = async () => {
         setLoading(true);
+        setError('');
+
+        // Use IPC if in Electron
+        if (window.electron?.lunaLink?.pickFolder) {
+            try {
+                const result = await window.electron.lunaLink.pickFolder();
+                if (result.success && result.path) {
+                    setParentPath(result.path);
+                    setIsCreating(true);
+                } else if (result.error && result.error !== "Nenhuma pasta selecionada") {
+                    setError(result.error);
+                }
+            } catch (e) {
+                setError("Falha ao abrir seletor.");
+            }
+            setLoading(false);
+            return;
+        }
+
+        // Fallback: API call
         try {
-            // 1. Escolher pasta pai
             const res = await fetch(`${API_URL}/system/pick-folder`, { method: 'POST' });
             const data = await res.json();
 
             if (data.success && data.path) {
                 setParentPath(data.path);
-                setIsCreating(true); // Abre modal de nome
+                setIsCreating(true);
+            } else if (data.error) {
+                setError(data.error);
             }
         } catch (e) {
             setError("Falha ao abrir seletor.");
