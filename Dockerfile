@@ -25,12 +25,11 @@ COPY . .
 # Build frontend
 RUN npm run build
 
-# Expose port
-EXPOSE 8001
+# Environment variable for port (Railway provides this)
+ENV PORT=8001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+# Expose the port
+EXPOSE ${PORT}
 
-# Start server
+# Start server (Railway will override PORT)
 CMD ["python", "-m", "server.main"]
