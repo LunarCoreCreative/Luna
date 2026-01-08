@@ -535,7 +535,7 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
         prompt += "\n\n[MEMÓRIAS]:\n" + "\n".join(memories)
     
     # Search Study Mode documents for relevant context
-    study_results = search_study_documents(user_msg, n=3)
+    study_results = search_study_documents(user_msg, n_results=3, user_id=request.user_id) if request.user_id else []
     if study_results:
         study_context = "\n\n[CONHECIMENTO ESTUDADO (DOCUMENTOS DO USUÁRIO)]:\n"
         for i, result in enumerate(study_results, 1):
