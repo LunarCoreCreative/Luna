@@ -387,34 +387,35 @@ async def execute_terminal_command(data: dict):
 # =============================================================================
 
 @app.get("/code-agent/chats")
-async def get_ide_chats():
-    return {"success": True, "chats": ChatManager.list_chats(storage_dir=IDE_CHAT_DIR)}
+async def get_ide_chats(user_id: Optional[str] = None):
+    return {"success": True, "chats": ChatManager.list_chats(storage_dir=IDE_CHAT_DIR, user_id=user_id)}
 
 @app.get("/code-agent/chats/{chat_id}")
-async def get_ide_chat_details(chat_id: str):
-    data = ChatManager.load_chat(chat_id, storage_dir=IDE_CHAT_DIR)
+async def get_ide_chat_details(chat_id: str, user_id: Optional[str] = None):
+    data = ChatManager.load_chat(chat_id, user_id=user_id, storage_dir=IDE_CHAT_DIR)
     if data:
         return {"success": True, "chat": data}
     return {"success": False, "error": "Chat de IDE não encontrado"}
 
 @app.post("/code-agent/chats")
 async def save_ide_chat_endpoint(req: SaveChatRequest):
-    data = ChatManager.save_chat(req.chat_id, req.messages, req.title, req.thread_id, storage_dir=IDE_CHAT_DIR)
+    data = ChatManager.save_chat(req.chat_id, req.messages, req.title, req.thread_id, user_id=req.user_id, storage_dir=IDE_CHAT_DIR)
     return {"success": True, "chat": data}
 
 @app.delete("/code-agent/chats/{chat_id}")
-async def delete_ide_chat_endpoint(chat_id: str):
-    success = ChatManager.delete_chat(chat_id, storage_dir=IDE_CHAT_DIR)
+async def delete_ide_chat_endpoint(chat_id: str, user_id: Optional[str] = None):
+    success = ChatManager.delete_chat(chat_id, user_id=user_id, storage_dir=IDE_CHAT_DIR)
     return {"success": success}
 
 @app.post("/code-agent/chats/load")
 async def load_ide_chat_endpoint(data: dict):
     """Carrega um chat específico para o estado ativo do agente."""
     chat_id = data.get("chat_id")
+    user_id = data.get("user_id")
     if not chat_id:
         return {"success": False, "error": "chat_id não especificado"}
         
-    chat_data = ChatManager.load_chat(chat_id, storage_dir=IDE_CHAT_DIR)
+    chat_data = ChatManager.load_chat(chat_id, user_id=user_id, storage_dir=IDE_CHAT_DIR)
     if not chat_data:
         return {"success": False, "error": "Chat não encontrado"}
         
@@ -424,11 +425,15 @@ async def load_ide_chat_endpoint(data: dict):
     return {"success": True, "chat": chat_data}
 
 @app.post("/code-agent/chats/new")
-async def new_ide_chat_endpoint():
+async def new_ide_chat_endpoint(data: dict = None):
     """Cria uma nova sessão limpa para o agente."""
     state = get_code_agent_state()
     state.messages = []
     state.active_chat_id = str(uuid.uuid4())
+    
+    # Set user_id if provided
+    if data and data.get("user_id"):
+        state.user_id = data.get("user_id")
     
     return {
         "success": True, 

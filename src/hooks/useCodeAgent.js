@@ -151,7 +151,8 @@ export function useCodeAgent() {
     // Gerenciamento de Chats
     const fetchChats = useCallback(async () => {
         try {
-            const res = await fetch(`${API_URL}/code-agent/chats`);
+            const query = user?.uid ? `?user_id=${user.uid}` : "";
+            const res = await fetch(`${API_URL}/code-agent/chats${query}`);
             const data = await res.json();
             if (data.success) {
                 setChats(data.chats);
@@ -159,14 +160,14 @@ export function useCodeAgent() {
         } catch (e) {
             console.error("[CodeAgent] Failed to fetch chats:", e);
         }
-    }, []);
+    }, [user]);
 
     const loadChat = useCallback(async (chatId) => {
         try {
             const res = await fetch(`${API_URL}/code-agent/chats/load`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chatId })
+                body: JSON.stringify({ chat_id: chatId, user_id: user?.uid })
             });
             const data = await res.json();
             if (data.success) {
@@ -195,12 +196,14 @@ export function useCodeAgent() {
         } catch (e) {
             console.error("[CodeAgent] Failed to load chat:", e);
         }
-    }, []);
+    }, [user]);
 
     const newChat = useCallback(async () => {
         try {
             const res = await fetch(`${API_URL}/code-agent/chats/new`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user?.uid })
             });
             const data = await res.json();
             if (data.success) {
@@ -217,7 +220,7 @@ export function useCodeAgent() {
         } catch (e) {
             console.error("[CodeAgent] Failed to create new chat:", e);
         }
-    }, []);
+    }, [user]);
 
     const deleteChat = useCallback(async (chatId) => {
         try {
