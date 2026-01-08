@@ -33,10 +33,13 @@ venv/
 env/
 .env
 
-data/
+/data/
 release/
 dist-electron/
 out/
 *.exe
 *.zip
 *.asar
+# Creduais
+documentação/*firebase*.json
+*firebase-adminsdk*.json

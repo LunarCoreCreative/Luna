@@ -204,6 +204,7 @@ function App() {
     const activeToolRef = useRef(null);
     const [streamThought, setStreamThought] = useState(null);
     const [isThinkingMode, setIsThinkingMode] = useState(false);
+    const [isCanvasMode, setIsCanvasMode] = useState(false);
     const [studyModeOpen, setStudyModeOpen] = useState(false);
     const [ideMode, setIdeMode] = useState(false);
     const [settingsTab, setSettingsTab] = useState("general");
@@ -380,6 +381,7 @@ function App() {
                         messages: next,
                         agent_mode: true,
                         deep_thinking: thinkingMode,
+                        canvas_mode: isCanvasMode,
                         active_artifact_id: artifacts.activeArtifact?.id, // Injeta o ID do artefato ativo se houver
                         user_id: user?.uid || null,
                         user_name: profile?.displayName || user?.displayName || "Usuário"
@@ -1306,6 +1308,8 @@ function App() {
                                         attachmentsHook={attachmentsHook}
                                         isThinkingMode={isThinkingMode}
                                         setIsThinkingMode={setIsThinkingMode}
+                                        isCanvasMode={isCanvasMode}
+                                        setIsCanvasMode={setIsCanvasMode}
                                     />
                                 </div>
                             )}

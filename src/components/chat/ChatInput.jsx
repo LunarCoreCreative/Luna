@@ -5,7 +5,8 @@ import {
     Send,
     XCircle,
     X,
-    ImageIcon
+    ImageIcon,
+    FileText
 } from "lucide-react";
 
 export const ChatInput = forwardRef(({
@@ -15,6 +16,8 @@ export const ChatInput = forwardRef(({
     attachmentsHook,
     isThinkingMode,
     setIsThinkingMode,
+    isCanvasMode,
+    setIsCanvasMode,
     placeholder = "Responda..."
 }, ref) => {
     const [input, setInput] = useState("");
@@ -83,6 +86,13 @@ export const ChatInput = forwardRef(({
                     title="Ativar Pensamento Profundo"
                 >
                     <Brain size={20} className={isThinkingMode ? "animate-pulse" : ""} />
+                </button>
+                <button
+                    onClick={() => setIsCanvasMode(!isCanvasMode)}
+                    className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isCanvasMode ? "text-cyan-400 bg-cyan-500/10" : "text-gray-400"}`}
+                    title={isCanvasMode ? "Modo Canvas Ativado" : "Ativar Modo Canvas (Geração de Arquivos)"}
+                >
+                    <FileText size={20} />
                 </button>
                 <textarea
                     ref={internalInputRef}

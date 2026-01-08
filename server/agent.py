@@ -591,11 +591,22 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
             current_tool_choice = "auto"
             current_tools = tools
             
-            # PRIORIDADE: Forçar criação de artefatos se detectado
+            # PRIORIDADE: Forçar criação de artefatos se detectado (APENAS SE CANVAS MODE ATIVO)
             has_tool_result = any(m.get("role") == "tool" for m in msgs)
             is_creation = should_force_artifact(user_msg)
             
+            # FILTRO DE SEGURANÇA: Se canvas_mode for False, remove ferramentas de artefato
+            if not request.canvas_mode:
+                # Remove create_artifact e edit_artifact da lista de ferramentas disponíveis
+                current_tools = [t for t in tools if t["function"]["name"] not in ["create_artifact", "edit_artifact", "get_artifact"]]
+                # Força is_creation a False para não cair no bloco de ativação automática
+                is_creation = False
+                
+                if iteration == 0:
+                    safe_print(f"[DEBUG-AGENT] Canvas Mode OFF - Ferramentas de artefato desativadas.")
+            
             if not has_tool_result and is_creation and iteration < 2:
+                # Se Canvas Mode está ativo E detectamos intenção
                 current_tools = [t for t in tools if t["function"]["name"] in ["create_artifact", "edit_artifact", "get_artifact"]]
                 current_tool_choice = "auto"
                 hint = "\n\n[SISTEMA: AJA AGORA. Use 'create_artifact' ou 'edit_artifact'. Não planeje infinitamente.]"

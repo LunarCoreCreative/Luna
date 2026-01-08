@@ -33,6 +33,7 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     agent_mode: bool = True
     deep_thinking: bool = False
+    canvas_mode: bool = False # Controle explícito de ferramentas de Canvas
     active_artifact_id: Optional[str] = None
     user_id: Optional[str] = None
     user_name: Optional[str] = "Usuário"
