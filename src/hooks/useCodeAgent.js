@@ -221,7 +221,8 @@ export function useCodeAgent() {
 
     const deleteChat = useCallback(async (chatId) => {
         try {
-            const res = await fetch(`${API_URL}/code-agent/chats/${chatId}`, {
+            const query = user?.uid ? `?user_id=${user.uid}` : "";
+            const res = await fetch(`${API_URL}/code-agent/chats/${chatId}${query}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -236,7 +237,7 @@ export function useCodeAgent() {
         } catch (e) {
             console.error("[CodeAgent] Failed to delete chat:", e);
         }
-    }, [activeChatId, fetchChats]);
+    }, [activeChatId, fetchChats, user]);
 
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;

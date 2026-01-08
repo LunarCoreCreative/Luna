@@ -37,7 +37,8 @@ export const useChat = () => {
     const loadChat = useCallback(async (id) => {
         if (isStreamingRef.current) return;
         try {
-            const r = await fetch(`${MEMORY_SERVER}/chats/${id}`);
+            const query = user?.uid ? `?user_id=${user.uid}` : "";
+            const r = await fetch(`${MEMORY_SERVER}/chats/${id}${query}`);
             const d = await r.json();
             if (d.success) {
                 const msgs = (d.chat.messages || []).map(m => {
@@ -54,7 +55,7 @@ export const useChat = () => {
         } catch (e) {
             console.error("Failed to load chat", e);
         }
-    }, []);
+    }, [user]);
 
     const startNewChat = useCallback(() => {
         if (isStreamingRef.current) return;
@@ -69,7 +70,8 @@ export const useChat = () => {
         e.stopPropagation();
         if (!confirm("Tem certeza que deseja excluir esta conversa?")) return;
         try {
-            const r = await fetch(`${MEMORY_SERVER}/chats/${id}`, { method: "DELETE" });
+            const query = user?.uid ? `?user_id=${user.uid}` : "";
+            const r = await fetch(`${MEMORY_SERVER}/chats/${id}${query}`, { method: "DELETE" });
             const d = await r.json();
             if (d.success) {
                 if (currentChatIdRef.current === id) startNewChat();
@@ -78,7 +80,7 @@ export const useChat = () => {
         } catch (e) {
             console.error("Failed to delete chat", e);
         }
-    }, [startNewChat, loadChats]);
+    }, [startNewChat, loadChats, user]);
 
     const renameChat = useCallback(async (e, id, currentTitle) => {
         e.stopPropagation();
@@ -86,7 +88,8 @@ export const useChat = () => {
         if (!newTitle || newTitle === currentTitle) return;
 
         try {
-            const res = await fetch(`${MEMORY_SERVER}/chats/${id}`);
+            const query = user?.uid ? `?user_id=${user.uid}` : "";
+            const res = await fetch(`${MEMORY_SERVER}/chats/${id}${query}`);
             const data = await res.json();
             if (data.success) {
                 const body = {

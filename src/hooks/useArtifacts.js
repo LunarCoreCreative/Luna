@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { API_CONFIG } from "../config/api";
+import { useAuth } from "../contexts/AuthContext";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
@@ -7,6 +8,7 @@ const MEMORY_SERVER = API_CONFIG.BASE_URL;
  * useArtifacts - Hook para gerenciamento de artefatos e canvas
  */
 export const useArtifacts = (currentChatId, persistChat) => {
+    const { user } = useAuth();
     const [canvasOpen, setCanvasOpen] = useState(false);
     const [activeArtifact, setActiveArtifact] = useState(null);
 
@@ -20,7 +22,8 @@ export const useArtifacts = (currentChatId, persistChat) => {
 
         if (!isTemporary) {
             try {
-                const res = await fetch(`${MEMORY_SERVER}/artifacts/${activeArtifact.id}`, {
+                const query = user?.uid ? `?user_id=${user.uid}` : "";
+                const res = await fetch(`${MEMORY_SERVER}/artifacts/${activeArtifact.id}${query}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ content: newContent })
@@ -46,7 +49,7 @@ export const useArtifacts = (currentChatId, persistChat) => {
             persistChat(newMessages, currentChatId);
             return newMessages;
         });
-    }, [activeArtifact, currentChatId, persistChat]);
+    }, [activeArtifact, currentChatId, persistChat, user]);
 
     const handleDeleteArtifact = useCallback(async (artifactId, messages, setMessages) => {
         if (!artifactId) return;
@@ -56,7 +59,8 @@ export const useArtifacts = (currentChatId, persistChat) => {
 
         if (!isTemporary) {
             try {
-                await fetch(`${MEMORY_SERVER}/artifacts/${artifactId}`, { method: 'DELETE' });
+                const query = user?.uid ? `?user_id=${user.uid}` : "";
+                await fetch(`${MEMORY_SERVER}/artifacts/${artifactId}${query}`, { method: 'DELETE' });
             } catch (err) {
                 console.error("Erro ao excluir artefato:", err);
             }
@@ -77,7 +81,7 @@ export const useArtifacts = (currentChatId, persistChat) => {
             setActiveArtifact(null);
             setCanvasOpen(false);
         }
-    }, [activeArtifact, currentChatId, persistChat]);
+    }, [activeArtifact, currentChatId, persistChat, user]);
 
     const openArtifact = useCallback((artifact) => {
         setActiveArtifact(artifact);
