@@ -38,7 +38,16 @@ from . import link_manager
 # APP INITIALIZATION
 # =============================================================================
 
-app = FastAPI(title="Luna Memory Server", version="2.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Inicialização (Equivalente ao Startup)
+    asyncio.create_task(preload_models())
+    yield
+    # Limpeza (se necessário) pode ser feita aqui
+
+app = FastAPI(title="Luna Memory Server", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,11 +59,6 @@ app.add_middleware(
 
 # Register Study Mode routes
 app.include_router(study_router)
-
-@app.on_event("startup")
-async def startup():
-    import asyncio
-    asyncio.create_task(preload_models())
 
 # =============================================================================
 # HEALTH & STATUS

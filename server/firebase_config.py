@@ -61,15 +61,26 @@ def initialize_firebase() -> bool:
         # Opção 2: Arquivo local (para desenvolvimento)
         if cred is None:
             base_dir = Path(__file__).parent.parent
-            key_path = base_dir / "documentação" / "luna-8787d-firebase-adminsdk-fbsvc-506288a734.json"
+            doc_dir = base_dir / "documentação"
             
-            if key_path.exists():
+            # Busca dinâmica por arquivos JSON de credenciais
+            key_files = list(doc_dir.glob("*firebase-adminsdk*.json"))
+            
+            if key_files:
+                # Usa o primeiro arquivo encontrado
+                key_path = key_files[0]
                 cred = credentials.Certificate(str(key_path))
-                print(f"[FIREBASE] ✅ Credenciais carregadas do arquivo local!")
+                print(f"[FIREBASE] ✅ Credenciais carregadas do arquivo: {key_path.name}")
             else:
-                print(f"[FIREBASE] ⚠️ Chave não encontrada: {key_path}")
-                print("[FIREBASE] ⚠️ Configure a variável de ambiente FIREBASE_CREDENTIALS para produção.")
-                return False
+                # Fallback para o nome de arquivo antigo se for um caminho específico conhecido
+                legacy_path = doc_dir / "luna-8787d-firebase-adminsdk-fbsvc-506288a734.json"
+                if legacy_path.exists():
+                    cred = credentials.Certificate(str(legacy_path))
+                    print(f"[FIREBASE] ✅ Credenciais carregadas do arquivo legado!")
+                else:
+                    print(f"[FIREBASE] ⚠️ Nenhuma chave JSON encontrada em: {doc_dir}")
+                    print("[FIREBASE] ⚠️ Configure a variável de ambiente FIREBASE_CREDENTIALS para produção.")
+                    return False
         
         _firebase_app = firebase_admin.initialize_app(cred)
         _firestore_client = firestore.client()

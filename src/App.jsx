@@ -28,6 +28,7 @@ import {
     Eye,
     EyeOff,
     Zap,
+    ZapOff,
     BellOff,
     Clock,
     LayoutDashboard,

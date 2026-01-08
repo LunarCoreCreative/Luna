@@ -41,7 +41,7 @@ export const MessageItem = memo(({
     return (
         <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} message-enter`}>
             <div
-                className={`max-w-[85%] rounded-2xl px-5 py-4 text-base leading-relaxed shadow-lg ${message.role === "user" ? "bg-[var(--user-bubble)] text-white rounded-tr-sm border border-white/20 whitespace-pre-wrap" : "glass-panel rounded-tl-sm"}`}
+                className={`max-w-[85%] rounded-2xl px-6 py-5 text-base leading-relaxed shadow-lg ${message.role === "user" ? "bg-[var(--user-bubble)] text-white rounded-tr-sm border border-white/20 whitespace-pre-wrap" : "glass-panel rounded-tl-sm"}`}
                 style={{ color: message.role === "user" ? 'white' : 'var(--text-primary)' }}
             >
                 {/* Render images if user sent them */}
