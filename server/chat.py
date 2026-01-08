@@ -1,7 +1,7 @@
 """
-Luna Chat Manager
+Luna Chat Manager (Cloud Sync)
 -----------------
-Persistent chat storage and management.
+Persistent chat storage using Firebase Firestore (primary) and local JSON (cache/dev).
 """
 
 import json
@@ -12,6 +12,12 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel
 
 from .config import CHAT_DIR
+from .firebase_config import (
+    save_chat_to_firebase, 
+    get_user_chats, 
+    get_chat_detail, 
+    delete_chat_from_firebase
+)
 
 # =============================================================================
 # PYDANTIC MODELS
@@ -21,7 +27,7 @@ class Message(BaseModel):
     role: str
     content: str
     images: List[str] = []
-    artifact: Optional[Dict] = None  # Suporte para artefatos do Canvas
+    artifact: Optional[Dict] = None
 
 class ChatRequest(BaseModel):
     messages: List[Message]
@@ -36,7 +42,7 @@ class SaveChatRequest(BaseModel):
     thread_id: Optional[str] = None
     messages: List[Dict]
     title: Optional[str] = None
-    user_id: Optional[str] = None  # Added for user isolation
+    user_id: Optional[str] = None
 
 class CreateThreadRequest(BaseModel):
     title: Optional[str] = None
@@ -50,147 +56,74 @@ class ChatManager:
     
     @staticmethod
     def list_chats(storage_dir: Path = CHAT_DIR, user_id: str = None) -> List[Dict]:
-        """List all saved chats, optionally filtering by user_id."""
+        """List all saved chats."""
+        if user_id:
+            return get_user_chats(user_id)
+            
+        # Fallback local
         chats = []
         for f in storage_dir.glob("*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                
-                # Filter by user_id if provided
-                if user_id and data.get("user_id") and data.get("user_id") != user_id:
-                    continue
-                    
-                threads = data.get("threads", [])
                 chats.append({
                     "id": data.get("id"),
                     "title": data.get("title", "Sem título"),
                     "updated_at": data.get("updated_at", ""),
-                    "user_id": data.get("user_id"),
-                    "thread_count": len(threads),
-                    "threads": [{"id": t["id"], "title": t.get("title", "Thread")} for t in threads],
                     "preview": data.get("messages", [])[-1].get("content", "")[:60] if data.get("messages") else ""
                 })
-            except Exception:
-                continue
+            except: continue
         return sorted(chats, key=lambda x: x["updated_at"], reverse=True)
     
     @staticmethod
-    def load_chat(chat_id: str, thread_id: str = None, storage_dir: Path = CHAT_DIR) -> Optional[Dict]:
-        """Load a specific chat or thread."""
+    def load_chat(chat_id: str, user_id: str = None, storage_dir: Path = CHAT_DIR) -> Optional[Dict]:
+        """Load a specific chat."""
+        if user_id:
+            return get_chat_detail(user_id, chat_id)
+            
+        # Fallback local
         file_path = storage_dir / f"{chat_id}.json"
-        if not file_path.exists():
-            return None
-        
-        data = json.loads(file_path.read_text(encoding="utf-8"))
-        if thread_id:
-            for t in data.get("threads", []):
-                if t["id"] == thread_id:
-                    return {"chat_id": chat_id, "thread": t}
-            return None
-        return data
+        if not file_path.exists(): return None
+        return json.loads(file_path.read_text(encoding="utf-8"))
     
     @staticmethod
     def save_chat(chat_id: str, messages: List[Dict], title: str = None, thread_id: str = None, user_id: str = None, storage_dir: Path = CHAT_DIR) -> Dict:
         """Save or update a chat."""
         if not chat_id:
             chat_id = str(uuid.uuid4())
-        
-        file_path = storage_dir / f"{chat_id}.json"
+            
+        if not title and messages:
+            title = messages[0].get("content", "Nova Conversa")[:30]
+            
         now = datetime.now().isoformat()
-        current_data = {"threads": []}
         
-        if file_path.exists():
-            try:
-                current_data = json.loads(file_path.read_text(encoding="utf-8"))
-                if "threads" not in current_data:
-                    current_data["threads"] = []
-            except Exception:
-                pass
-        
-        # Preserve existing user_id or set new one if creating/claiming
+        # Save to Cloud if user logged in
         if user_id:
-            current_data["user_id"] = user_id
+            save_chat_to_firebase(user_id, chat_id, title, messages)
+            
+        # Local Sync/Fallback
+        data = {
+            "id": chat_id,
+            "title": title,
+            "messages": messages,
+            "updated_at": now,
+            "user_id": user_id
+        }
         
-        if thread_id:
-            threads = current_data.get("threads", [])
-            found = False
-            for i, t in enumerate(threads):
-                if t["id"] == thread_id:
-                    threads[i]["messages"] = messages
-                    threads[i]["updated_at"] = now
-                    if title:
-                        threads[i]["title"] = title
-                    found = True
-                    break
-            if not found:
-                threads.append({
-                    "id": thread_id,
-                    "title": title or f"Thread {len(threads)+1}",
-                    "messages": messages,
-                    "created_at": now,
-                    "updated_at": now
-                })
-            current_data["threads"] = threads
-            current_data["updated_at"] = now
-        else:
-            final_title = title or current_data.get("title") or (messages[0].get("content", "Novo Chat")[:30] if messages else "Novo Chat")
-            current_data.update({
-                "id": chat_id,
-                "title": final_title,
-                "messages": messages,
-                "created_at": current_data.get("created_at", now),
-                "updated_at": now
-            })
+        try:
+            file_path = storage_dir / f"{chat_id}.json"
+            file_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except: pass
         
-        file_path.write_text(json.dumps(current_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        return current_data
-    
+        return data
+
     @staticmethod
-    def delete_chat(chat_id: str, storage_dir: Path = CHAT_DIR) -> bool:
+    def delete_chat(chat_id: str, user_id: str = None, storage_dir: Path = CHAT_DIR) -> bool:
         """Delete a chat."""
+        if user_id:
+            delete_chat_from_firebase(user_id, chat_id)
+            
+        # Local cleanup
         file_path = storage_dir / f"{chat_id}.json"
         if file_path.exists():
             file_path.unlink()
-            return True
-        return False
-    
-    @staticmethod
-    def create_thread(chat_id: str, title: str = None, storage_dir: Path = CHAT_DIR) -> Optional[Dict]:
-        """Create a new thread in a chat."""
-        file_path = storage_dir / f"{chat_id}.json"
-        if not file_path.exists():
-            return None
-        
-        data = json.loads(file_path.read_text(encoding="utf-8"))
-        now = datetime.now().isoformat()
-        thread_id = str(uuid.uuid4())
-        
-        if "threads" not in data:
-            data["threads"] = []
-        
-        new_thread = {
-            "id": thread_id,
-            "title": title or f"Thread {len(data['threads'])+1}",
-            "messages": [],
-            "created_at": now,
-            "updated_at": now
-        }
-        data["threads"].append(new_thread)
-        data["updated_at"] = now
-        
-        file_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        return new_thread
-    
-    @staticmethod
-    def delete_thread(chat_id: str, thread_id: str, storage_dir: Path = CHAT_DIR) -> bool:
-        """Delete a thread from a chat."""
-        file_path = storage_dir / f"{chat_id}.json"
-        if not file_path.exists():
-            return False
-        
-        data = json.loads(file_path.read_text(encoding="utf-8"))
-        data["threads"] = [t for t in data.get("threads", []) if t["id"] != thread_id]
-        data["updated_at"] = datetime.now().isoformat()
-        
-        file_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return True

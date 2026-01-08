@@ -15,7 +15,8 @@ from .api import call_api_stream, get_vision_description
 from .chat import ChatRequest
 from .tools import TOOLS, execute_tool, get_tools_schema
 from . import artifacts
-from .stream_parser import StreamStateParser  # IMPORTANTE: Importar o novo parser
+from .stream_parser import StreamStateParser
+from .markdown_fixer import fix_markdown
 
 # =============================================================================
 # LOGGING SEGURO (Mapeamento de caracteres para evitar crash no Windows)
@@ -275,7 +276,7 @@ def should_force_artifact(user_msg: str) -> bool:
     
     return False
 
-def handle_edit_artifact(args: dict, messages: list) -> dict:
+def handle_edit_artifact(args: dict, messages: list, user_id: str = None) -> dict:
     """
     Executa a edição de um artefato existente usando Search & Replace.
     Busca o artefato no histórico pelo ID e aplica as mudanças.
@@ -300,7 +301,7 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
         # Se falhar, tentamos ler do disco via artifacts (se importado)
         try:
             from . import artifacts
-            found = artifacts.get_artifact(artifact_id)
+            found = artifacts.get_artifact(artifact_id, user_id=user_id)
             if found:
                 target_artifact = found
                 safe_print(f"[DEBUG-EDIT] Artefato encontrado via Store: {target_artifact.get('title')}")
@@ -397,7 +398,7 @@ def handle_edit_artifact(args: dict, messages: list) -> dict:
     if new_content != current_content:
         try:
             from .artifacts import save_artifact as persist_artifact
-            result = persist_artifact(updated_artifact)
+            result = persist_artifact(updated_artifact, user_id=user_id)
             if result.get("success") and result.get("artifact"):
                 updated_artifact = result["artifact"]
         except Exception as e:
@@ -452,7 +453,7 @@ async def unified_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     
     
     # Search memories
-    memories = search_memories(user_msg) if user_msg.strip() else []
+    memories = search_memories(user_msg, user_id=request.user_id) if user_msg.strip() and request.user_id else []
     
     # -------------------------------------------------------------------------
     # GESTÃO DE CONTEXTO DE ARTEFATO ATIVO
@@ -463,7 +464,7 @@ async def unified_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     if request.active_artifact_id:
         # Busca a versão mais atualizada direto da persistência (ArtifactStore)
         # Isso garante que edições manuais do usuário sejam capturadas!
-        found_art = artifacts.get_artifact(request.active_artifact_id)
+        found_art = artifacts.get_artifact(request.active_artifact_id, user_id=request.user_id)
         
         if found_art:
             active_artifact_title = found_art.get('title', 'Sem título')
@@ -704,6 +705,7 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
                             
                             if filtered:
                                 display_text = format_chat_text(filtered)
+                                display_text = fix_markdown(display_text)
                                 current_content += filtered
                                 yield f"data: {json.dumps({'content': display_text})}\n\n"
                         
@@ -769,10 +771,10 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
                     
                     try:
                         if name == "edit_artifact":
-                            # Lógica customizada para edição com acesso ao histórico
-                            result = handle_edit_artifact(args, request.messages) # Usa messages ORIGINAIS para busca, não msgs (que é só prompt)
+                            # Custom edit logic
+                            result = handle_edit_artifact(args, request.messages, user_id=request.user_id)
                         else:
-                            result = execute_tool(name, args)
+                            result = execute_tool(name, args, user_id=request.user_id)
                     except Exception as e:
                         result = {"success": False, "error": str(e)}
                     
@@ -828,7 +830,7 @@ INSTRUÇÕES CRÍTICAS PARA SUA RESPOSTA:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     finally:
         # Save to memory
-        if full_response:
-            save_memory(user_msg, full_response)
+        if full_response and request.user_id:
+            save_memory(user_msg, {"response": full_response}, user_id=request.user_id)
     
     yield f"data: {json.dumps({'done': True})}\n\n"

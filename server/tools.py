@@ -398,18 +398,9 @@ def read_url(url: str) -> Dict[str, Any]:
 # CANVAS - CRIAÇÃO DE ARTEFATOS
 # =============================================================================
 
-def create_artifact(title: str, artifact_type: str, content: str, language: str = None) -> Dict[str, Any]:
+def create_artifact(title: str, artifact_type: str, content: str, language: str = None, user_id: str = None) -> Dict[str, Any]:
     """
     Cria um artefato no Canvas.
-    
-    IMPORTANTE: Esta ferramenta DEVE ser usada para qualquer código, documento ou diagrama.
-    NUNCA escreva código diretamente no chat.
-    
-    Args:
-        title: Título descritivo do artefato (ex: "Componente de Login")
-        artifact_type: Tipo do conteúdo (code, markdown, react, mermaid, svg)
-        content: Conteúdo COMPLETO e executável. Sem placeholders.
-        language: Linguagem de programação (python, javascript, typescript, etc)
     """
     import uuid
     from .artifacts import save_artifact as persist_artifact
@@ -431,7 +422,7 @@ def create_artifact(title: str, artifact_type: str, content: str, language: str 
     }
     
     # Persist to storage
-    persist_artifact(artifact)
+    persist_artifact(artifact, user_id=user_id)
     
     return {
         "success": True,
@@ -537,19 +528,23 @@ TOOLS = {
     }
 }
 
-def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Executa uma tool pelo nome."""
+def execute_tool(tool_name: str, args: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:
+    """Executa uma tool pelo nome, passando user_id se necessário."""
     if tool_name not in TOOLS:
         return {"success": False, "error": f"Tool desconhecida: {tool_name}"}
     
     tool = TOOLS[tool_name]
     try:
-        print(f"[DEBUG] Executando tool: {tool_name} com args: {args}")
+        print(f"[DEBUG] Executando tool: {tool_name} com args: {args} (User: {user_id})")
         
+        # Injects user_id for specific tools
+        if tool_name in ["create_artifact", "add_knowledge"]:
+            args["user_id"] = user_id
+
         if tool_name == "add_knowledge":
             from .memory import save_technical_knowledge
             success = save_technical_knowledge(**args)
-            return {"success": success, "message": "Conhecimento técnico indexado com sucesso!" if success else "Falha ao indexar."}
+            return {"success": success, "message": "Conhecimento técnico indexado!" if success else "Falha ao indexar."}
         
         result = tool["function"](**args)
         return result

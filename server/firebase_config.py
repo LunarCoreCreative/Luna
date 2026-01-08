@@ -345,3 +345,19 @@ def delete_chat_from_firebase(uid: str, chat_id: str) -> bool:
     except Exception as e:
         print(f"[FIREBASE] Erro ao deletar chat: {e}")
         return False
+
+def get_chat_detail(uid: str, chat_id: str) -> Optional[Dict]:
+    """Retrieves full chat details from Firestore."""
+    db = get_firestore()
+    if db is None:
+        return None
+    try:
+        doc = db.collection("users").document(uid).collection("chats").document(chat_id).get()
+        if doc.exists:
+            res = doc.to_dict()
+            res["id"] = doc.id
+            return res
+        return None
+    except Exception as e:
+        print(f"[FIREBASE] Error getting chat detail: {e}")
+        return None

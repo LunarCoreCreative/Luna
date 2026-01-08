@@ -15,6 +15,7 @@ from .mcp.security import SecurityManager
 from .mcp.filesystem import FileSystemMCP, FILESYSTEM_TOOLS_SCHEMA
 from .mcp.terminal import TerminalMCP, TERMINAL_TOOLS_SCHEMA
 from .tools import web_search, read_url
+from .markdown_fixer import fix_markdown
 
 # Importa code_intel (pode falhar se tree-sitter não instalado)
 try:
@@ -574,17 +575,17 @@ async def code_agent_generator(
     
     # BUSCA DE CONTEXTO (MEMÓRIA E ESTUDO)
     # 1. Busca conversacional baseada na mensagem atual
-    memories = search_memories(user_message)
+    memories = search_memories(user_message, user_id=state.user_id) if state.user_id else []
     
     # 2. Busca de contexto técnico recente do projeto
     project_name = state.security.workspace.name if state.security.workspace else "unknown"
     tech_query = f"histórico técnico recente no projeto {project_name}"
-    tech_memories = search_memories(tech_query, n=3)
+    tech_memories = search_memories(tech_query, n_results=3, user_id=state.user_id) if state.user_id else []
     
     # Unifica e remove duplicatas simples
     all_memories = list(set(memories + tech_memories))
     
-    study_results = search_study_documents(user_message, n=3)
+    study_results = search_study_documents(user_message, n_results=3, user_id=state.user_id) if state.user_id else []
     study_context = ""
     if study_results:
         for i, result in enumerate(study_results, 1):
@@ -683,6 +684,7 @@ async def code_agent_generator(
             
             # 1. Simular Streaming do Texto (UX)
             if content:
+                content = fix_markdown(content)
                 # Envia em chunks para não aparecer tudo de uma vez (efeito digitação)
                 chunk_size = 50
                 for i in range(0, len(content), chunk_size):
@@ -851,13 +853,13 @@ async def code_agent_generator(
              state.messages.append({"role": "assistant", "content": current_content})
         
         # Sincroniza memória global com metadados de projeto
-        if full_response:
+        if full_response and state.user_id:
             metadata = {
                 "type": "code_agent_session",
                 "workspace": str(state.security.workspace) if state.security.workspace else "unknown",
                 "project": project_name
             }
-            save_memory(user_message, full_response, metadata=metadata)
+            save_memory(user_message, full_response, metadata=metadata, user_id=state.user_id)
         
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"

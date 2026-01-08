@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DB_PATH, CHAT_DIR, IDE_CHAT_DIR
-from .memory import preload_models, is_ready, get_collection, save_technical_knowledge, consolidate_learning
+from .memory import preload_models, is_ready, save_technical_knowledge
 from .chat import ChatManager, Message, ChatRequest, SaveChatRequest, CreateThreadRequest
 from .agent import unified_generator
 from .artifacts import save_artifact, list_artifacts, get_artifact, delete_artifact, update_artifact_content
@@ -68,8 +68,16 @@ def health_check():
     }
 
 @app.get("/memory/count")
-async def memory_count():
-    return {"count": get_collection().count()}
+async def memory_count(user_id: Optional[str] = None):
+    if not user_id: return {"count": 0}
+    try:
+        from .memory import get_user_memory_col
+        col = get_user_memory_col(user_id)
+        # Firestore count is efficient for small-medium collections
+        count = len(list(col.limit(100).stream())) # Simplified for now, or use aggregation query
+        return {"count": count}
+    except:
+        return {"count": 0}
 
 # =============================================================================
 # FILE UPLOAD
@@ -134,8 +142,8 @@ async def get_chats(user_id: Optional[str] = None):
     return {"success": True, "chats": ChatManager.list_chats(user_id=user_id)}
 
 @app.get("/chats/{chat_id}")
-async def get_chat_details(chat_id: str, thread_id: Optional[str] = None):
-    data = ChatManager.load_chat(chat_id, thread_id)
+async def get_chat_details(chat_id: str, thread_id: Optional[str] = None, user_id: Optional[str] = None):
+    data = ChatManager.load_chat(chat_id, user_id=user_id)
     if data:
         return {"success": True, "chat": data}
     return {"success": False, "error": "Chat não encontrado"}
@@ -146,8 +154,8 @@ async def save_chat_endpoint(req: SaveChatRequest):
     return {"success": True, "chat": data}
 
 @app.delete("/chats/{chat_id}")
-async def delete_chat_endpoint(chat_id: str):
-    success = ChatManager.delete_chat(chat_id)
+async def delete_chat_endpoint(chat_id: str, user_id: Optional[str] = None):
+    success = ChatManager.delete_chat(chat_id, user_id=user_id)
     return {"success": success}
 
 @app.post("/chats/{chat_id}/threads")
@@ -167,28 +175,28 @@ async def delete_thread_endpoint(chat_id: str, thread_id: str):
 # =============================================================================
 
 @app.get("/artifacts")
-async def get_artifacts():
+async def get_artifacts(user_id: Optional[str] = None):
     """List all artifacts."""
-    return {"success": True, "artifacts": list_artifacts()}
+    return {"success": True, "artifacts": list_artifacts(user_id=user_id)}
 
 @app.get("/artifacts/{artifact_id}")
-async def get_artifact_endpoint(artifact_id: str):
+async def get_artifact_endpoint(artifact_id: str, user_id: Optional[str] = None):
     """Get a single artifact by ID."""
-    artifact = get_artifact(artifact_id)
+    artifact = get_artifact(artifact_id, user_id=user_id)
     if artifact:
         return {"success": True, "artifact": artifact}
     raise HTTPException(status_code=404, detail="Artifact not found")
 
 @app.put("/artifacts/{artifact_id}")
-async def update_artifact_endpoint(artifact_id: str, content: dict):
+async def update_artifact_endpoint(artifact_id: str, content: dict, user_id: Optional[str] = None):
     """Update artifact content."""
-    result = update_artifact_content(artifact_id, content.get("content", ""))
+    result = update_artifact_content(artifact_id, content.get("content", ""), user_id=user_id)
     return result
 
 @app.delete("/artifacts/{artifact_id}")
-async def delete_artifact_endpoint(artifact_id: str):
+async def delete_artifact_endpoint(artifact_id: str, user_id: Optional[str] = None):
     """Delete an artifact."""
-    result = delete_artifact(artifact_id)
+    result = delete_artifact(artifact_id, user_id=user_id)
     if result.get("success"):
         return result
     raise HTTPException(status_code=404, detail="Artifact not found")

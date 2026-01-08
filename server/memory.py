@@ -1,146 +1,61 @@
 """
-Luna Memory System
-------------------
-RAG-based memory using ChromaDB or fallback SimpleIndex.
+Luna Memory System (Cloud Sync Edition)
+--------------------------------------
+User-centric semantic memory using Firebase Firestore Vector Search.
+Provides persistent RAG across devices for conversations, knowledge, and study.
 """
 
 import os
 import json
-import math
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from pathlib import Path
 
 from .config import DB_PATH
 from .api import call_api_json
+from .firebase_config import get_firestore
+
+# Firebase Vector Search Imports
+try:
+    from google.cloud.firestore_v1.vector import Vector
+    from google.cloud.firestore_v1.base_vector_query import DistanceMeasure
+    _VECTOR_SUPPORT = True
+except ImportError:
+    _VECTOR_SUPPORT = False
 
 # =============================================================================
-# LAZY LOADING GLOBALS
+# GLOBALS & CACHE
 # =============================================================================
 
-_chroma_client = None
-_collection = None
-_tech_collection = None
-_style_collection = None
-_study_collection = None
 _embedder = None
 _models_ready = False
-_consolidation_counter = 0  # Counter for learning consolidation (every 5 interactions)
-
-# Check if ChromaDB is available
-try:
-    import chromadb
-    _USE_CHROMA = True
-except ImportError:
-    chromadb = None
-    _USE_CHROMA = False
 
 # =============================================================================
-# SIMPLE INDEX (Fallback when ChromaDB unavailable)
+# FIRESTORE COLLECTION WRAPPERS (Scoped by User ID)
 # =============================================================================
 
-class SimpleIndex:
-    """Lightweight vector index using JSON storage."""
-    
-    def __init__(self, name: str):
-        self.name = name
-        self.file = DB_PATH / f"{name}.json"
-        self.items = []
-        self._load()
-    
-    def _load(self):
-        try:
-            if self.file.exists():
-                self.items = json.loads(self.file.read_text(encoding="utf-8"))
-        except Exception:
-            self.items = []
-    
-    def save(self):
-        try:
-            self.file.write_text(json.dumps(self.items, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
-    
-    def add(self, documents: List[str], embeddings: List[List[float]], 
-            ids: List[str], metadatas: Optional[List[Dict]] = None):
-        for i, doc in enumerate(documents):
-            item = {
-                "id": ids[i] if i < len(ids) else f"{self.name}_{int(datetime.now().timestamp()*1000)}_{i}",
-                "doc": doc,
-                "emb": embeddings[i] if i < len(embeddings) else [],
-                "meta": metadatas[i] if metadatas and i < len(metadatas) else {}
-            }
-            self.items.append(item)
-        self.save()
-    
-    def query(self, query_embeddings: List[List[float]], n_results: int = 3) -> Dict:
-        q = query_embeddings[0]
-        
-        def cosine_similarity(a, b):
-            if not a or not b:
-                return -1.0
-            dot = sum(x * y for x, y in zip(a, b))
-            norm_a = math.sqrt(sum(x * x for x in a))
-            norm_b = math.sqrt(sum(x * x for x in b))
-            if norm_a == 0 or norm_b == 0:
-                return -1.0
-            return dot / (norm_a * norm_b)
-        
-        scored = sorted(self.items, key=lambda it: cosine_similarity(q, it.get("emb", [])), reverse=True)
-        docs = [it["doc"] for it in scored[:n_results]]
-        return {"documents": [docs]}
-    
-    def count(self) -> int:
-        return len(self.items)
+def get_user_memory_col(user_id: str):
+    db = get_firestore()
+    if not db or not user_id: return None
+    return db.collection("users").document(user_id).collection("memories")
 
-# =============================================================================
-# COLLECTION GETTERS (Lazy Loading)
-# =============================================================================
+def get_tech_col(user_id: str = None):
+    db = get_firestore()
+    if not db: return None
+    if user_id:
+        return db.collection("users").document(user_id).collection("technical_knowledge")
+    return db.collection("global_technical_knowledge")
 
-def get_chroma_client():
-    global _chroma_client
-    if not _USE_CHROMA:
-        return None
-    if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(path=str(DB_PATH))
-    return _chroma_client
+def get_style_col(user_id: str):
+    db = get_firestore()
+    if not db or not user_id: return None
+    return db.collection("users").document(user_id).collection("literary_styles")
 
-def get_collection():
-    global _collection
-    if _collection is None:
-        if _USE_CHROMA:
-            _collection = get_chroma_client().get_or_create_collection(name="historico_memoria")
-        else:
-            _collection = SimpleIndex("historico_memoria")
-    return _collection
-
-def get_tech_collection():
-    global _tech_collection
-    if _tech_collection is None:
-        if _USE_CHROMA:
-            _tech_collection = get_chroma_client().get_or_create_collection(name="conhecimento_tecnico")
-        else:
-            _tech_collection = SimpleIndex("conhecimento_tecnico")
-    return _tech_collection
-
-def get_style_collection():
-    global _style_collection
-    if _style_collection is None:
-        if _USE_CHROMA:
-            _style_collection = get_chroma_client().get_or_create_collection(name="estilo_literario")
-        else:
-            _style_collection = SimpleIndex("estilo_literario")
-    return _style_collection
-
-def get_study_collection():
-    """Get or create the Study Mode documents collection."""
-    global _study_collection
-    if _study_collection is None:
-        if _USE_CHROMA:
-            _study_collection = get_chroma_client().get_or_create_collection(name="study_documents")
-        else:
-            _study_collection = SimpleIndex("study_documents")
-    return _study_collection
+def get_study_col(user_id: str):
+    db = get_firestore()
+    if not db or not user_id: return None
+    return db.collection("users").document(user_id).collection("study_documents")
 
 def get_embedder():
     global _embedder
@@ -153,407 +68,221 @@ def is_ready() -> bool:
     return _models_ready
 
 async def preload_models():
-    """Pre-warm models in background for faster first request."""
+    """Pre-warm models in background."""
     global _models_ready
     import asyncio
-    await asyncio.sleep(0.5)
     try:
         get_embedder()
-        get_collection()
-        get_tech_collection()
-        get_style_collection()
-        get_study_collection()
         _models_ready = True
-        print("[LUNA] [OK] Modelos pré-aquecidos e prontos!")
     except Exception as e:
-        print(f"[LUNA] Erro no pré-aquecimento: {e}")
+        print(f"[MEMORY] Error preloading models: {e}")
 
 # =============================================================================
-# MEMORY FUNCTIONS
+# CORE MEMORY FUNCTIONS
 # =============================================================================
 
-def search_memories(query: str, n: int = 3) -> List[str]:
-    """Search conversation memories."""
-    try:
-        embeddings = get_embedder().encode(query).tolist()
-        coll = get_collection()
-        results = coll.query(query_embeddings=[embeddings], n_results=min(n, coll.count() or 1))
-        return results["documents"][0] if results["documents"] else []
-    except Exception:
+def search_memories(query: str, n_results: int = 5, user_id: str = None) -> List[str]:
+    """Search conversational memories for a user using Vector Search."""
+    if not user_id or not _VECTOR_SUPPORT:
         return []
-
-def save_memory(user: str, assistant: str, metadata: dict = None):
-    """Save a conversation exchange to memory."""
-    try:
-        # Aumentamos o limite para o Code Agent não perder detalhes técnicos
-        text = f"Usuário: {user} | Luna: {assistant}"
         
-        # Garante metadados básicos
-        meta = metadata or {"type": "conversation"}
-        meta["timestamp"] = datetime.now().isoformat()
+    col = get_user_memory_col(user_id)
+    if not col: return []
+    
+    try:
+        query_vector = get_embedder().encode(query).tolist()
         
-        get_collection().add(
-            documents=[text],
-            embeddings=[get_embedder().encode(text).tolist()],
-            ids=[f"m_{int(datetime.now().timestamp()*1000)}"],
-            metadatas=[meta]
-        )
-    except Exception as e:
-        print(f"[MEMORY] Erro ao salvar memória: {e}")
-
-def search_knowledge(query: str, n: int = 3) -> List[str]:
-    """Search technical knowledge base."""
-    try:
-        embeddings = get_embedder().encode(query).tolist()
-        coll = get_tech_collection()
-        results = coll.query(query_embeddings=[embeddings], n_results=min(n, coll.count() or 1))
-        return results["documents"][0] if results["documents"] else []
-    except Exception:
-        return []
-
-def save_technical_knowledge(title: str, content: str, tags: str = "") -> bool:
-    """Save technical knowledge to RAG."""
-    try:
-        text = f"TITULO: {title}\nTAGS: {tags}\nCONTEUDO:\n{content}"
-        get_tech_collection().add(
-            documents=[text],
-            embeddings=[get_embedder().encode(text).tolist()],
-            ids=[f"t_{int(datetime.now().timestamp()*1000)}"],
-            metadatas=[{"title": title, "tags": tags}]
-        )
-        return True
-    except Exception:
-        return False
-
-def search_technical_knowledge(query: str, n: int = 3) -> List[str]:
-    """Search technical knowledge by semantic similarity."""
-    try:
-        embeddings = get_embedder().encode(query).tolist()
-        results = get_tech_collection().query(
-            query_embeddings=[embeddings],
-            n_results=n
-        )
-        return results.get("documents", [[]])[0]
-    except Exception as e:
-        print(f"[Memory] Erro na busca técnica: {e}")
-        return []
-
-def search_style(query: str, n: int = 1) -> List[str]:
-    """Search literary style patterns."""
-    try:
-        embeddings = get_embedder().encode(query).tolist()
-        coll = get_style_collection()
-        results = coll.query(query_embeddings=[embeddings], n_results=min(n, coll.count() or 1))
-        return results["documents"][0] if results["documents"] else []
-    except Exception:
-        return []
-
-def save_literary_style(author: str, analysis: str, original_text_sample: str = "") -> bool:
-    """Save literary style analysis."""
-    try:
-        content = f"ESTILO DE {author.upper()}:\n{analysis}\n\nAMOSTRA:\n{original_text_sample[:500]}..."
-        search_text = f"estilo escrita {author} {analysis[:200]}"
-        get_style_collection().add(
-            documents=[content],
-            embeddings=[get_embedder().encode(search_text).tolist()],
-            ids=[f"style_{int(datetime.now().timestamp()*1000)}"],
-            metadatas=[{"author": author, "type": "literary_style"}]
-        )
-        return True
-    except Exception as e:
-        print(f"Erro ao salvar estilo: {e}")
-        return False
-
-
-# =============================================================================
-# SISTEMA DE APRENDIZADO CONTÍNUO (MELHORADO)
-# =============================================================================
-
-# Contador global para controlar frequência de consolidação
-_consolidation_counter = 0
-
-def cosine_similarity(a: List[float], b: List[float]) -> float:
-    """Calcula similaridade de cosseno entre dois vetores."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
-def is_duplicate_knowledge(new_content: str, threshold: float = 0.85) -> bool:
-    """
-    Verifica se conhecimento similar já existe na base.
-    Retorna True se encontrar algo muito similar (evita duplicatas).
-    """
-    try:
-        existing = search_technical_knowledge(new_content, n=3)
-        if not existing:
-            return False
-            
-        new_emb = get_embedder().encode(new_content).tolist()
-        
-        for old_doc in existing:
-            old_emb = get_embedder().encode(old_doc).tolist()
-            similarity = cosine_similarity(new_emb, old_emb)
-            if similarity > threshold:
-                print(f"[LEARN] Conhecimento similar já existe (sim={similarity:.2f}), pulando...")
-                return True
-        return False
-    except Exception as e:
-        print(f"[LEARN] Erro na verificação de duplicata: {e}")
-        return False
-
-
-async def consolidate_learning(messages: List[Dict]) -> List[str]:
-    """
-    Sistema de aprendizado contínuo melhorado.
-    
-    - Usa o modelo principal (DeepSeek) para consistência
-    - Analisa sessão completa (últimas 10 mensagens)
-    - Executa a cada 5 interações (não toda mensagem)
-    - Deduplica semanticamente antes de salvar
-    - Foca em padrões de erro e correção
-    
-    Returns:
-        Lista de títulos dos conhecimentos aprendidos (vazia se nenhum)
-    """
-    global _consolidation_counter
-    
-    if not messages or len(messages) < 2:
-        return []
-    
-    # Incrementa contador
-    _consolidation_counter += 1
-    
-    # Só consolida a cada 5 interações (economia de API)
-    if _consolidation_counter % 5 != 0:
-        return []
-    
-    print(f"[LEARN] Iniciando consolidação (interação #{_consolidation_counter})...")
-    
-    # Pega sessão completa para contexto (últimas 10 mensagens)
-    session = messages[-10:] if len(messages) > 10 else messages
-    
-    # Se a última mensagem não for do assistente, não há o que aprender ainda
-    if session[-1].get("role") != "assistant":
-        return []
-    
-    # Importa o modelo padrão (DeepSeek)
-    from .config import MODEL
-
-    prompt = f"""Você é um sistema de extração de conhecimento técnico.
-
-Analise esta sessão de interação entre Usuário e Assistente (Luna).
-Seu objetivo é extrair APRENDIZADOS REUTILIZÁVEIS, especialmente:
-
-1. **ERROS e suas CORREÇÕES** - O que estava errado e como foi corrigido
-2. **SOLUÇÕES TÉCNICAS** - Comandos, configurações, abordagens que funcionaram
-3. **PADRÕES DE DEBUGGING** - Como erros foram identificados e resolvidos
-4. **CONHECIMENTO CONCEITUAL** - Explicações importantes que podem ser reutilizadas
-
-Sessão:
-{json.dumps(session, ensure_ascii=False, indent=2)}
-
-REGRAS:
-- Extraia APENAS conhecimentos TÉCNICOS e REUTILIZÁVEIS
-- Ignore conversas casuais, elogios ou feedback simples
-- Seja CONCISO nos conteúdos (máximo 200 palavras por item)
-- Use tags relevantes para buscas futuras
-
-Retorne JSON (sem markdown):
-{{
-    "learned": true,
-    "items": [
-        {{
-            "title": "Título descritivo do problema/solução",
-            "content": "Explicação técnica da solução, incluindo exemplo de código se aplicável",
-            "tags": "tag1, tag2, tag3",
-            "type": "error_fix | solution | pattern | concept"
-        }}
-    ]
-}}
-
-Se não houver nada técnico para aprender, retorne:
-{{"learned": false, "items": []}}
-"""
-    
-    try:
-        response = await call_api_json(
-            messages=[{"role": "user", "content": prompt}],
-            model=MODEL,  # Usa o modelo padrão (DeepSeek)
-            temperature=0.2,  # Mais determinístico
-            max_tokens=1500
+        # Firestore Vector Search Query
+        vector_query = col.find_nearest(
+            vector_field="embedding",
+            query_vector=Vector(query_vector),
+            distance_measure=DistanceMeasure.COSINE,
+            limit=n_results
         )
         
-        if "choices" in response:
-            content = response["choices"][0]["message"]["content"]
-            # Limpa markdown se houver
-            clean_content = content.replace("```json", "").replace("```", "").strip()
-            
-            # Tenta encontrar JSON válido
-            try:
-                data = json.loads(clean_content)
-            except json.JSONDecodeError:
-                # Tenta extrair JSON de dentro do texto
-                import re
-                json_match = re.search(r'\{.*\}', clean_content, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group())
-                else:
-                    print("[LEARN] Resposta não contém JSON válido")
-                    return
-            
-            if data.get("learned") and data.get("items"):
-                saved_count = 0
-                learned_titles = []  # Acumula títulos para retorno
-                for item in data["items"]:
-                    title = item.get("title", "")
-                    content_item = item.get("content", "")
-                    tags = item.get("tags", "")
-                    item_type = item.get("type", "solution")
-                    
-                    # Texto completo para verificação de duplicata
-                    full_text = f"{title} {content_item}"
-                    
-                    # Verifica se já existe algo similar
-                    if is_duplicate_knowledge(full_text):
-                        continue
-                    
-                    # Adiciona tipo às tags
-                    if item_type and item_type not in tags:
-                        tags = f"{item_type}, {tags}" if tags else item_type
-                    
-                    # Salva o conhecimento
-                    if save_technical_knowledge(title=title, content=content_item, tags=tags):
-                        saved_count += 1
-                        learned_titles.append(title)  # Adiciona à lista de retorno
-                        print(f"[LEARN] ✓ Aprendido: {title}")
-                    
-                if saved_count > 0:
-                    print(f"[LEARN] Consolidação completa: {saved_count} novos conhecimentos salvos!")
-                    return learned_titles  # Retorna títulos aprendidos
-                else:
-                    print("[LEARN] Nenhum conhecimento novo (todos já existiam)")
-                    return []
-            else:
-                print("[LEARN] Sessão sem conhecimento técnico extraível")
-                return []
-                
+        results = vector_query.get()
+        return [doc.to_dict().get("content", "") for doc in results]
     except Exception as e:
-        print(f"[LEARN] Erro na consolidação: {e}")
+        print(f"[MEMORY] Search error: {e}")
         return []
 
+def save_memory(content: str, metadata: Dict = None, user_id: str = None):
+    """Save a conversational memory to Firestore."""
+    if not user_id: return
+    
+    col = get_user_memory_col(user_id)
+    if not col: return
+    
+    try:
+        embedding = get_embedder().encode(content).tolist()
+        doc_id = str(uuid.uuid4())
+        
+        col.document(doc_id).set({
+            "content": content,
+            "embedding": Vector(embedding),
+            "metadata": metadata or {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        print(f"[MEMORY] Save error: {e}")
+
 # =============================================================================
-# STUDY MODE FUNCTIONS
+# TECHNICAL KNOWLEDGE (Global + User)
 # =============================================================================
 
-def save_study_chunk(doc_id: str, chunk_index: int, text: str, title: str = "", author: str = "") -> bool:
-    """
-    Save a single chunk from a Study Mode document to the vector store.
+def save_technical_knowledge(title: str, content: str, user_id: str = None) -> bool:
+    """Save technical knowledge snippets."""
+    col = get_tech_col(user_id)
+    if not col: return False
     
-    Args:
-        doc_id: Unique document identifier
-        chunk_index: Index of the chunk within the document
-        text: The chunk text content
-        title: Document title for metadata
-        author: Document author for metadata
-    
-    Returns:
-        True if saved successfully
-    """
     try:
-        chunk_id = f"study_{doc_id}_{chunk_index}"
-        metadata = {
-            "doc_id": doc_id,
-            "chunk_index": chunk_index,
+        embedding = get_embedder().encode(f"{title}\n{content}").tolist()
+        doc_id = str(uuid.uuid4())
+        
+        col.document(doc_id).set({
             "title": title,
-            "author": author
-        }
-        
-        get_study_collection().add(
-            documents=[text],
-            embeddings=[get_embedder().encode(text).tolist()],
-            ids=[chunk_id],
-            metadatas=[metadata]
-        )
+            "content": content,
+            "embedding": Vector(embedding),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
         return True
     except Exception as e:
-        print(f"[STUDY] Erro ao salvar chunk: {e}")
+        print(f"[MEMORY] Tech Save error: {e}")
         return False
 
+def search_knowledge(query: str, n_results: int = 3, user_id: str = None) -> List[Dict]:
+    """Search knowledge (mix of user and global)."""
+    if not _VECTOR_SUPPORT: return []
+    
+    results = []
+    
+    # 1. Search User Knowledge
+    if user_id:
+        user_col = get_tech_col(user_id)
+        if user_col:
+            try:
+                emb = get_embedder().encode(query).tolist()
+                q = user_col.find_nearest("embedding", Vector(emb), DistanceMeasure.COSINE, n_results)
+                results.extend([{"source": "user", **d.to_dict()} for d in q.get()])
+            except: pass
+            
+    # 2. Search Global Knowledge
+    global_col = get_tech_col(None)
+    if global_col:
+        try:
+            emb = get_embedder().encode(query).tolist()
+            q = global_col.find_nearest("embedding", Vector(emb), DistanceMeasure.COSINE, n_results)
+            results.extend([{"source": "global", **d.to_dict()} for d in q.get()])
+        except: pass
+        
+    # Sort and Deduplicate
+    return sorted(results, key=lambda x: x.get("updated_at", ""), reverse=True)[:n_results]
 
-def search_study_documents(query: str, n: int = 5) -> List[Dict]:
-    """
-    Search Study Mode documents for relevant chunks.
+# =============================================================================
+# STYLE ANALYSIS
+# =============================================================================
+
+def save_literary_style(author: str, patterns: List[str], samples: List[str], user_id: str):
+    """Save author style patterns."""
+    col = get_style_col(user_id)
+    if not col: return
     
-    Args:
-        query: Search query
-        n: Number of results to return
-    
-    Returns:
-        List of dicts with 'text', 'title', 'author', 'doc_id'
-    """
     try:
-        coll = get_study_collection()
-        count = coll.count()
-        
-        if count == 0:
-            return []
-        
-        embeddings = get_embedder().encode(query).tolist()
-        results = coll.query(
-            query_embeddings=[embeddings],
-            n_results=min(n, count),
-            include=["documents", "metadatas"]
-        )
-        
-        if not results["documents"] or not results["documents"][0]:
-            return []
-        
-        output = []
-        docs = results["documents"][0]
-        metas = results.get("metadatas", [[]])[0]
-        
-        for i, doc in enumerate(docs):
-            meta = metas[i] if i < len(metas) else {}
-            output.append({
-                "text": doc,
-                "title": meta.get("title", "Documento"),
-                "author": meta.get("author", "Desconhecido"),
-                "doc_id": meta.get("doc_id", "")
-            })
-        
-        return output
+        data = {
+            "author": author,
+            "patterns": patterns,
+            "samples": samples[:5],
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Use author as ID for easier updates
+        doc_id = author.lower().replace(" ", "_")
+        col.document(doc_id).set(data)
     except Exception as e:
-        print(f"[STUDY] Erro na busca: {e}")
+        print(f"[MEMORY] Style Save error: {e}")
+
+def search_style(author: str, user_id: str) -> Optional[Dict]:
+    """Search specific style by author name."""
+    col = get_style_col(user_id)
+    if not col: return None
+    
+    doc_id = author.lower().replace(" ", "_")
+    doc = col.document(doc_id).get()
+    return doc.to_dict() if doc.exists else None
+
+# =============================================================================
+# STUDY MODE (RAG)
+# =============================================================================
+
+def save_study_chunk(doc_id: str, chunk_text: str, metadata: Dict, user_id: str):
+    """Save a study document chunk with vector embedding."""
+    col = get_study_col(user_id)
+    if not col: return
+    
+    try:
+        embedding = get_embedder().encode(chunk_text).tolist()
+        doc_id_chunk = f"{doc_id}_{str(uuid.uuid4())[:8]}"
+        
+        col.document(doc_id_chunk).set({
+            "doc_id": doc_id,
+            "content": chunk_text,
+            "embedding": Vector(embedding),
+            "metadata": metadata,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        print(f"[MEMORY] Study Chunk Save error: {e}")
+
+def search_study_documents(query: str, n_results: int = 5, user_id: str = None) -> List[Dict]:
+    """Semantic search across all study documents."""
+    if not user_id or not _VECTOR_SUPPORT: return []
+    
+    col = get_study_col(user_id)
+    if not col: return []
+    
+    try:
+        emb = get_embedder().encode(query).tolist()
+        q = col.find_nearest("embedding", Vector(emb), DistanceMeasure.COSINE, n_results)
+        return [doc.to_dict() for doc in q.get()]
+    except Exception as e:
+        print(f"[MEMORY] Study Search error: {e}")
         return []
 
-
-def delete_study_document(doc_id: str) -> bool:
-    """
-    Delete all chunks from a Study Mode document.
+def delete_study_document(user_id: str, doc_id: str):
+    """Delete all chunks for a document using a batch write."""
+    if not user_id: return
     
-    Args:
-        doc_id: Document ID to delete
+    col = get_study_col(user_id)
+    if not col: return
     
-    Returns:
-        True if deleted successfully
-    """
     try:
-        coll = get_study_collection()
-        # ChromaDB allows filtering by metadata
-        if _USE_CHROMA:
-            coll.delete(where={"doc_id": doc_id})
-        else:
-            # SimpleIndex fallback - filter manually
-            coll.items = [it for it in coll.items if it.get("meta", {}).get("doc_id") != doc_id]
-            coll.save()
-        return True
+        # Find all chunks matching doc_id
+        docs = col.where("doc_id", "==", doc_id).stream()
+        
+        db = get_firestore()
+        batch = db.batch()
+        count = 0
+        
+        for doc in docs:
+            batch.delete(doc.reference)
+            count += 1
+            # Firestore batch limit is 500
+            if count >= 400:
+                batch.commit()
+                batch = db.batch()
+                count = 0
+        
+        if count > 0:
+            batch.commit()
+            
+        print(f"[MEMORY] Document {doc_id} deleted (Total chunks: {count})")
     except Exception as e:
-        print(f"[STUDY] Erro ao deletar documento: {e}")
-        return False
+        print(f"[MEMORY] Delete error: {e}")
 
+# =============================================================================
+# LEARNED CONTEXT (RETIRED LOCALS)
+# =============================================================================
+def get_collection(): # For backward compatibility in main.py count
+    return None
+
+def consolidate_learning():
+    pass
