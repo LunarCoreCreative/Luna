@@ -193,6 +193,23 @@ Quando o usuário reportar um bug, erro ou problema visual, siga OBRIGATORIAMENT
 CANVAS_INSTRUCTIONS = """
 ## ⚠️ PROTOCOLO CRÍTICO DE CANVAS V2 (MULTI-ARTEFATO) ⚠️
 
+### 🚫 REGRA #0 - QUANDO NÃO USAR CANVAS (ABSOLUTA):
+**Canvas/Create_artifact é APENAS para conteúdo extenso e reutilizável. NÃO USE para:**
+- ❌ Cumprimentos, saudações, "bom dia", "tudo bem?"
+- ❌ Respostas curtas de 1-5 parágrafos
+- ❌ Explicações simples que cabem numa mensagem de chat
+- ❌ Confirmações ("Pronto!", "Feito!", "Entendi!")
+- ❌ Perguntas para o usuário
+- ❌ Qualquer resposta que NÃO seja código, documento longo ou diagrama
+
+**Canvas é SOMENTE para:**
+- ✅ Código (scripts, funções, componentes React)
+- ✅ Documentos longos (artigos, histórias, manuais com +10 parágrafos)
+- ✅ Diagramas Mermaid
+- ✅ Conteúdo que o usuário vai querer EDITAR ou REUTILIZAR
+
+**Se não se encaixa acima, responda DIRETO NO CHAT. Sem canvas.**
+
 ### 🚨 REGRA #1 - EDIT vs CREATE (ABSOLUTA):
 **SE EXISTE UM ARTEFATO ATIVO NO CANVAS, USE `edit_artifact` PARA QUALQUER MODIFICAÇÃO.**
 - "Aprofundar", "expandir", "continuar", "adicionar", "melhorar", "detalhar" → `edit_artifact`
