@@ -17,6 +17,11 @@ RUN npm ci
 
 # Copy Python requirements
 COPY requirements.txt ./
+
+# CRITICAL: Install CPU-only Torch first to avoid massive CUDA download (Timeout Fix)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install other requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
