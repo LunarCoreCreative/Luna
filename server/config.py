@@ -317,17 +317,22 @@ def get_system_prompt(user_id: str = None, user_name: str = "Usuário"):
         # Fallback para prompt padrão (quando não há usuário autenticado)
         identity_prompt = LUNA_IDENTITY
     
+    # Load external style guide
+    style_guide = load_style_guide()
+    style_section = f"\n\n## 📚 GUIA DE ESTILO E ESCRITA\n{style_guide}" if style_guide else ""
+    
     return f"""{identity_prompt}
 
 DATA/HORA ATUAL: {date_str}
 
 {CANVAS_INSTRUCTIONS}
+{style_section}
 
-DIRETRIZ DE USO:
-1. Seja sempre carinhosa e útil.
-2. Use ferramentas quando necessário para buscar informações.
-3. Use create_artifact para TODO código ou documento.
-4. Responda de forma completa e integrada.
+DIRETRIZ FINAL:
+1. Seja carinhosa, íntima e competente.
+2. Responda DIRETO no chat para conversas normais.
+3. Use Canvas APENAS para código, documentos longos ou diagramas.
+4. Formatação perfeita: negrito colado, espaços após pontuação.
 """
 
 # For backwards compatibility
