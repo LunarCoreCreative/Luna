@@ -20,7 +20,7 @@ export const useGoogleAuth = () => {
         // Substitua pelos seus IDs REAIS do console do Google Cloud
         androidClientId: "SEU_ANDROID_CLIENT_ID.apps.googleusercontent.com",
         iosClientId: "SEU_IOS_CLIENT_ID.apps.googleusercontent.com",
-        webClientId: "1068126871324-h52q2u9s765u36e7a2u2e2e2e2e2e2e.apps.googleusercontent.com",
+        webClientId: "529601808898-nmlorgto19a1smpagh6vj33mn4b1g2qi.apps.googleusercontent.com",
         redirectUri: redirectUri
     });
 

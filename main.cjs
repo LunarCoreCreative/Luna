@@ -3,6 +3,7 @@ const path = require('path');
 // const isDev = require('electron-is-dev'); 
 const { spawn } = require('child_process');
 const { LinkService } = require('./LinkService.cjs');
+const { setupAutoUpdater } = require('./updater.cjs');
 
 let mainWindow;
 let pythonProcess = null;
@@ -101,6 +102,13 @@ function createWindow() {
         : 'http://localhost:4173'; // Use local express server
 
     mainWindow.loadURL(startURL);
+
+    // Initialize auto-updater in production
+    if (!isDev) {
+        mainWindow.webContents.on('did-finish-load', () => {
+            setupAutoUpdater(mainWindow);
+        });
+    }
 
     mainWindow.on('closed', () => {
         mainWindow = null;

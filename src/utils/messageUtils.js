@@ -24,8 +24,35 @@ export const getGreeting = () => {
     return "Boa noite";
 };
 
-// Helper para limpar conteúdo (DESATIVADO - Passthrough)
+// Helper para limpar conteúdo (Filtro de tokens interno)
 export const cleanContent = (content) => {
     if (!content) return "";
-    return content;
+
+    // Robust Regex for Tool Call Tokens (handles spaces AND NEWLINES)
+    // Using [\s\S]*? approach or just explicit \s including newlines
+    let cleaned = content.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
+    cleaned = cleaned.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
+    cleaned = cleaned.replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "");
+
+    // Catch tokens interrupted by newlines (e.g. < | tool_call_begin |\n >)
+    // \s matches newlines in JS regex. 
+    // The previous regex used \s*, which matches newlines.
+    // BUT the debug script in Python showed failure on split.
+    // In Python \s also matches newline.
+    // Wait, debug_regex.py output: 
+    // "tool_call_\nend | >" was NOT matched by pattern "...tool_calls?_(begin|end)..."
+    // Because the newline was INSIDE "tool_call_\nend".
+    // "tool_call_begin" -> "tool_call_\nbegin" ?
+    // No, the debug script text was "< | tool_call_begin | \n >".
+    // The previous regex `\s*` SHOULD match `\n`.
+    // Ah! Javascript regex `.` does NOT match newline. But `\s` does.
+
+    // Let's broaden the matching to ensure NO broken tokens survive.
+    // We match any sequence starting with < | tool and ending with >
+    cleaned = cleaned.replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "");
+
+    // Fallback for residual pipes
+    cleaned = cleaned.replace(/<\|.*?\|>/g, '');
+
+    return cleaned;
 };

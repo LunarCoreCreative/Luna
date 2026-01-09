@@ -372,3 +372,152 @@ def get_chat_detail(uid: str, chat_id: str) -> Optional[Dict]:
     except Exception as e:
         print(f"[FIREBASE] Error getting chat detail: {e}")
         return None
+
+
+# =============================================================================
+# FIRESTORE: BUSINESS TRANSACTIONS
+# =============================================================================
+
+def save_transaction_to_firebase(uid: str, tx_data: Dict) -> bool:
+    """
+    Salva uma transação financeira no Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        tx_data: Dados da transação (deve incluir 'id')
+        
+    Returns:
+        True se salvo com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        tx_id = tx_data.get("id")
+        if not tx_id:
+            import uuid
+            tx_id = str(uuid.uuid4())[:8]
+            tx_data["id"] = tx_id
+        
+        # Adiciona timestamp de sync
+        tx_data["synced_at"] = datetime.utcnow().isoformat()
+        
+        # Salva em /users/{uid}/transactions/{tx_id}
+        db.collection("users").document(uid).collection("transactions").document(tx_id).set(tx_data, merge=True)
+        print(f"[FIREBASE-BIZ] ✅ Transação salva: {tx_id}")
+        return True
+        
+    except Exception as e:
+        print(f"[FIREBASE-BIZ] Erro ao salvar transação: {e}")
+        return False
+
+
+def get_user_transactions(uid: str, limit: int = 100) -> list:
+    """
+    Lista as transações de um usuário.
+    
+    Args:
+        uid: Firebase UID do usuário
+        limit: Limite de transações a retornar
+        
+    Returns:
+        Lista de transações ordenadas por data (mais recente primeiro)
+    """
+    db = get_firestore()
+    if db is None:
+        return []
+    
+    try:
+        tx_ref = db.collection("users").document(uid).collection("transactions")
+        query = tx_ref.order_by("date", direction="DESCENDING").limit(limit)
+        
+        transactions = []
+        for doc in query.stream():
+            tx = doc.to_dict()
+            tx["id"] = doc.id
+            transactions.append(tx)
+        
+        print(f"[FIREBASE-BIZ] Carregadas {len(transactions)} transações para {uid}")
+        return transactions
+        
+    except Exception as e:
+        print(f"[FIREBASE-BIZ] Erro ao listar transações: {e}")
+        return []
+
+
+def delete_transaction_from_firebase(uid: str, tx_id: str) -> bool:
+    """
+    Deleta uma transação do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        tx_id: ID da transação a deletar
+        
+    Returns:
+        True se deletado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        db.collection("users").document(uid).collection("transactions").document(tx_id).delete()
+        print(f"[FIREBASE-BIZ] ✅ Transação deletada: {tx_id}")
+        return True
+        
+    except Exception as e:
+        print(f"[FIREBASE-BIZ] Erro ao deletar transação: {e}")
+        return False
+
+
+def update_transaction_in_firebase(uid: str, tx_id: str, updates: Dict) -> bool:
+    """
+    Atualiza uma transação no Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        tx_id: ID da transação
+        updates: Campos a atualizar
+        
+    Returns:
+        True se atualizado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        db.collection("users").document(uid).collection("transactions").document(tx_id).update(updates)
+        print(f"[FIREBASE-BIZ] ✅ Transação atualizada: {tx_id}")
+        return True
+        
+    except Exception as e:
+        print(f"[FIREBASE-BIZ] Erro ao atualizar transação: {e}")
+        return False
+
+
+def get_business_summary_from_firebase(uid: str) -> Dict:
+    """
+    Calcula o resumo financeiro a partir das transações no Firebase.
+    
+    Returns:
+        Dict com balance, income, expenses, transaction_count
+    """
+    transactions = get_user_transactions(uid, limit=1000)  # Get all for summary
+    
+    income = sum(tx.get("value", 0) for tx in transactions if tx.get("type") == "income")
+    expenses = sum(tx.get("value", 0) for tx in transactions if tx.get("type") == "expense")
+    
+    return {
+        "balance": income - expenses,
+        "income": income,
+        "expenses": expenses,
+        "transaction_count": len(transactions)
+    }
+

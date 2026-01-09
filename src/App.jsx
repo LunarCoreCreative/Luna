@@ -36,10 +36,12 @@ import {
     Code,
     XCircle,
     BookOpen,
-    LogOut
+    LogOut,
+    Building2
 } from "lucide-react";
 import { Canvas } from "./components/Canvas";
 import { StudyMode } from "./components/StudyMode";
+import { BusinessMode } from "./components/business/BusinessMode";
 import { Markdown } from "./components/markdown/Markdown";
 import { TypingIndicator } from "./components/chat/TypingIndicator";
 import { MessageList } from "./components/chat/MessageList";
@@ -56,22 +58,32 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SidebarProfile } from "./components/sidebar/SidebarProfile";
 import { parseThought, getGreeting } from "./utils/messageUtils";
 import { API_CONFIG } from "./config/api";
+import { UpdateNotification } from "./components/UpdateNotification";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
 const filterToolCallLeaks = (text) => {
     if (!text) return "";
 
-    // Check if the string contains a tool call JSON pattern or its start
-    // This handles both full chunks and partial JSON objects during streaming
+    // 1. Remove Qwen/DeepSeek special tokens with flexible spacing (e.g. "< | tool_calls_begin | >")
+    let filtered = text.replace(/<\s*\|\s*tool_calls_begin\s*\|\s*>/g, "");
+    filtered = filtered.replace(/<\s*\|\s*tool_calls_end\s*\|\s*>/g, "");
+    filtered = filtered.replace(/<\s*\|\s*tool_call_begin\s*\|\s*>/g, "");
+    filtered = filtered.replace(/<\s*\|\s*tool_call_end\s*\|\s*>/g, "");
+    filtered = filtered.replace(/<\s*\|\s*tool_sep\s*\|\s*>/g, "");
+
+    // 2. Remove standard XML-like tags
+    filtered = filtered.replace(/<tool_call>/g, "");
+    filtered = filtered.replace(/<\/tool_call>/g, "");
+
+    // 3. Check if the string contains a tool call JSON pattern
     if (text.includes('{"name":') || text.includes('{"name" :') || text.includes('{"artifact_id":')) {
-        // 1. Remove full JSON blocks (including nested braces like {"name":..., "args":{...}})
-        // matches until it finds 1, 2 or 3 closing braces
-        let filtered = text.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}\s*\}?/g, "");
+        // Remove full JSON blocks (including nested braces)
+        filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}\s*\}?/g, "");
         filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\]\s*\}\s*\}?/g, "");
         filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}?/g, "");
 
-        // 2. Remove partial JSON starts (safety for streaming)
+        // Remove partial JSON starts
         filtered = filtered.replace(/\{"name"\s*:\s*"[^"]*"?/g, "");
         filtered = filtered.replace(/"arguments"\s*:\s*\{?/g, "");
         filtered = filtered.replace(/"artifact_id"\s*:\s*"[^"]*"?/g, "");
@@ -80,8 +92,7 @@ const filterToolCallLeaks = (text) => {
         return filtered.trim();
     }
 
-    // Return the text unchanged - don't manipulate it
-    return text;
+    return filtered;
 };
 
 
@@ -117,7 +128,7 @@ const EnergyDisplay = () => {
     const isEmpty = energy.current <= 0;
 
     return (
-        <div className="fixed top-4 right-4 z-50 text-white animate-in slide-in-from-top-4 fade-in duration-500 select-none group">
+        <div className="fixed top-16 right-4 z-20 text-white animate-in slide-in-from-top-4 fade-in duration-500 select-none group">
             <div className={`
                 flex items-center gap-2 pl-3 pr-4 py-2 rounded-full border shadow-lg backdrop-blur-md transition-all
                 ${isEmpty
@@ -207,6 +218,7 @@ function App() {
     const [isCanvasMode, setIsCanvasMode] = useState(false);
     const [studyModeOpen, setStudyModeOpen] = useState(false);
     const [ideMode, setIdeMode] = useState(false);
+    const [businessModeOpen, setBusinessModeOpen] = useState(false);
     const [settingsTab, setSettingsTab] = useState("general");
     const [learningNotification, setLearningNotification] = useState(null);
     const auth = useAuth();
@@ -509,6 +521,12 @@ function App() {
                         streamCompleted = true; // Mark as completed
                         console.log("[WS] Stream done, fullText length:", fullText.length, "hasArtifact:", hasArtifact);
 
+                        // Final cleanup to ensure no split tokens leaked into the full text
+                        // Only remove if it looks like a system token block
+                        // ESCAPED PIPES: \| to match literal pipe
+                        const finalCleanRegex = /<\s*\|\s*tool_calls_begin\s*\|\s*>[\s\S]*?<\s*\|\s*tool_calls_end\s*\|\s*>/g;
+                        fullText = fullText.replace(finalCleanRegex, "").trim();
+
                         // Only add message if there's content AND no artifact was generated
                         if (fullText.trim() && !hasArtifact) {
                             const finalAssistantMsg = { role: "assistant", content: fullText, thought: data.thought || currentThought, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
@@ -785,12 +803,14 @@ function App() {
 
                                 // Filter out special model tokens that may leak
                                 let filteredContent = data.content;
-                                const specialTokens = ['<|tool_calls_begin|>', '<|tool_calls_end|>', '< | tool_calls_begin | >', '< | tool_calls_end | >', '<tool_call>', '</tool_call>'];
-                                for (const token of specialTokens) {
-                                    filteredContent = filteredContent.replace(token, '');
-                                }
-                                // Filter out JSON tool call leaks
+
+                                // Clean using the robust regex function first
                                 filteredContent = filterToolCallLeaks(filteredContent);
+
+                                // Additional safety for split tokens or partials
+                                // ESCAPED PIPES: \| to match literal pipe
+                                const specialTokensRegex = /<\s*\|\s*tool_calls_(begin|end)\s*\|\s*>|<\s*\|\s*tool_call_(begin|end)\s*\|\s*>|<\s*\|\s*tool_sep\s*\|\s*>/g;
+                                filteredContent = filteredContent.replace(specialTokensRegex, "");
 
                                 if (filteredContent && filteredContent.trim()) {
                                     if (hasArtifact) {
@@ -1043,6 +1063,15 @@ function App() {
                                 title={ideMode ? "Voltar para Chat" : (auth.plan === 'eclipse' ? "Modo IDE" : "Modo IDE (Requer Eclipse)")}
                             >
                                 <Code size={20} />
+                            </button>
+
+                            {/* Business Mode Toggle */}
+                            <button
+                                onClick={() => setBusinessModeOpen(true)}
+                                className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-emerald-400"
+                                title="Luna Gestão"
+                            >
+                                <Building2 size={20} />
                             </button>
 
                             {/* Canvas Toggle */}
@@ -1354,6 +1383,13 @@ function App() {
                 onClose={() => setStudyModeOpen(false)}
             />
 
+            {/* Business Mode */}
+            <BusinessMode
+                isOpen={businessModeOpen}
+                onClose={() => setBusinessModeOpen(false)}
+                userId={user?.uid}
+            />
+
             {/* Learning Notification Toast */}
             {learningNotification && (
                 <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
@@ -1409,6 +1445,7 @@ function AppRoot() {
     return (
         <AuthProvider>
             <AppWithAuth />
+            <UpdateNotification />
         </AuthProvider>
     );
 }

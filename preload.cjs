@@ -20,5 +20,15 @@ contextBridge.exposeInMainWorld('electron', {
         disconnect: () => ipcRenderer.send('luna-link:disconnect'),
         pickFolder: () => ipcRenderer.invoke('luna-link:pick-folder'),
         isConnected: () => ipcRenderer.invoke('luna-link:status'),
+    },
+    // Auto-Updater
+    updater: {
+        checkForUpdates: () => ipcRenderer.send('update:check'),
+        downloadUpdate: () => ipcRenderer.send('update:download'),
+        installUpdate: () => ipcRenderer.send('update:install'),
+        onUpdateAvailable: (callback) => ipcRenderer.on('update:available', (_, data) => callback(data)),
+        onUpdateProgress: (callback) => ipcRenderer.on('update:progress', (_, data) => callback(data)),
+        onUpdateDownloaded: (callback) => ipcRenderer.on('update:downloaded', (_, data) => callback(data)),
+        onUpdateError: (callback) => ipcRenderer.on('update:error', (_, data) => callback(data)),
     }
 });

@@ -58,23 +58,32 @@ const preprocessContent = (raw) => {
 
     let content = raw;
 
-    // 1. Curar spans de negrito/itálico que a Luna quebra com novas linhas
-    // Ex: "** \n texto **" -> "**texto**"
-    content = content.replace(/(\*\*|__)\s*\n+\s*/g, "$1");
-    content = content.replace(/\s*\n+\s*(\*\*|__)/g, "$1");
+    // 1. Force Newline before Headers (###)
+    // Matches "text### Header" -> "text\n\n### Header"
+    // Negative lookbehind simulation not needed if we check non-newline char
+    content = content.replace(/([^\n])(#{1,6}\s)/g, "$1\n\n$2");
 
-    // 2. Curar spans de itálico simples (com cuidado para não quebrar listas)
-    // Só cura se houver uma nova linha colada no asterisco de abertura
-    content = content.replace(/([^\s])\s*\n+\s*(\*|_)/g, "$1 $2"); // Espaço antes de abrir itálico se vinha de newline
-    content = content.replace(/(\*|_)\s*\n+\s*([^\s])/g, "$1$2");   // Cola texto no asterisco de abertura
+    // 2. Fix concatenation of Colon and Header (e.g., "que:###")
+    content = content.replace(/:(#{1,6}\s)/g, ":\n\n$1");
 
-    // 3. Garantir que listas iniciadas após ":" tenham respiro (Markdown requirement)
-    // Ex: "porque:- Item" -> "porque:\n\n- Item"
+    // 3. Fix List Glue (e.g., ":-Item") -> ":\n\n- Item"
+    // Also handles "que:- Item" -> "que:\n\n- Item"
     content = content.replace(/(:)\s*(\n)?\s*(-|\*)\s/g, "$1\n\n$3 ");
+    content = content.replace(/:-([^\s])/g, ":\n\n- $1");
 
-    // 4. Corrigir emojis colados em texto (melhoria estética)
-    const emojiRegex = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g;
-    content = content.replace(emojiRegex, " $1 ").replace(/ +/g, " ");
+    // 4. Fix Glued Bold Blocks (e.g., "**A****B**") -> "**A**\n**B**"
+    content = content.replace(/\*\*\*\*/g, "**\n\n**");
+
+    // 5. Fix List Number Glue (e.g., "Text1.") -> "Text\n\n1."
+    // Matches lowercase letter or punctuation followed immediately by number and dot
+    content = content.replace(/([a-z.!?])(\d+\.\s)/g, "$1\n\n$2");
+
+    // 6. Fix "Situacao:Status" -> "Situacao:\n\nStatus" or just space if simple
+    // Specific fix for the screenshot "Situação:Positiva" or similar bold glue
+    content = content.replace(/(\*\*.*?\*\*:)([^\s])/g, "$1 $2");
+
+    // [SIMPLIFICADO] Removidas regras 7 e 8 que alteravam conteúdo (espaços em negrito/emojis)
+    // Regras 1-6 mantidas pois corrigem apenas ESTRUTURA quebrada (headers/listas sem quebra de linha)
 
     return content.trim();
 };

@@ -3,11 +3,11 @@ import {
     Loader2,
     Globe,
     FileText,
-    CheckCircle2
 } from "lucide-react";
 import { Markdown } from "../markdown/Markdown";
 import { TypingIndicator } from "./TypingIndicator";
 import { MessageItem } from "./MessageItem";
+import { cleanContent } from "../../utils/messageUtils";
 
 export const MessageList = memo(({
     messages,
@@ -62,15 +62,13 @@ export const MessageList = memo(({
                             </div>
                         )}
 
-                        {/* Streaming Content */}
-                        {streamBuffer ? (
-                            <div className="glass-panel text-gray-100 rounded-2xl rounded-tl-sm px-5 py-4 max-w-[85%] shadow-lg message-enter">
-                                <Markdown content={streamBuffer} />
-                                <span className="inline-block w-2 h-4 ml-1 bg-blue-400 animate-pulse align-middle" />
+                        {/* Streaming Buffer HIDDEN per user request to avoid visual glitches/leaks. 
+                            Users prefer to see the message only when fully ready or stable. */}
+                        {!activeTool && !streamThought && isStreaming && (
+                            /* Typing Indicator - Acts as the primary loading state now */
+                            <div className="pl-2">
+                                <TypingIndicator />
                             </div>
-                        ) : !activeTool && !streamThought && (
-                            /* Typing Indicator - Shows when waiting for Luna to start responding */
-                            <TypingIndicator />
                         )}
 
                         {/* Active Tool Badge - Dedicated persistent badge */}
@@ -113,15 +111,10 @@ export const MessageList = memo(({
     if (JSON.stringify(prevProps.activeTool) !== JSON.stringify(nextProps.activeTool)) return false;
     if (JSON.stringify(prevProps.toolStatus) !== JSON.stringify(nextProps.toolStatus)) return false;
 
-    // Deep check only last message if lengths are same (updates to last message)
+    // Deep check only last message
     const lastIdx = prevProps.messages.length - 1;
     if (lastIdx >= 0) {
         if (prevProps.messages[lastIdx] !== nextProps.messages[lastIdx]) return false;
-        // Also check fav/content changes in any message? 
-        // MessageItem is memoized, so re-rendering list is relatively cheap as long as list structure is same.
-        // But if `messages` array ref changes but content is same, we might re-render List but Items won't re-render.
-        // Simple referential equality for messages array might be enough if we rely on MessageItem memo.
-        // However, React.memo on List prevents List re-render (scrolling logic re-run).
     }
 
     // Check strict equality of messages array reference

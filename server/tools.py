@@ -16,6 +16,12 @@ try:
 except ImportError:
     pass
 
+try:
+    from .business.tools import BUSINESS_TOOLS_SCHEMA, execute_business_tool
+except ImportError:
+    BUSINESS_TOOLS_SCHEMA = []
+    execute_business_tool = None
+
 # Diretório base permitido (segurança)
 ALLOWED_BASE = Path(os.path.expanduser("~")).resolve()
 
@@ -528,6 +534,36 @@ TOOLS = {
     }
 }
 
+# =============================================================================
+# INTEGRAR BUSINESS TOOLS
+# =============================================================================
+if BUSINESS_TOOLS_SCHEMA and execute_business_tool:
+    def create_bus_executor(t_name):
+        def executor(**kwargs):
+            uid = kwargs.pop("user_id", None)
+            return execute_business_tool(t_name, kwargs, user_id=uid or "local")
+        return executor
+
+    for t_def in BUSINESS_TOOLS_SCHEMA:
+        fname = t_def["function"]["name"]
+        
+        # Converte schema OpenAI para schema interno
+        props = t_def["function"]["parameters"]["properties"]
+        req_list = t_def["function"]["parameters"].get("required", [])
+        
+        new_params = {}
+        for pname, pinfo in props.items():
+            new_p = pinfo.copy()
+            if pname in req_list:
+                new_p["required"] = True
+            new_params[pname] = new_p
+            
+        TOOLS[fname] = {
+            "function": create_bus_executor(fname),
+            "description": t_def["function"]["description"],
+            "parameters": new_params
+        }
+
 def execute_tool(tool_name: str, args: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:
     """Executa uma tool pelo nome, passando user_id se necessário."""
     if tool_name not in TOOLS:
@@ -538,7 +574,12 @@ def execute_tool(tool_name: str, args: Dict[str, Any], user_id: str = None) -> D
         print(f"[DEBUG] Executando tool: {tool_name} com args: {args} (User: {user_id})")
         
         # Injects user_id for specific tools
-        if tool_name in ["create_artifact", "add_knowledge"]:
+        # Check if it is a business tool (registered dynamically)
+        is_business = False
+        if BUSINESS_TOOLS_SCHEMA:
+            is_business = any(t["function"]["name"] == tool_name for t in BUSINESS_TOOLS_SCHEMA)
+
+        if tool_name in ["create_artifact", "add_knowledge"] or is_business:
             args["user_id"] = user_id
 
         if tool_name == "add_knowledge":

@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     agent_mode: bool = True
     deep_thinking: bool = False
     canvas_mode: bool = False # Controle explícito de ferramentas de Canvas
+    business_mode: bool = False # Modo Business Advisor
     active_artifact_id: Optional[str] = None
     user_id: Optional[str] = None
     user_name: Optional[str] = "Usuário"

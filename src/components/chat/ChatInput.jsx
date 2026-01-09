@@ -18,6 +18,7 @@ export const ChatInput = forwardRef(({
     setIsThinkingMode,
     isCanvasMode,
     setIsCanvasMode,
+    hideToggles = false,
     placeholder = "Responda..."
 }, ref) => {
     const [input, setInput] = useState("");
@@ -80,20 +81,24 @@ export const ChatInput = forwardRef(({
                 <button onClick={() => attachmentsHook.fileInputRef.current?.click()} className="p-2 mb-1 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-blue-400" title="Anexar imagem">
                     <ImageIcon size={20} />
                 </button>
-                <button
-                    onClick={() => setIsThinkingMode(!isThinkingMode)}
-                    className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isThinkingMode ? "text-violet-400 bg-violet-500/10" : "text-gray-400"}`}
-                    title="Ativar Pensamento Profundo"
-                >
-                    <Brain size={20} className={isThinkingMode ? "animate-pulse" : ""} />
-                </button>
-                <button
-                    onClick={() => setIsCanvasMode(!isCanvasMode)}
-                    className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isCanvasMode ? "text-cyan-400 bg-cyan-500/10" : "text-gray-400"}`}
-                    title={isCanvasMode ? "Modo Canvas Ativado" : "Ativar Modo Canvas (Geração de Arquivos)"}
-                >
-                    <FileText size={20} />
-                </button>
+                {!hideToggles && (
+                    <>
+                        <button
+                            onClick={() => setIsThinkingMode(!isThinkingMode)}
+                            className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isThinkingMode ? "text-violet-400 bg-violet-500/10" : "text-gray-400"}`}
+                            title="Ativar Pensamento Profundo"
+                        >
+                            <Brain size={20} className={isThinkingMode ? "animate-pulse" : ""} />
+                        </button>
+                        <button
+                            onClick={() => setIsCanvasMode(!isCanvasMode)}
+                            className={`p-2 mb-1 hover:bg-white/10 rounded-full transition-colors ${isCanvasMode ? "text-cyan-400 bg-cyan-500/10" : "text-gray-400"}`}
+                            title={isCanvasMode ? "Modo Canvas Ativado" : "Ativar Modo Canvas (Geração de Arquivos)"}
+                        >
+                            <FileText size={20} />
+                        </button>
+                    </>
+                )}
                 <textarea
                     ref={internalInputRef}
                     value={input}
@@ -123,6 +128,16 @@ export const ChatInput = forwardRef(({
                     </button>
                 )}
             </div>
+
+            {/* Hidden File Input */}
+            <input
+                type="file"
+                ref={attachmentsHook.fileInputRef}
+                onChange={attachmentsHook.handleFileSelect}
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.txt"
+            />
         </div>
     );
 });

@@ -26,10 +26,14 @@ from .config import DB_PATH, CHAT_DIR, IDE_CHAT_DIR
 from .memory import preload_models, is_ready, save_technical_knowledge
 from .chat import ChatManager, Message, ChatRequest, SaveChatRequest, CreateThreadRequest
 from .agent import unified_generator
+from .business_agent import business_generator
 from .artifacts import save_artifact, list_artifacts, get_artifact, delete_artifact, update_artifact_content
 
 # Study Mode
 from .study.routes import router as study_router
+
+# Business Mode
+from .business.routes import router as business_router
 
 # Luna Link (Remote Agent Tunnel)
 from . import link_manager
@@ -57,8 +61,9 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Register Study Mode routes
+# Register routers
 app.include_router(study_router)
+app.include_router(business_router)
 
 # =============================================================================
 # HEALTH & STATUS
@@ -212,6 +217,9 @@ async def delete_artifact_endpoint(artifact_id: str, user_id: Optional[str] = No
 @app.post("/chat/stream")
 @app.post("/agent/stream")
 async def agent_stream(request: ChatRequest):
+    # Use non-streaming native tool calling for Business Mode
+    if request.business_mode:
+        return StreamingResponse(business_generator(request), media_type="text/event-stream")
     return StreamingResponse(unified_generator(request), media_type="text/event-stream")
 
 # =============================================================================
@@ -563,6 +571,7 @@ async def ws_agent(websocket: WebSocket):
                 req_data = msg.get("request", {})
                 messages_raw = req_data.get("messages", [])
                 deep_thinking = req_data.get("deep_thinking", False)
+                business_mode = req_data.get("business_mode", False)
                 active_artifact_id = req_data.get("active_artifact_id")
                 
                 # Convert to Message objects
@@ -579,6 +588,7 @@ async def ws_agent(websocket: WebSocket):
                     messages=messages, 
                     agent_mode=True, 
                     deep_thinking=deep_thinking,
+                    business_mode=business_mode,
                     active_artifact_id=active_artifact_id,
                     user_id=req_data.get("user_id"),
                     user_name=req_data.get("user_name", "Usuário")
