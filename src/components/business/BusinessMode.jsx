@@ -536,7 +536,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                             </div>
 
                             {/* Table */}
-                            <main className="flex-1 overflow-auto">
+                            <main className="flex-1 overflow-auto min-h-0">
                                 <RecurringModal
                                     isOpen={showRecurringModal}
                                     onClose={() => setShowRecurringModal(false)}
