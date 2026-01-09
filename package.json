@@ -26,7 +26,8 @@
       "dist/**/*",
       "main.cjs",
       "LinkService.cjs",
-      "server/**/*"
+      "server/**/*",
+      "updater.cjs"
     ],
     "extraResources": [
       {
