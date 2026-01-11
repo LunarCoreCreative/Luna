@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { API_CONFIG } from "../config/api";
 import { useAuth } from "../contexts/AuthContext"; // Import Auth Context
+import { useModalContext } from "../contexts/ModalContext";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
@@ -9,6 +10,7 @@ const MEMORY_SERVER = API_CONFIG.BASE_URL;
  */
 export const useChat = () => {
     const { user } = useAuth(); // Get current user
+    const { showConfirm, showPrompt } = useModalContext();
     const [chats, setChats] = useState([]);
     const [currentChatId, setCurrentChatId] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -68,7 +70,8 @@ export const useChat = () => {
 
     const deleteChat = useCallback(async (e, id) => {
         e.stopPropagation();
-        if (!confirm("Tem certeza que deseja excluir esta conversa?")) return;
+        const confirmed = await showConfirm("Tem certeza que deseja excluir esta conversa?", "Confirmar Exclusão");
+        if (!confirmed) return;
         try {
             const query = user?.uid ? `?user_id=${user.uid}` : "";
             const r = await fetch(`${MEMORY_SERVER}/chats/${id}${query}`, { method: "DELETE" });
@@ -80,11 +83,11 @@ export const useChat = () => {
         } catch (e) {
             console.error("Failed to delete chat", e);
         }
-    }, [startNewChat, loadChats, user]);
+    }, [startNewChat, loadChats, user, showConfirm]);
 
     const renameChat = useCallback(async (e, id, currentTitle) => {
         e.stopPropagation();
-        const newTitle = prompt("Novo título para o chat:", currentTitle);
+        const newTitle = await showPrompt("Novo título para o chat:", currentTitle, "Renomear Chat");
         if (!newTitle || newTitle === currentTitle) return;
 
         try {
@@ -108,7 +111,7 @@ export const useChat = () => {
         } catch (e) {
             console.error("Failed to rename chat", e);
         }
-    }, [loadChats, user]);
+    }, [loadChats, user, showPrompt]);
 
     const persistChat = useCallback(async (msgs, chatId = null, customTitle = null) => {
         try {

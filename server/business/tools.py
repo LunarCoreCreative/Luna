@@ -17,6 +17,25 @@ from .storage import (
 )
 from .tags import add_tag as storage_add_tag
 
+# Import overdue functions
+try:
+    from .overdue import (
+        load_overdue,
+        add_overdue_bill as storage_add_overdue_bill,
+        update_overdue_bill as storage_update_overdue_bill,
+        delete_overdue_bill as storage_delete_overdue_bill,
+        pay_bill_and_create_transaction as storage_pay_bill_and_create_transaction,
+        get_overdue_summary as storage_get_overdue_summary
+    )
+except ImportError:
+    # Fallback if overdue module not available
+    load_overdue = lambda uid: []
+    storage_add_overdue_bill = lambda *args, **kwargs: {}
+    storage_update_overdue_bill = lambda *args, **kwargs: None
+    storage_delete_overdue_bill = lambda *args, **kwargs: False
+    storage_pay_bill_and_create_transaction = lambda *args, **kwargs: None
+    storage_get_overdue_summary = lambda uid: {}
+
 # Import recurring loader (safe import)
 try:
     from .recurring import load_recurring
@@ -204,6 +223,90 @@ BUSINESS_TOOLS_SCHEMA = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_overdue_bill",
+            "description": "Registra uma conta em atraso ou pendente de pagamento. Use quando o usuário mencionar contas a pagar, contas vencidas, ou faturas pendentes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Descrição da conta (ex: 'Conta de luz', 'Fatura cartão')"
+                    },
+                    "value": {
+                        "type": "number",
+                        "description": "Valor da conta em reais (sempre positivo)"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Data de vencimento no formato YYYY-MM-DD"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Categoria da conta (ex: 'utilities', 'cartao', 'geral')"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Observações adicionais (opcional)"
+                    }
+                },
+                "required": ["description", "value", "due_date"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_overdue_bills",
+            "description": "Lista todas as contas em atraso ou pendentes de pagamento.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["pending", "paid", "all"],
+                        "description": "Filtrar por status: 'pending' (pendentes), 'paid' (pagas), 'all' (todas). Padrão: 'all'"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pay_overdue_bill",
+            "description": "Marca uma conta como paga e cria automaticamente a transação de saída correspondente.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bill_id": {
+                        "type": "string",
+                        "description": "ID da conta a ser paga"
+                    },
+                    "payment_date": {
+                        "type": "string",
+                        "description": "Data do pagamento no formato YYYY-MM-DD (opcional, padrão é hoje)"
+                    }
+                },
+                "required": ["bill_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_overdue_summary",
+            "description": "Retorna um resumo das contas em atraso: total pendente, total vencido, quantidade de contas, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
@@ -340,6 +443,59 @@ def execute_business_tool(name: str, args: Dict, user_id: str = "local") -> Dict
             "items": items,
             "count": len(items),
             "message": f"Achei {len(items)} itens recorrentes."
+        }
+    
+    elif name == "add_overdue_bill":
+        bill = storage_add_overdue_bill(
+            user_id=user_id,
+            description=args.get("description", ""),
+            value=args.get("value", 0),
+            due_date=args.get("due_date", ""),
+            category=args.get("category", "geral"),
+            notes=args.get("notes")
+        )
+        return {
+            "success": True,
+            "message": f"Conta registrada: {bill['description']} - R$ {bill['value']:.2f} (Vencimento: {bill['due_date']})",
+            "bill": bill
+        }
+    
+    elif name == "list_overdue_bills":
+        status_filter = args.get("status", "all")
+        bills = load_overdue(user_id)
+        
+        if status_filter != "all":
+            bills = [b for b in bills if b.get("status") == status_filter]
+        
+        # Sort by days overdue (most overdue first)
+        bills.sort(key=lambda b: b.get("days_overdue", 0), reverse=True)
+        
+        return {
+            "success": True,
+            "bills": bills,
+            "count": len(bills),
+            "message": f"Encontrei {len(bills)} conta(s) {'pendente(s)' if status_filter == 'pending' else 'paga(s)' if status_filter == 'paid' else ''}"
+        }
+    
+    elif name == "pay_overdue_bill":
+        bill_id = args.get("bill_id")
+        payment_date = args.get("payment_date")
+        
+        result = storage_pay_bill_and_create_transaction(user_id, bill_id, payment_date)
+        if result:
+            return {
+                "success": True,
+                "message": f"Conta '{result['description']}' marcada como paga e transação criada.",
+                "bill": result
+            }
+        return {"success": False, "message": "Erro: Conta não encontrada ou já foi paga."}
+    
+    elif name == "get_overdue_summary":
+        summary = storage_get_overdue_summary(user_id)
+        return {
+            "success": True,
+            "summary": summary,
+            "message": f"Resumo: {summary.get('pending_count', 0)} conta(s) pendente(s) totalizando R$ {summary.get('pending_total', 0):.2f}, sendo {summary.get('overdue_count', 0)} vencida(s) (R$ {summary.get('overdue_total', 0):.2f})"
         }
     
     return {"success": False, "error": f"Ferramenta desconhecida: {name}"}

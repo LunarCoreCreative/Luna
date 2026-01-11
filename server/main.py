@@ -61,7 +61,76 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Register routers
+# =============================================================================
+# FRONTEND SERVING MIDDLEWARE
+# IMPORTANTE: Middlewares são executados na ordem INVERSA de registro
+# Este deve ser registrado DEPOIS do CORS para ser executado ANTES
+# =============================================================================
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
+
+class FrontendMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware para servir o frontend SPA apenas para rotas que não são da API.
+    Isso garante que rotas da API tenham prioridade sobre o frontend.
+    """
+    def __init__(self, app: ASGIApp, frontend_dir: str = "dist"):
+        super().__init__(app)
+        self.frontend_dir = frontend_dir
+        self.api_prefixes = [
+            "/business", "/study", "/chats", "/artifacts", "/upload",
+            "/health", "/memory", "/code-agent", "/payments", "/ws", "/api",
+            "/agent", "/system"
+        ]
+    
+    async def dispatch(self, request, call_next):
+        # Verificar se é uma rota da API
+        path = request.url.path
+        
+        # Se for uma rota da API, deixar passar para as rotas normais
+        # NUNCA servir frontend para rotas da API, mesmo se retornar 404
+        is_api_route = any(path.startswith(prefix) for prefix in self.api_prefixes)
+        
+        if is_api_route:
+            # Deixar passar para as rotas da API - não servir frontend
+            # Se a rota não existir, o FastAPI retornará 404 JSON, não HTML
+            response = await call_next(request)
+            return response
+        
+        # Se não for rota da API e for GET, tentar servir frontend
+        if request.method == "GET" and os.path.exists(self.frontend_dir):
+            # Primeiro, tentar processar a requisição normalmente
+            # (pode ser uma rota do FastAPI que não está na lista de APIs)
+            response = await call_next(request)
+            
+            # Se retornou 404, então servir frontend (SPA routing)
+            if response.status_code == 404:
+                # Tentar servir arquivo estático primeiro
+                file_path = os.path.join(self.frontend_dir, path.lstrip("/"))
+                if os.path.isfile(file_path):
+                    return FileResponse(file_path)
+                
+                # Se não for arquivo, servir index.html (SPA routing)
+                index_path = os.path.join(self.frontend_dir, "index.html")
+                if os.path.isfile(index_path):
+                    return FileResponse(index_path)
+            
+            # Se não for 404, retornar a resposta normal
+            return response
+        
+        # Se não for GET ou não tiver frontend, deixar passar
+        response = await call_next(request)
+        return response
+
+# Aplicar middleware apenas se a pasta dist existir
+# IMPORTANTE: Este middleware deve ser registrado DEPOIS do CORS
+# para ser executado ANTES (ordem inversa)
+if os.path.exists("dist"):
+    app.add_middleware(FrontendMiddleware, frontend_dir="dist")
+
+# Register routers (APIs devem ser registradas ANTES do frontend estático)
+# IMPORTANTE: A ordem importa! Rotas mais específicas devem ser registradas primeiro
 app.include_router(study_router)
 app.include_router(business_router)
 
@@ -221,6 +290,76 @@ async def agent_stream(request: ChatRequest):
     if request.business_mode:
         return StreamingResponse(business_generator(request), media_type="text/event-stream")
     return StreamingResponse(unified_generator(request), media_type="text/event-stream")
+
+@app.post("/agent/message")
+async def agent_message(request: ChatRequest):
+    """
+    Endpoint não-streaming para chat.
+    Coleta todos os eventos do gerador e retorna como JSON completo.
+    """
+    try:
+        # Escolhe o gerador apropriado
+        generator = business_generator(request) if request.business_mode else unified_generator(request)
+        
+        # Coleta todos os eventos do stream
+        events = []
+        full_content = ""
+        thought = None
+        artifact = None
+        tool_calls = []
+        tool_results = []
+        
+        async for chunk in generator:
+            if chunk.startswith("data: "):
+                try:
+                    data = json.loads(chunk[6:])
+                    events.append(data)
+                    
+                    # Acumula conteúdo
+                    if data.get("content"):
+                        full_content += data["content"]
+                    
+                    # Captura thought
+                    if data.get("thinking"):
+                        thought = (thought or "") + data["thinking"]
+                    elif data.get("thought"):
+                        thought = data["thought"]
+                    
+                    # Captura artifact
+                    if data.get("artifact"):
+                        artifact = data["artifact"]
+                    elif data.get("partial_artifact"):
+                        artifact = data["partial_artifact"]
+                    
+                    # Captura tool calls e results para montar estrutura completa
+                    if data.get("tool_call"):
+                        tool_calls.append(data["tool_call"])
+                    if data.get("tool_result"):
+                        tool_results.append(data["tool_result"])
+                    
+                except json.JSONDecodeError:
+                    continue
+        
+        # Retorna conteúdo final
+        final_message = full_content.strip() if full_content else ""
+        
+        # Retorna resposta estruturada
+        return {
+            "success": True,
+            "message": final_message,
+            "thought": thought,
+            "artifact": artifact,
+            "events": events,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 # =============================================================================
 # CODE AGENT (IDE MODE)
@@ -795,19 +934,10 @@ async def ws_code_agent(websocket: WebSocket):
 # STATIC FILES (FRONTEND)
 # =============================================================================
 
-# Servir o frontend construído (Vite)
-# O ideal é que a pasta 'dist' exista antes de rodar em produção
+# Servir assets estáticos do frontend
+# O middleware FrontendMiddleware cuida do SPA routing (servir index.html para rotas não-API)
 if os.path.exists("dist"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-    
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        # Se o caminho for um arquivo real em dist, serve ele
-        file_path = os.path.join("dist", full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        # Caso contrário, serve o index.html (SPA routing)
-        return FileResponse("dist/index.html")
 
 # =============================================================================
 # MAIN

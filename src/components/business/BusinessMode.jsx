@@ -20,14 +20,17 @@ import {
     BarChart3,
     Table,
     LineChart,
-    Wallet
+    Wallet,
+    AlertCircle
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
+import { useModalContext } from "../../contexts/ModalContext";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ProjectionsTab } from "./ProjectionsTab";
 import { InvestmentsTab } from "./InvestmentsTab";
 import { BusinessChat } from "./BusinessChat";
 import RecurringModal from "./RecurringModal";
+import OverdueBills from "./OverdueBills";
 
 // ============================================================================
 // DEFAULT TAGS (usuário pode adicionar mais)
@@ -52,6 +55,7 @@ const TAG_COLORS = [
 // ============================================================================
 
 export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
+    const { showAlert, showConfirm } = useModalContext();
     const [transactions, setTransactions] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [showAddRow, setShowAddRow] = useState(false);
@@ -64,6 +68,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     const [tags, setTags] = useState([]);
     const [showTagModal, setShowTagModal] = useState(false);
     const [showRecurringModal, setShowRecurringModal] = useState(false);
+    const [showOverdueModal, setShowOverdueModal] = useState(false);
     const [newTag, setNewTag] = useState({ label: "", color: TAG_COLORS[0] });
 
     // Form state for new/edit entry
@@ -162,7 +167,8 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     };
 
     const handleDelete = async (txId) => {
-        if (!confirm("Tem certeza que deseja excluir esta transação?")) return;
+        const confirmed = await showConfirm("Tem certeza que deseja excluir esta transação?", "Confirmar Exclusão");
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`${API_CONFIG.BASE_URL}/business/transactions/${txId}?user_id=${userId}`, {
@@ -248,11 +254,12 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         // Prevent deleting defaults if desired, or let backend handle it
         // Check if it is default
         if (DEFAULT_TAGS.find(t => t.id === tagId)) {
-            alert("Não é possível remover tags padrão.");
+            await showAlert("Não é possível remover tags padrão.", "Aviso");
             return;
         }
 
-        if (!confirm("Remover esta categoria?")) return;
+        const confirmed = await showConfirm("Remover esta categoria?", "Confirmar Exclusão");
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`${API_CONFIG.BASE_URL}/business/tags/${tagId}?user_id=${userId}`, {
@@ -522,6 +529,19 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                         <Calendar size={14} />
                                         Fixos
                                     </button>
+
+                                    {/* Overdue Bills Button */}
+                                    <button
+                                        onClick={() => setShowOverdueModal(true)}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
+                                        style={{
+                                            color: 'var(--text-secondary)',
+                                            border: '1px solid var(--border-color)'
+                                        }}
+                                    >
+                                        <AlertCircle size={14} />
+                                        Contas em Atraso
+                                    </button>
                                 </div>
 
                                 {/* Add Button */}
@@ -540,6 +560,13 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                 <RecurringModal
                                     isOpen={showRecurringModal}
                                     onClose={() => setShowRecurringModal(false)}
+                                    userId={userId}
+                                    onLoadData={loadData}
+                                    tags={tags}
+                                />
+                                <OverdueBills
+                                    isOpen={showOverdueModal}
+                                    onClose={() => setShowOverdueModal(false)}
                                     userId={userId}
                                     onLoadData={loadData}
                                     tags={tags}

@@ -53,6 +53,7 @@ import { useArtifacts } from "./hooks/useArtifacts";
 import { useAttachments } from "./hooks/useAttachments";
 import { generateArtifactSummary, filterSummaryText } from "./utils/artifactUtils";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { ModalProvider } from "./contexts/ModalContext";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SidebarProfile } from "./components/sidebar/SidebarProfile";
@@ -61,6 +62,10 @@ import { API_CONFIG } from "./config/api";
 import { UpdateNotification } from "./components/UpdateNotification";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
+
+// Log da URL do servidor para debug
+console.log('[APP] MEMORY_SERVER configurado para:', MEMORY_SERVER);
+console.log('[APP] IS_PRODUCTION:', import.meta.env.PROD);
 
 const filterToolCallLeaks = (text) => {
     if (!text) return "";
@@ -76,7 +81,94 @@ const filterToolCallLeaks = (text) => {
     filtered = filtered.replace(/<tool_call>/g, "");
     filtered = filtered.replace(/<\/tool_call>/g, "");
 
-    // 3. Check if the string contains a tool call JSON pattern
+    // 3. Remove tool calls in format: tool_name{...} (e.g., edit_artifact{"id":...})
+    // Helper function to find and remove tool calls with balanced braces
+    const removeToolCalls = (text, toolNames) => {
+        const toRemove = [];
+        const allMatches = [];
+        
+        // Find all tool call starts
+        for (const toolName of toolNames) {
+            const regex = new RegExp(`\\b${toolName}\\s*\\{`, "g");
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                allMatches.push({ name: toolName, start: match.index, matchEnd: match.index + match[0].length });
+            }
+        }
+        
+        // Sort by position
+        allMatches.sort((a, b) => a.start - b.start);
+        
+        // For each match, find the matching closing brace
+        for (const match of allMatches) {
+            let braceCount = 1; // Start at 1 because we're already inside the first {
+            let inString = false;
+            let escapeNext = false;
+            let endPos = match.matchEnd - 1;
+            let found = false;
+            
+            for (let i = match.matchEnd; i < text.length; i++) {
+                const char = text[i];
+                
+                if (escapeNext) {
+                    escapeNext = false;
+                    continue;
+                }
+                
+                if (char === '\\') {
+                    escapeNext = true;
+                    continue;
+                }
+                
+                if (char === '"' && !escapeNext) {
+                    inString = !inString;
+                    continue;
+                }
+                
+                if (!inString) {
+                    if (char === '{') braceCount++;
+                    if (char === '}') {
+                        braceCount--;
+                        if (braceCount === 0) {
+                            endPos = i;
+                            toRemove.push({ start: match.start, end: endPos + 1 });
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Remove all matches in reverse order to maintain positions
+        let result = text;
+        for (let i = toRemove.length - 1; i >= 0; i--) {
+            const { start, end } = toRemove[i];
+            result = result.slice(0, start) + result.slice(end);
+        }
+        
+        return result;
+    };
+    
+    // List of known tool names (including business tools)
+    const toolNames = [
+        "edit_artifact", "create_artifact", "get_artifact", "web_search", "run_command", "add_knowledge", "think",
+        // Business tools
+        "add_transaction", "edit_transaction", "update_transaction", "delete_transaction",
+        "add_tag", "get_balance", "list_transactions", "get_transactions",
+        "add_client", "get_recurring_items",
+        // Overdue bills tools
+        "add_overdue_bill", "list_overdue_bills", "pay_overdue_bill", "get_overdue_summary",
+        // Common patterns that might leak
+        "get_expenses_by_category", "get_expenses", "get_summary", "search_clients"
+    ];
+    filtered = removeToolCalls(filtered, toolNames);
+    
+    // Also capture generic pattern: word followed by {} (empty tool call)
+    // This catches any tool_name{} pattern even if not in our list
+    filtered = filtered.replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\s*\{\s*\}/g, "");
+
+    // 4. Check if the string contains a tool call JSON pattern
     if (text.includes('{"name":') || text.includes('{"name" :') || text.includes('{"artifact_id":')) {
         // Remove full JSON blocks (including nested braces)
         filtered = filtered.replace(/\{"name"\s*:\s*"[a-zA-Z0-9_-]+"[\s\S]*?\}\s*\}\s*\}?/g, "");
@@ -88,11 +180,10 @@ const filterToolCallLeaks = (text) => {
         filtered = filtered.replace(/"arguments"\s*:\s*\{?/g, "");
         filtered = filtered.replace(/"artifact_id"\s*:\s*"[^"]*"?/g, "");
         filtered = filtered.replace(/"changes"\s*:\s*\[?/g, "");
-
-        return filtered.trim();
+        filtered = filtered.replace(/"artifact_updates"\s*:\s*\[?/g, "");
     }
 
-    return filtered;
+    return filtered.trim();
 };
 
 
@@ -233,7 +324,6 @@ function App() {
     const attachmentsHook = useAttachments(setToolStatus);
 
     // Refs
-    const wsRef = useRef(null);
     const messagesEndRef = useRef(null);
     const homeInputRef = useRef(null);
     const chatInputRef = useRef(null);
@@ -243,6 +333,80 @@ function App() {
         if ("Notification" in window && Notification.permission === "default") {
             Notification.requestPermission();
         }
+    }, []);
+
+    // Fix para inputs que param de funcionar (funciona no navegador e Electron)
+    useEffect(() => {
+        let clickTimeout = null;
+        let lastClickTime = 0;
+        let clickCount = 0;
+        let lastClickedInput = null;
+
+        const handleInputClick = (e) => {
+            const target = e.target;
+            // Verifica se é um input ou textarea
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+                // Não interfere se o input está desabilitado
+                if (target.disabled || target.readOnly) return;
+
+                const now = Date.now();
+                const isSameInput = lastClickedInput === target;
+                
+                // Detecta múltiplos cliques rápidos no mesmo input (sinal de que não está respondendo)
+                if (isSameInput && now - lastClickTime < 500) {
+                    clickCount++;
+                    if (clickCount >= 2) {
+                        // Força o foco se múltiplos cliques não funcionaram
+                        setTimeout(() => {
+                            if (document.activeElement !== target) {
+                                console.log('[INPUT-FIX] Input não responsivo após múltiplos cliques, forçando foco...');
+                                // Força blur e focus para resetar
+                                target.blur();
+                                setTimeout(() => {
+                                    target.focus();
+                                    // Se ainda não funcionou, tenta via Electron (se disponível)
+                                    if (window.electron?.inputFix) {
+                                        window.electron.inputFix.forceFocus();
+                                        setTimeout(() => target.focus(), 50);
+                                    }
+                                }, 10);
+                            }
+                            clickCount = 0;
+                        }, 50);
+                    }
+                } else {
+                    clickCount = 1;
+                }
+                lastClickTime = now;
+                lastClickedInput = target;
+
+                // Timeout de segurança: se após 150ms o input não estiver focado, força
+                clearTimeout(clickTimeout);
+                clickTimeout = setTimeout(() => {
+                    if (document.activeElement !== target && target === lastClickedInput) {
+                        console.log('[INPUT-FIX] Input não ganhou foco após clique, forçando...');
+                        target.blur();
+                        setTimeout(() => {
+                            target.focus();
+                            // Tenta via Electron se disponível
+                            if (window.electron?.inputFix) {
+                                window.electron.inputFix.forceFocus();
+                            }
+                        }, 10);
+                    }
+                }, 150);
+            }
+        };
+
+        // Adiciona listener global para cliques em inputs (capture phase para pegar antes de outros handlers)
+        document.addEventListener('mousedown', handleInputClick, true);
+        document.addEventListener('click', handleInputClick, true);
+
+        return () => {
+            document.removeEventListener('mousedown', handleInputClick, true);
+            document.removeEventListener('click', handleInputClick, true);
+            if (clickTimeout) clearTimeout(clickTimeout);
+        };
     }, []);
 
     // Theme Effect
@@ -256,7 +420,13 @@ function App() {
 
     useEffect(() => {
         // 2. Apply Theme
-        document.documentElement.classList.remove("light", "dark", "glass", "neon");
+        document.documentElement.classList.remove(
+            "light", "dark", "glass", "neon", "midnight",
+            "light-blue", "light-green", "light-pink", "warm-light", 
+            "nord-light", "paper",
+            "premium-glass", "premium-dark", "premium-purple", 
+            "premium-gold", "premium-light", "premium-cyan"
+        );
         document.documentElement.classList.add(theme);
         localStorage.setItem("luna-theme", theme);
 
@@ -276,21 +446,58 @@ function App() {
     // Boot Sequence
     useEffect(() => {
         let retries = 0;
+        const maxRetries = 30; // Limita a 60 segundos (30 * 2s)
         const checkHealth = async () => {
             try {
-                const r = await fetch(`${MEMORY_SERVER}/health`);
+                console.log(`[BOOT] Tentando conectar a ${MEMORY_SERVER}/health (tentativa ${retries + 1})`);
+                
+                // Timeout manual para compatibilidade
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const r = await fetch(`${MEMORY_SERVER}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                
                 const d = await r.json();
+                console.log('[BOOT] Resposta do servidor:', d);
+                
                 if (d.status === "ready") {
                     setBootStatus("Carregando memórias...");
                     await chat.loadChats();
                     setAppState("READY");
                 } else {
+                    retries++;
                     setBootStatus(`Aquecendo motores neurais... (${retries})`);
-                    setTimeout(checkHealth, 1000);
+                    if (retries < maxRetries) {
+                        setTimeout(checkHealth, 1000);
+                    } else {
+                        setBootStatus(`Servidor não está pronto. Tentando novamente...`);
+                        retries = 0;
+                        setTimeout(checkHealth, 2000);
+                    }
                 }
             } catch (e) {
                 retries++;
-                setBootStatus(`Tentando conexão com servidor... (${retries})`);
+                console.error(`[BOOT] Erro na conexão (tentativa ${retries}):`, e);
+                setBootStatus(`Tentando conexão com servidor... (${retries}/${maxRetries})`);
+                
+                // Após muitas tentativas, mostra erro mas continua tentando
+                if (retries >= maxRetries) {
+                    setBootStatus(`Não foi possível conectar ao servidor em ${MEMORY_SERVER}. Verifique se o servidor Python está rodando.`);
+                    retries = 0; // Reinicia contador
+                }
+                
                 setTimeout(checkHealth, 2000);
             }
         };
@@ -324,13 +531,13 @@ function App() {
     const startNewChat = () => {
         if (chat.isStreamingRef.current) return;
         chat.startNewChat();
-        setStreamBuffer("");
+        setStreamBuffer(""); // Limpa buffer para compatibilidade
     };
 
     const loadChat = async (id) => {
         if (chat.isStreamingRef.current) return;
         await chat.loadChat(id);
-        setStreamBuffer("");
+        setStreamBuffer(""); // Limpa buffer para compatibilidade
     };
 
 
@@ -351,229 +558,20 @@ function App() {
 
         chat.setMessages(newMessages);
 
-        // Directly trigger agent response without re-adding user message
+        // Prepara nova mensagem e usa sendMessage para reutilizar a lógica
+        const lastUserMsg = newMessages[newMessages.length - 1];
+        // Atualiza o input home com a última mensagem do usuário para reenviar
+        setHomeInput(lastUserMsg.content || "");
+        // Usa sendMessage com o texto da última mensagem do usuário
         setTimeout(() => {
-            streamAgentViaWS(newMessages, isThinkingMode, chat.currentChatId);
+            sendMessage(lastUserMsg.content);
         }, 100);
     };
 
     const stopGeneration = () => {
-        // Close WebSocket if exists
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-
-        // Reset streaming state
+        // Reset streaming state (não há mais WebSocket para fechar)
         chat.isStreamingRef.current = false;
         setIsStreaming(false);
-    };
-
-    const streamAgentViaWS = (next, thinkingMode, activeChatId) => {
-        return new Promise((resolve, reject) => {
-            let ws;
-            let fullText = "";
-            let currentThought = null;
-            let streamCompleted = false;
-            let hasArtifact = false;
-            let currentArtifact = null;
-            let summaryText = "";
-            try {
-                ws = new WebSocket(API_CONFIG.WS_AGENT);
-                wsRef.current = ws; // Store for cancellation
-            } catch (e) {
-                reject(e);
-                return;
-            }
-            ws.onopen = () => {
-                console.log("[WS] Connected, sending request...");
-                ws.send(JSON.stringify({
-                    type: "start",
-                    request: {
-                        messages: next,
-                        agent_mode: true,
-                        deep_thinking: thinkingMode,
-                        canvas_mode: isCanvasMode,
-                        active_artifact_id: artifacts.activeArtifact?.id, // Injeta o ID do artefato ativo se houver
-                        user_id: user?.uid || null,
-                        user_name: profile?.displayName || user?.displayName || "Usuário"
-                    }
-                }));
-            };
-            ws.onmessage = (evt) => {
-                try {
-                    const data = JSON.parse(evt.data);
-                    console.log("[WS] Received:", Object.keys(data));
-                    if (data.status) setToolStatus({ message: data.status, type: 'info' });
-                    if (data.phase === "thinking") setToolStatus({ message: "Pensando...", type: 'info' });
-                    if (data.thinking) {
-                        currentThought = (currentThought || "") + data.thinking;
-                        setStreamThought(currentThought);
-                    }
-                    if (data.partial_artifact) {
-                        const part = data.partial_artifact;
-                        const art = {
-                            id: part.id || `temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-                            title: part.title || "Gerando...",
-                            type: part.type || "code",
-                            language: part.language || "markdown",
-                            content: part.content || ""
-                        };
-
-                        artifacts.setActiveArtifact(art);
-                        currentArtifact = art; // Persiste para o fechamento da mensagem
-                        artifacts.setCanvasOpen(true);
-                        hasArtifact = true;
-                        setStreamBuffer(""); // Limpa buffer do chat se começou o artefato
-                    }
-                    if (data.tool_call) {
-                        const toolName = data.tool_call.name;
-                        if (toolName === "think") {
-                            const thoughtArg = data.tool_call.args.detailed_thought;
-                            const cleanThought = parseThought(thoughtArg);
-                            currentThought = cleanThought;
-                            setStreamThought(cleanThought);
-                        } else {
-                            let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
-                            if (toolName === "web_search") { toolInfo.message = `Pesquisando: ${data.tool_call.args.query || '...'}`; toolInfo.icon = "search"; }
-                            if (toolName === "read_url") { toolInfo.message = `Lendo página: ${data.tool_call.args.url || '...'}`; toolInfo.icon = "read"; }
-                            if (toolName === "create_artifact") { toolInfo.message = `Gerando: ${data.tool_call.args.title || 'artefato'}...`; toolInfo.icon = "code"; }
-
-                            setActiveTool(toolInfo);
-                            activeToolRef.current = toolInfo;
-                            chat.setToolHistory(prev => [...prev, { ...toolInfo, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
-                        }
-                    }
-                    if (data.tool_result) {
-                        const result = data.tool_result;
-
-                        // Handle create_artifact result - Open Canvas!
-                        if (result.success && result.artifact) {
-                            const art = result.artifact;
-                            console.log("[CANVAS] Artifact received:", art.title);
-
-                            // Check if this is an update to an artifact already in history
-                            const isHistorical = next.some(m => m.artifact && m.artifact.id === art.id);
-                            // Check if this is an update to an artifact created in this very turn (re-edit)
-                            const isSameTurn = currentArtifact && currentArtifact.id === art.id;
-
-                            if (isHistorical) {
-                                console.log("[CANVAS] Updating historical artifact");
-                                // Update the artifact in the message history state
-                                chat.setMessages(prev => prev.map(m => {
-                                    if (m.artifact && m.artifact.id === art.id) {
-                                        return { ...m, artifact: art };
-                                    }
-                                    return m;
-                                }));
-
-                                artifacts.setActiveArtifact(art); // Update visible canvas
-                                hasArtifact = false; // Do NOT generate a new artifact card message
-                                fullText += "\n\n> [!STATUS] ⚡ *Conteúdo atualizado no Canvas.*\n\n"; // Premium status badge
-                            } else {
-                                // New artifact OR update to an artifact created in this turn
-                                currentArtifact = art;
-                                artifacts.setActiveArtifact(art);
-                                artifacts.setCanvasOpen(true);
-                                hasArtifact = true; // Will generate/update the artifact card message at the end
-
-                                // Only clearing text if it's a fresh creation to avoid clutter
-                                if (!isSameTurn) fullText = "";
-                            }
-
-                            setActiveTool(null);
-                            activeToolRef.current = null;
-                            setStreamBuffer("");
-                        }
-                        // Handle web_search / read_url content
-                        else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
-                            chat.setMessages(prev => [...prev, { role: "tool-card", content: result.content, type: result.content.includes("TITULO:") ? "search" : "read" }]);
-                        }
-                    }
-                    // Handle learning events
-                    if (data.learning) {
-                        const titles = Array.isArray(data.learning) ? data.learning : [data.learning];
-                        if (titles.length > 0) {
-                            setLearningNotification(titles[0]); // Mostra o primeiro título
-                            setTimeout(() => setLearningNotification(null), 4000);
-                        }
-                    }
-                    if (data.content) {
-                        if (activeToolRef.current) { setActiveTool(null); activeToolRef.current = null; }
-                        // Filter out special model tokens that may leak
-                        let filteredContent = data.content;
-                        const specialTokens = ['<|tool_calls_begin|>', '<|tool_calls_end|>', '< | tool_calls_begin | >', '< | tool_calls_end | >', '<tool_call>', '</tool_call>'];
-                        for (const token of specialTokens) {
-                            filteredContent = filteredContent.replace(token, '');
-                        }
-                        // Filter out JSON tool call leaks
-                        filteredContent = filterToolCallLeaks(filteredContent);
-                        if (filteredContent && filteredContent.trim()) {
-                            if (hasArtifact) {
-                                summaryText += filterSummaryText(filteredContent);
-                            } else {
-                                fullText += filteredContent;
-                                setStreamBuffer(prev => prev + filteredContent);
-                            }
-                        }
-                    }
-                    if (data.done) {
-                        streamCompleted = true; // Mark as completed
-                        console.log("[WS] Stream done, fullText length:", fullText.length, "hasArtifact:", hasArtifact);
-
-                        // Final cleanup to ensure no split tokens leaked into the full text
-                        // Only remove if it looks like a system token block
-                        // ESCAPED PIPES: \| to match literal pipe
-                        const finalCleanRegex = /<\s*\|\s*tool_calls_begin\s*\|\s*>[\s\S]*?<\s*\|\s*tool_calls_end\s*\|\s*>/g;
-                        fullText = fullText.replace(finalCleanRegex, "").trim();
-
-                        // Only add message if there's content AND no artifact was generated
-                        if (fullText.trim() && !hasArtifact) {
-                            const finalAssistantMsg = { role: "assistant", content: fullText, thought: data.thought || currentThought, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
-                            chat.setMessages(prev => {
-                                const finalMessages = [...prev, finalAssistantMsg];
-                                chat.persistChat(finalMessages, activeChatId);
-                                return finalMessages;
-                            });
-                        } else if (hasArtifact) {
-                            // If we have an artifact, add a small note message
-                            const noteMsg = {
-                                role: "assistant",
-                                content: generateArtifactSummary(currentArtifact, summaryText),
-                                artifact: currentArtifact, // Attach artifact to message
-                                thought: currentThought,
-                                timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                            };
-                            chat.setMessages(prev => {
-                                const finalMessages = [...prev, noteMsg];
-                                chat.persistChat(finalMessages, activeChatId);
-                                return finalMessages;
-                            });
-                        }
-
-                        setStreamBuffer(""); setStreamThought(null); setToolStatus(null); setActiveTool(null); activeToolRef.current = null;
-                        chat.isStreamingRef.current = false; setIsStreaming(false);
-                        chat.loadChats();
-                        try { ws.close(); } catch { }
-                        resolve(true);
-                    }
-                } catch (e) {
-                    console.error("[WS] Parse error:", e);
-                }
-            };
-            ws.onerror = (e) => {
-                console.error("[WS] Error:", e);
-                try { ws.close(); } catch { }
-                reject(new Error("ws"));
-            };
-            ws.onclose = () => {
-                console.log("[WS] Closed, streamCompleted:", streamCompleted);
-                // Only reject if stream didn't complete normally
-                if (!streamCompleted) {
-                    reject(new Error("ws closed before completion"));
-                }
-            };
-        });
     };
 
     const sendMessage = async (textInput = null) => {
@@ -647,9 +645,9 @@ function App() {
 
             // Input clearing handled by components or setHomeInput above
             attachmentsHook.clearAttachments(); // Clear attachments immediately
-            setStreamBuffer("");
+            setStreamBuffer(""); // Mantido para compatibilidade com componentes, mas não será atualizado durante streaming
 
-            // Persist immediately after user message to ensure it's there even if stream fails
+            // Persist immediately after user message to ensure it's there even if request fails
             // AWAIT this to get the real ID if it was null
             let activeChatId = chat.currentChatId;
             const newId = await chat.persistChat(next, activeChatId);
@@ -659,215 +657,155 @@ function App() {
             }
 
             try {
-                try {
-                    const ok = await streamAgentViaWS(next, isThinkingMode, activeChatId);
-                    if (ok) return;
-                } catch { }
-                const response = await fetch(`${MEMORY_SERVER}/agent/stream`, {
+                // Usa endpoint não-streaming
+                const response = await fetch(`${MEMORY_SERVER}/agent/message`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         messages: next,
                         agent_mode: true,
                         deep_thinking: isThinkingMode,
-                        active_artifact_id: artifacts.activeArtifact?.id // Injeta o ID do artefato ativo se houver
+                        active_artifact_id: artifacts.activeArtifact?.id,
+                        user_id: user?.uid || null,
+                        user_name: profile?.displayName || user?.displayName || "Usuário"
                     }),
                 });
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
 
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || "Erro desconhecido");
+                }
+
+                // Processa eventos retornados
                 let fullText = "";
-                let currentThought = null;
+                let currentThought = data.thought || null;
                 let hasArtifact = false;
-                let currentArtifact = null;
+                let currentArtifact = data.artifact || null;
                 let summaryText = "";
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    const lines = decoder.decode(value).split("\n");
-                    for (const line of lines) {
-                        if (!line.startsWith("data: ")) continue;
-                        try {
-                            const data = JSON.parse(line.slice(6));
+                // Processa tool calls e results
+                if (data.events && Array.isArray(data.events)) {
+                    for (const event of data.events) {
+                        // Processa tool calls
+                        if (event.tool_call) {
+                            const toolName = event.tool_call.name;
+                            console.log("[TOOL_CALL]", toolName, event.tool_call.args);
 
-                            // Handle Status Updates
-                            if (data.status) {
-                                setToolStatus({ message: data.status, type: 'info' });
-                            }
-
-                            // Handle Phase Updates (Thinking vs Response)
-                            if (data.phase === "thinking") {
-                                // Backend indicates it started thinking
-                                setToolStatus({ message: "Pensando...", type: 'info' });
-                            }
-
-                            // Handle Pure Thinking (Meta-Reasoning)
-                            if (data.thinking) {
-                                currentThought = (currentThought || "") + data.thinking;
-                                setStreamThought(currentThought);
-                            }
-
-                            if (data.partial_artifact) {
-                                const part = data.partial_artifact;
-                                const art = {
-                                    id: part.id || `temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-                                    title: part.title || "Gerando...",
-                                    type: part.type || "code",
-                                    language: part.language || "markdown",
-                                    content: part.content || ""
+                            if (toolName === "think") {
+                                const thoughtArg = event.tool_call.args.detailed_thought;
+                                currentThought = parseThought(thoughtArg);
+                            } else {
+                                let toolInfo = { name: toolName, message: "Executando ferramenta...", args: event.tool_call.args };
+                                if (toolName === "web_search") {
+                                    toolInfo.message = `Pesquisando: ${event.tool_call.args.query || '...'}`;
+                                    toolInfo.icon = "search";
+                                }
+                                if (toolName === "read_url") {
+                                    toolInfo.message = `Lendo página: ${event.tool_call.args.url || '...'}`;
+                                    toolInfo.icon = "read";
+                                }
+                                
+                                // Record to tool history
+                                const historyEntry = {
+                                    ...toolInfo,
+                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                                 };
-                                artifacts.setActiveArtifact(art);
-                                currentArtifact = art;
-                                artifacts.setCanvasOpen(true);
-                                hasArtifact = true;
-                                setStreamBuffer("");
+                                chat.setToolHistory(prev => [...prev, historyEntry]);
                             }
+                        }
 
-                            // Handle Tool Calls (Visual Feedback & Logic)
-                            if (data.tool_call) {
-                                const toolName = data.tool_call.name;
-                                console.log("[TOOL_CALL RECEIVED]", toolName, data.tool_call.args);
+                        // Processa tool results
+                        if (event.tool_result) {
+                            const result = event.tool_result;
+                            if (result.success) {
+                                if (result.artifact) {
+                                    console.log("[CANVAS] Artifact received:", result.artifact.title);
+                                    artifacts.setActiveArtifact(result.artifact);
+                                    artifacts.setCanvasOpen(true);
+                                    currentArtifact = result.artifact;
+                                    hasArtifact = true;
+                                } else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
+                                    chat.setMessages(prev => {
+                                        return [...prev, {
+                                            role: "tool-card",
+                                            content: result.content,
+                                            type: result.content.includes("TITULO:") ? "search" : "read"
+                                        }];
+                                    });
+                                }
+                            }
+                        }
 
-                                // Special Handling for 'think' tool
-                                if (toolName === "think") {
-                                    const thoughtArg = data.tool_call.args.detailed_thought;
-                                    const cleanThought = parseThought(thoughtArg);
-                                    currentThought = cleanThought;
-                                    setStreamThought(cleanThought); // Update stream view
+                        // Acumula conteúdo
+                        if (event.content) {
+                            let filteredContent = filterToolCallLeaks(event.content);
+                            const specialTokensRegex = /<\s*\|\s*tool_calls_(begin|end)\s*\|\s*>|<\s*\|\s*tool_call_(begin|end)\s*\|\s*>|<\s*\|\s*tool_sep\s*\|\s*>/g;
+                            filteredContent = filteredContent.replace(specialTokensRegex, "");
+
+                            if (filteredContent && filteredContent.trim()) {
+                                if (hasArtifact) {
+                                    summaryText += filterSummaryText(filteredContent);
                                 } else {
-                                    // Usar estado dedicado para ferramenta ativa
-                                    let toolInfo = { name: toolName, message: "Executando ferramenta...", args: data.tool_call.args };
-                                    if (toolName === "web_search") {
-                                        toolInfo.message = `Pesquisando: ${data.tool_call.args.query || '...'}`;
-                                        toolInfo.icon = "search";
-                                    }
-                                    if (toolName === "read_url") {
-                                        toolInfo.message = `Lendo página: ${data.tool_call.args.url || '...'}`;
-                                        toolInfo.icon = "read";
-                                    }
-
-
-
-                                    console.log("[SETTING ACTIVE TOOL]", toolInfo);
-                                    setActiveTool(toolInfo);
-                                    activeToolRef.current = toolInfo; // Atualiza ref também
-
-                                    // Record to tool history
-                                    const historyEntry = {
-                                        ...toolInfo,
-                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                    };
-                                    chat.setToolHistory(prev => [...prev, historyEntry]);
+                                    fullText += filteredContent;
                                 }
                             }
-
-                            // Tool Results
-                            if (data.tool_result) {
-                                const result = data.tool_result;
-
-                                if (result.success) {
-                                    // Handle create_artifact - Open Canvas!
-                                    if (result.artifact) {
-                                        console.log("[CANVAS] Artifact received:", result.artifact.title);
-                                        // currentArtifact removed (undeclared)
-                                        artifacts.setActiveArtifact(result.artifact);
-                                        artifacts.setCanvasOpen(true);
-                                        setActiveTool(null);
-                                        activeToolRef.current = null;
-                                        hasArtifact = true; // Mark artifact generated
-                                        fullText = ""; // Clear pre-artifact text
-                                        setStreamBuffer(""); // Clear buffer
-                                    }
-                                    // Handle web_search / read_url content cards
-                                    else if (result.content && (result.content.includes("TITULO:") || result.content.length > 50)) {
-                                        chat.setMessages(prev => {
-                                            const updated = [...prev, {
-                                                role: "tool-card",
-                                                content: result.content,
-                                                type: result.content.includes("TITULO:") ? "search" : "read"
-                                            }];
-                                            return updated;
-                                        });
-                                    }
-                                }
-                            }
-
-                            if (data.content) {
-                                // Quando começar a receber conteúdo, limpa o activeTool usando ref
-                                if (activeToolRef.current) {
-                                    console.log("[CLEARING ACTIVE TOOL] - content received");
-                                    setActiveTool(null);
-                                    activeToolRef.current = null;
-                                }
-
-                                // Filter out special model tokens that may leak
-                                let filteredContent = data.content;
-
-                                // Clean using the robust regex function first
-                                filteredContent = filterToolCallLeaks(filteredContent);
-
-                                // Additional safety for split tokens or partials
-                                // ESCAPED PIPES: \| to match literal pipe
-                                const specialTokensRegex = /<\s*\|\s*tool_calls_(begin|end)\s*\|\s*>|<\s*\|\s*tool_call_(begin|end)\s*\|\s*>|<\s*\|\s*tool_sep\s*\|\s*>/g;
-                                filteredContent = filteredContent.replace(specialTokensRegex, "");
-
-                                if (filteredContent && filteredContent.trim()) {
-                                    if (hasArtifact) {
-                                        summaryText += filterSummaryText(filteredContent);
-                                    } else {
-                                        fullText += filteredContent;
-                                        setStreamBuffer(prev => prev + filteredContent);
-                                    }
-                                }
-                            }
-
-                            if (data.done) {
-                                // Only add message if there's content AND no artifact was generated
-                                if (fullText.trim() && !hasArtifact) {
-                                    const finalAssistantMsg = {
-                                        role: "assistant",
-                                        content: fullText,
-                                        thought: data.thought || currentThought,
-                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                    };
-
-                                    chat.setMessages(prev => {
-                                        const finalMessages = [...prev, finalAssistantMsg];
-                                        chat.persistChat(finalMessages, activeChatId);
-                                        return finalMessages;
-                                    });
-                                } else if (hasArtifact) {
-                                    // If we have an artifact, add a small note message
-                                    const noteMsg = {
-                                        role: "assistant",
-                                        content: generateArtifactSummary(currentArtifact, summaryText),
-                                        artifact: currentArtifact, // Attach artifact
-                                        thought: currentThought,
-                                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                    };
-                                    chat.setMessages(prev => {
-                                        const finalMessages = [...prev, noteMsg];
-                                        chat.persistChat(finalMessages, activeChatId);
-                                        return finalMessages;
-                                    });
-                                }
-
-                                setStreamBuffer("");
-                                setStreamThought(null);
-                                setToolStatus(null);
-                                setActiveTool(null);
-                                activeToolRef.current = null;
-
-                                chat.isStreamingRef.current = false;
-                                setIsStreaming(false);
-
-                                chat.loadChats();
-                            }
-                        } catch { }
+                        }
                     }
                 }
+
+                // Usa mensagem completa do backend se disponível
+                if (data.message) {
+                    fullText = data.message;
+                }
+
+                // Adiciona mensagem final
+                if (fullText.trim() && !hasArtifact) {
+                    const finalAssistantMsg = {
+                        role: "assistant",
+                        content: fullText.trim(),
+                        thought: currentThought,
+                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    };
+
+                    chat.setMessages(prev => {
+                        const finalMessages = [...prev, finalAssistantMsg];
+                        chat.persistChat(finalMessages, activeChatId);
+                        return finalMessages;
+                    });
+                } else if (hasArtifact && currentArtifact) {
+                    const noteMsg = {
+                        role: "assistant",
+                        content: generateArtifactSummary(currentArtifact, summaryText),
+                        artifact: currentArtifact,
+                        thought: currentThought,
+                        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    };
+                    chat.setMessages(prev => {
+                        const finalMessages = [...prev, noteMsg];
+                        chat.persistChat(finalMessages, activeChatId);
+                        return finalMessages;
+                    });
+                }
+
+                // Limpa estados
+                setStreamBuffer(""); // Mantido para compatibilidade
+                setStreamThought(null); // Mantido para compatibilidade
+                setToolStatus(null);
+                setActiveTool(null);
+                activeToolRef.current = null;
+
+                chat.isStreamingRef.current = false;
+                setIsStreaming(false);
+
+                chat.loadChats();
+
             } catch (e) {
+                console.error("[SEND] Erro:", e);
                 chat.setMessages(prev => [...prev, { role: "assistant", content: `Erro: ${e.message}` }]);
                 setToolStatus({ message: "Erro na conexão", type: 'error' });
                 setTimeout(() => setToolStatus(null), 3000);
@@ -1444,8 +1382,10 @@ function AppWithAuth() {
 function AppRoot() {
     return (
         <AuthProvider>
-            <AppWithAuth />
-            <UpdateNotification />
+            <ModalProvider>
+                <AppWithAuth />
+                <UpdateNotification />
+            </ModalProvider>
         </AuthProvider>
     );
 }

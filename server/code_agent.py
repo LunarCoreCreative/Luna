@@ -15,7 +15,6 @@ from .mcp.security import SecurityManager
 from .mcp.filesystem import FileSystemMCP, FILESYSTEM_TOOLS_SCHEMA
 from .mcp.terminal import TerminalMCP, TERMINAL_TOOLS_SCHEMA
 from .tools import web_search, read_url
-from .markdown_fixer import fix_markdown
 
 # Importa code_intel (pode falhar se tree-sitter não instalado)
 try:
@@ -684,7 +683,6 @@ async def code_agent_generator(
             
             # 1. Simular Streaming do Texto (UX)
             if content:
-                content = fix_markdown(content)
                 # Envia em chunks para não aparecer tudo de uma vez (efeito digitação)
                 chunk_size = 50
                 for i in range(0, len(content), chunk_size):

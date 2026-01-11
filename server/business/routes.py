@@ -234,3 +234,110 @@ async def delete_tag_endpoint(tag_id: str, user_id: str = "local"):
     if delete_tag(user_id, tag_id):
         return {"success": True}
     return {"success": False, "message": "Tag not found or default tag"}
+
+# =============================================================================
+# OVERDUE BILLS ENDPOINTS
+# =============================================================================
+
+from .overdue import (
+    load_overdue,
+    add_overdue_bill as storage_add_overdue_bill,
+    update_overdue_bill as storage_update_overdue_bill,
+    delete_overdue_bill as storage_delete_overdue_bill,
+    mark_bill_as_paid as storage_mark_bill_as_paid,
+    pay_bill_and_create_transaction as storage_pay_bill_and_create_transaction,
+    get_overdue_summary
+)
+
+class OverdueBillCreate(BaseModel):
+    description: str
+    value: float
+    due_date: str  # YYYY-MM-DD
+    category: Optional[str] = "geral"
+    notes: Optional[str] = None
+    user_id: Optional[str] = None
+
+class OverdueBillUpdate(BaseModel):
+    description: Optional[str] = None
+    value: Optional[float] = None
+    due_date: Optional[str] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None  # pending, paid, cancelled
+    user_id: Optional[str] = None
+
+@router.get("/overdue-bills")
+async def get_overdue_bills(user_id: str = "local", status: Optional[str] = None):
+    """Get all overdue/pending bills, optionally filtered by status."""
+    bills = load_overdue(user_id)
+    if status:
+        bills = [b for b in bills if b.get("status") == status]
+    return {"bills": bills}
+
+@router.post("/overdue-bills")
+async def create_overdue_bill(bill: OverdueBillCreate):
+    """Create a new overdue/pending bill."""
+    if bill.value <= 0:
+        raise HTTPException(400, "Value must be positive")
+    
+    user_id = bill.user_id or "local"
+    new_bill = storage_add_overdue_bill(
+        user_id=user_id,
+        description=bill.description,
+        value=bill.value,
+        due_date=bill.due_date,
+        category=bill.category or "geral",
+        notes=bill.notes
+    )
+    return {"success": True, "bill": new_bill}
+
+@router.put("/overdue-bills/{bill_id}")
+async def update_overdue_bill_endpoint(bill_id: str, bill: OverdueBillUpdate):
+    """Update an existing overdue bill."""
+    user_id = bill.user_id or "local"
+    
+    updates = {}
+    if bill.description is not None:
+        updates["description"] = bill.description
+    if bill.value is not None:
+        if bill.value <= 0:
+            raise HTTPException(400, "Value must be positive")
+        updates["value"] = bill.value
+    if bill.due_date is not None:
+        updates["due_date"] = bill.due_date
+    if bill.category is not None:
+        updates["category"] = bill.category
+    if bill.notes is not None:
+        updates["notes"] = bill.notes
+    if bill.status is not None:
+        if bill.status not in ["pending", "paid", "cancelled"]:
+            raise HTTPException(400, "Status must be 'pending', 'paid' or 'cancelled'")
+        updates["status"] = bill.status
+    
+    updated = storage_update_overdue_bill(user_id, bill_id, updates)
+    if not updated:
+        raise HTTPException(404, "Bill not found")
+    
+    return {"success": True, "bill": updated}
+
+@router.delete("/overdue-bills/{bill_id}")
+async def delete_overdue_bill_endpoint(bill_id: str, user_id: str = "local"):
+    """Delete an overdue bill."""
+    deleted = storage_delete_overdue_bill(user_id, bill_id)
+    if not deleted:
+        raise HTTPException(404, "Bill not found")
+    return {"success": True, "deleted_id": bill_id}
+
+@router.post("/overdue-bills/{bill_id}/pay")
+async def pay_overdue_bill_endpoint(bill_id: str, user_id: str = "local", payment_date: Optional[str] = None):
+    """Mark a bill as paid and create corresponding expense transaction."""
+    result = storage_pay_bill_and_create_transaction(user_id, bill_id, payment_date)
+    if not result:
+        raise HTTPException(404, "Bill not found or already paid")
+    return {"success": True, "bill": result}
+
+@router.get("/overdue-bills/summary")
+async def get_overdue_summary_endpoint(user_id: str = "local"):
+    """Get summary of overdue bills."""
+    summary = get_overdue_summary(user_id)
+    return summary

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Calendar, Trash2, Check, ArrowRight, DollarSign } from 'lucide-react';
 import { API_CONFIG } from '../../config/api';
+import { useModalContext } from '../../contexts/ModalContext';
 
 export default function RecurringModal({ isOpen, onClose, userId, onLoadData, tags }) {
+    const { showAlert } = useModalContext();
     const [items, setItems] = useState([]);
     const [newItem, setNewItem] = useState({ title: "", value: "", type: "expense", day: "5", category: "fixo" });
     const [loading, setLoading] = useState(false);
@@ -66,11 +68,11 @@ export default function RecurringModal({ isOpen, onClose, userId, onLoadData, ta
                 setNewItem({ title: "", value: "", type: "expense", day: "5", category: "fixo" });
                 loadItems();
             } else {
-                alert("Erro ao salvar: " + (data.detail || "Erro desconhecido"));
+                await showAlert("Erro ao salvar: " + (data.detail || "Erro desconhecido"), "Erro");
             }
         } catch (e) {
             console.error("Error adding recurring:", e);
-            alert("Erro de conexão ao salvar item fixo.");
+            await showAlert("Erro de conexão ao salvar item fixo.", "Erro");
         }
     };
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { API_CONFIG } from "../config/api";
+import { useModalContext } from "../contexts/ModalContext";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
@@ -7,6 +8,7 @@ const MEMORY_SERVER = API_CONFIG.BASE_URL;
  * useAttachments - Hook para gerenciamento de anexos (imagens e documentos)
  */
 export const useAttachments = (setToolStatus) => {
+    const { showAlert } = useModalContext();
     const [attachments, setAttachments] = useState([]);
     const [documentAttachments, setDocumentAttachments] = useState([]);
     const fileInputRef = useRef(null);
@@ -98,19 +100,19 @@ export const useAttachments = (setToolStatus) => {
                         setToolStatus({ message: `${file.name} carregado!`, type: 'success' });
                         setTimeout(() => setToolStatus(null), 2000);
                     } else {
-                        alert(`Erro ao processar ${file.name}: ${data.error}`);
+                        await showAlert(`Erro ao processar ${file.name}: ${data.error}`, "Erro");
                         setToolStatus(null);
                     }
                 } catch (err) {
-                    alert(`Erro ao enviar ${file.name}: ${err.message}`);
+                    await showAlert(`Erro ao enviar ${file.name}: ${err.message}`, "Erro");
                     setToolStatus(null);
                 }
             } else {
-                alert(`Tipo de arquivo não suportado: ${file.name}. Use imagens, PDF ou TXT.`);
+                await showAlert(`Tipo de arquivo não suportado: ${file.name}. Use imagens, PDF ou TXT.`, "Tipo Não Suportado");
             }
         }
         e.target.value = null; // Reset input
-    }, [setToolStatus]);
+    }, [setToolStatus, showAlert]);
 
     const clearAttachments = useCallback(() => {
         setAttachments([]);

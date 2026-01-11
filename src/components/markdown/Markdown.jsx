@@ -51,39 +51,40 @@ export const Markdown = ({ content }) => {
     );
 };
 
-// preprocessContent: Limpa e ajusta o markdown antes de renderizar
-// Resolve o problema da Luna "quebrar" negritos e listas por excesso dePauses conversacionais
+// preprocessContent: Ajustes estruturais mínimos antes de renderizar
+// Foca apenas em correções que o backend pode ter perdido ou que são específicas do frontend
+// A maioria das correções de Markdown é feita no backend via fix_markdown()
 const preprocessContent = (raw) => {
     if (!raw) return "";
 
     let content = raw;
 
-    // 1. Force Newline before Headers (###)
-    // Matches "text### Header" -> "text\n\n### Header"
-    // Negative lookbehind simulation not needed if we check non-newline char
+    // Correções estruturais mínimas (apenas casos edge que podem ter passado)
+    
+    // 1. Headers colados: "text### Header" -> "text\n\n### Header"
+    // (Backend já faz isso, mas garantimos aqui também)
     content = content.replace(/([^\n])(#{1,6}\s)/g, "$1\n\n$2");
-
-    // 2. Fix concatenation of Colon and Header (e.g., "que:###")
+    
+    // 2. Colons colados com headers: "que:###" -> "que:\n\n###"
     content = content.replace(/:(#{1,6}\s)/g, ":\n\n$1");
-
-    // 3. Fix List Glue (e.g., ":-Item") -> ":\n\n- Item"
-    // Also handles "que:- Item" -> "que:\n\n- Item"
-    content = content.replace(/(:)\s*(\n)?\s*(-|\*)\s/g, "$1\n\n$3 ");
-    content = content.replace(/:-([^\s])/g, ":\n\n- $1");
-
-    // 4. Fix Glued Bold Blocks (e.g., "**A****B**") -> "**A**\n**B**"
-    content = content.replace(/\*\*\*\*/g, "**\n\n**");
-
-    // 5. Fix List Number Glue (e.g., "Text1.") -> "Text\n\n1."
-    // Matches lowercase letter or punctuation followed immediately by number and dot
-    content = content.replace(/([a-z.!?])(\d+\.\s)/g, "$1\n\n$2");
-
-    // 6. Fix "Situacao:Status" -> "Situacao:\n\nStatus" or just space if simple
-    // Specific fix for the screenshot "Situação:Positiva" or similar bold glue
-    content = content.replace(/(\*\*.*?\*\*:)([^\s])/g, "$1 $2");
-
-    // [SIMPLIFICADO] Removidas regras 7 e 8 que alteravam conteúdo (espaços em negrito/emojis)
-    // Regras 1-6 mantidas pois corrigem apenas ESTRUTURA quebrada (headers/listas sem quebra de linha)
+    
+    // 3. Listas coladas: "text- Item" -> "text\n\n- Item" (apenas se não tiver quebra)
+    // Cuidado para não quebrar listas já formatadas corretamente
+    content = content.replace(/([^\n\-])(\n?\s*-\s+[A-ZÁÉÍÓÚÇ][^\n])/g, (match, before, list) => {
+        // Se já tem quebra antes da lista, não faz nada
+        if (list.startsWith('\n')) return match;
+        return before + '\n\n' + list.trim();
+    });
+    
+    // 4. Blocos de negrito colados: "**A****B**" -> "**A**\n\n**B**"
+    // (Apenas se não tiver espaço entre eles)
+    content = content.replace(/(\*\*[^*]+?\*\*)(\*\*[^*]+?\*\*)/g, "$1\n\n$2");
+    
+    // 5. Normalizar quebras de linha excessivas (máximo 2)
+    content = content.replace(/\n{3,}/g, "\n\n");
+    
+    // 6. Remover espaços em branco no final das linhas
+    content = content.replace(/[ \t]+$/gm, "");
 
     return content.trim();
 };

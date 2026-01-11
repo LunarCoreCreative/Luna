@@ -6,13 +6,14 @@ No parsing needed - Together AI handles tool calls natively.
 """
 
 import json
+import re
 from typing import AsyncGenerator, List, Dict, Any
 
 from .config import get_system_prompt
 from .api import call_api_json
 from .chat import ChatRequest
 from .business.tools import BUSINESS_TOOLS_SCHEMA, execute_business_tool
-from .markdown_fixer import fix_markdown
+from .agent import filter_tool_call_tokens
 
 # Use Llama 4 Maverick for Business Mode (native tool calling)
 BUSINESS_MODEL = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
@@ -79,7 +80,6 @@ async def business_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     final_messages = []
     for m in request.messages[-10:]:
         content = m.content or ""
-        content = fix_markdown(content)
         final_messages.append({"role": m.role, "content": content})
     
     msgs = [{"role": "system", "content": prompt}] + final_messages
@@ -127,8 +127,14 @@ async def business_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
             # Content
             content = message.get("content") or ""
             if content:
-                display_text = fix_markdown(content)
-                yield f"data: {json.dumps({'content': display_text})}\n\n"
+                # Filtro rigoroso de tokens de tool calls que possam vazar
+                # Together API não deveria retornar esses tokens, mas filtramos por segurança
+                filtered = filter_tool_call_tokens(content)
+                # Remove blocos JSON malformados que possam ser tentativas de tool calls no texto
+                filtered = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered)
+                
+                if filtered:
+                    yield f"data: {json.dumps({'content': filtered})}\n\n"
             
             # Native Tool Calls from API
             tool_calls = message.get("tool_calls", [])

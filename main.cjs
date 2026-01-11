@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 // const isDev = require('electron-is-dev'); 
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const { LinkService } = require('./LinkService.cjs');
 const { setupAutoUpdater } = require('./updater.cjs');
 
@@ -12,6 +12,11 @@ let serverProcess = null; // Express server instance
 
 // Determine if we are in development mode reliably
 const isDev = !app.isPackaged;
+
+// Fix para inputs no Windows: Desabilita aceleração de hardware que pode causar problemas
+if (process.platform === 'win32') {
+    app.disableHardwareAcceleration();
+}
 
 // SaaS Mode: Only start Python locally in development
 const USE_LOCAL_PYTHON = isDev;
@@ -39,31 +44,102 @@ function startLocalWebServer() {
     });
 }
 
+// Função para liberar a porta 8001 se estiver ocupada
+function killProcessOnPort(port, callback) {
+    if (process.platform === 'win32') {
+        // Windows: usar netstat para encontrar PID e taskkill para matar
+        exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+            if (stdout) {
+                const lines = stdout.trim().split('\n');
+                const pids = new Set();
+                
+                lines.forEach(line => {
+                    const parts = line.trim().split(/\s+/);
+                    const pid = parts[parts.length - 1];
+                    if (pid && !isNaN(pid)) {
+                        pids.add(pid);
+                    }
+                });
+                
+                if (pids.size > 0) {
+                    console.log(`[ELECTRON] Encontrados processos na porta ${port}: ${Array.from(pids).join(', ')}`);
+                    const pidArray = Array.from(pids);
+                    let killed = 0;
+                    
+                    pidArray.forEach(pid => {
+                        exec(`taskkill /F /PID ${pid}`, (err) => {
+                            if (!err) {
+                                console.log(`[ELECTRON] Processo ${pid} encerrado`);
+                            }
+                            killed++;
+                            if (killed === pidArray.length) {
+                                // Aguarda um pouco para a porta ser liberada
+                                setTimeout(() => callback(), 500);
+                            }
+                        });
+                    });
+                } else {
+                    callback();
+                }
+            } else {
+                callback();
+            }
+        });
+    } else {
+        // Unix/Mac: usar lsof para encontrar PID e kill para matar
+        exec(`lsof -ti:${port}`, (error, stdout) => {
+            if (stdout) {
+                const pids = stdout.trim().split('\n').filter(pid => pid);
+                if (pids.length > 0) {
+                    console.log(`[ELECTRON] Encontrados processos na porta ${port}: ${pids.join(', ')}`);
+                    pids.forEach(pid => {
+                        exec(`kill -9 ${pid}`, (err) => {
+                            if (!err) {
+                                console.log(`[ELECTRON] Processo ${pid} encerrado`);
+                            }
+                        });
+                    });
+                    setTimeout(() => callback(), 500);
+                } else {
+                    callback();
+                }
+            } else {
+                callback();
+            }
+        });
+    }
+}
+
 function startPythonServer() {
     if (!USE_LOCAL_PYTHON) {
         console.log('[ELECTRON] SaaS Mode: Skipping local Python server (using cloud).');
         return;
     }
 
-    console.log('[ELECTRON] Dev Mode: Iniciando servidor Python local...');
+    console.log('[ELECTRON] Dev Mode: Verificando porta 8001...');
+    
+    // Libera a porta 8001 antes de iniciar o servidor
+    killProcessOnPort(8001, () => {
+        console.log('[ELECTRON] Dev Mode: Iniciando servidor Python local...');
 
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 
-    pythonProcess = spawn(pythonCmd, ['-m', 'server.main'], {
-        cwd: __dirname,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
-    });
+        pythonProcess = spawn(pythonCmd, ['-m', 'server.main'], {
+            cwd: __dirname,
+            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
 
-    pythonProcess.stdout.on('data', (data) => {
-        console.log(`[PYTHON] ${data}`);
-    });
+        pythonProcess.stdout.on('data', (data) => {
+            console.log(`[PYTHON] ${data}`);
+        });
 
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`[PYTHON-ERR] ${data}`);
-    });
+        pythonProcess.stderr.on('data', (data) => {
+            console.error(`[PYTHON-ERR] ${data}`);
+        });
 
-    pythonProcess.on('close', (code) => {
-        console.log(`[ELECTRON] Servidor Python encerrado com código ${code}`);
+        pythonProcess.on('close', (code) => {
+            console.log(`[ELECTRON] Servidor Python encerrado com código ${code}`);
+        });
     });
 }
 
@@ -94,6 +170,8 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             devTools: true, // Enable for debugging preload issues
+            spellcheck: false, // Desabilita spellcheck que pode causar problemas de foco no Windows
+            backgroundThrottling: false, // Previne throttling quando a janela perde foco
         },
     });
 
@@ -102,6 +180,75 @@ function createWindow() {
         : 'http://localhost:4173'; // Use local express server
 
     mainWindow.loadURL(startURL);
+
+    // Fix para inputs que param de funcionar no Windows
+    // Função auxiliar para restaurar foco e eventos de mouse
+    const restoreInputFocus = () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            try {
+                // Garante que eventos de mouse estão habilitados
+                mainWindow.setIgnoreMouseEvents(false, { forward: true });
+                // Força o webContents a ganhar foco novamente
+                mainWindow.webContents.focus();
+            } catch (e) {
+                console.error('[ELECTRON] Erro ao restaurar foco:', e);
+            }
+        }
+    };
+
+    // Restaura o foco quando a janela ganha foco novamente
+    mainWindow.on('focus', () => {
+        restoreInputFocus();
+    });
+
+    // Fix adicional: restaura foco após mostrar a janela (inclui quando restaura de minimizado)
+    mainWindow.on('show', () => {
+        setTimeout(() => {
+            restoreInputFocus();
+        }, 100);
+    });
+
+    // Fix para quando a janela é restaurada (especialmente no Windows)
+    if (process.platform === 'win32') {
+        mainWindow.on('restore', () => {
+            setTimeout(() => {
+                restoreInputFocus();
+            }, 50);
+        });
+
+        // Garante eventos de mouse ativos quando o DOM estiver pronto
+        mainWindow.webContents.on('dom-ready', () => {
+            mainWindow.setIgnoreMouseEvents(false, { forward: true });
+        });
+
+        // Monitora quando a janela perde foco e força restauração quando ganha
+        let wasBlurred = false;
+        mainWindow.on('blur', () => {
+            wasBlurred = true;
+        });
+        const originalFocusHandler = () => {
+            restoreInputFocus();
+        };
+        // Adiciona handler adicional para quando a janela ganha foco após blur
+        mainWindow.on('focus', () => {
+            if (wasBlurred) {
+                wasBlurred = false;
+                setTimeout(() => {
+                    restoreInputFocus();
+                    // Executa JavaScript no renderer para forçar foco em inputs ativos
+                    mainWindow.webContents.executeJavaScript(`
+                        (function() {
+                            const activeElement = document.activeElement;
+                            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+                                activeElement.blur();
+                                setTimeout(() => activeElement.focus(), 50);
+                            }
+                        })();
+                    `).catch(() => {});
+                }, 100);
+            }
+        });
+    }
 
     // Initialize auto-updater in production
     if (!isDev) {
@@ -192,4 +339,43 @@ ipcMain.handle('luna-link:pick-folder', async () => {
 // Luna Link: Status check
 ipcMain.handle('luna-link:status', () => {
     return linkService ? linkService.connected : false;
+});
+
+// Fix para inputs que param de funcionar: Handler IPC para forçar restauração de foco
+ipcMain.on('force-input-focus', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            // Força eventos de mouse ativos
+            mainWindow.setIgnoreMouseEvents(false, { forward: true });
+            // Força foco no webContents
+            mainWindow.webContents.focus();
+            // Executa JavaScript para forçar foco em inputs visíveis
+            mainWindow.webContents.executeJavaScript(`
+                (function() {
+                    // Tenta focar no elemento ativo primeiro
+                    const activeElement = document.activeElement;
+                    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+                        activeElement.blur();
+                        setTimeout(() => {
+                            activeElement.focus();
+                            activeElement.click(); // Força evento de clique
+                        }, 10);
+                        return;
+                    }
+                    // Se não há elemento ativo, tenta focar no primeiro input/textarea visível
+                    const inputs = document.querySelectorAll('input:not([type="hidden"]), textarea');
+                    for (let input of inputs) {
+                        const rect = input.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            input.focus();
+                            input.click();
+                            break;
+                        }
+                    }
+                })();
+            `).catch(() => {});
+        } catch (e) {
+            console.error('[ELECTRON] Erro ao forçar foco:', e);
+        }
+    }
 });

@@ -15,8 +15,6 @@ from .api import call_api_stream, get_vision_description
 from .chat import ChatRequest
 from .tools import TOOLS, execute_tool, get_tools_schema
 from . import artifacts
-from .stream_parser import StreamStateParser
-from .markdown_fixer import fix_markdown
 
 # =============================================================================
 # LOGGING SEGURO (Mapeamento de caracteres para evitar crash no Windows)
@@ -41,85 +39,44 @@ def safe_print(msg: str):
 # PÓS-PROCESSAMENTO DE FORMATAÇÃO (Força quebras de linha)
 # =============================================================================
 
-def format_chat_text(text: str) -> str:
+def filter_tool_call_tokens(text: str) -> str:
     """
-    Pós-processa o texto para garantir formatação adequada.
-    Insere quebras de linha antes de listas, bullets, e após pontuação.
+    Remove tokens de tool calls que possam vazar para o texto exibido.
+    Remove qualquer conteúdo entre < e > (tags, tokens, etc).
+    A Luna não costuma usar tags HTML/XML, então isso remove tokens de tool calls
+    sem precisar de uma lista específica.
+    Também remove padrões de chamadas de função simples como get_transactions{}
     """
     if not text:
         return text
     
-    result = text
+    # Remove tudo entre < e > (incluindo os próprios < e >)
+    # Isso remove tokens como <|tool_calls_begin|>, < | tool_call_begin | >, etc.
+    # Usa [^>]* (qualquer caractere exceto >) para capturar até o fechamento
+    # re.DOTALL permite capturar quebras de linha também (caso raro)
+    filtered = re.sub(r'<[^>]*>', '', text, flags=re.DOTALL)
     
-    # 0. REMOVER TEMPLATES INDESEJADOS (forçado)
-    result = re.sub(r'\*Conteúdo atualizado no Canvas\.?\*\s*', '', result)
+    # Remove padrões de chamadas de função simples que podem vazar
+    # Exemplos: get_transactions{}, list_transactions{}, etc.
+    # Padrão: palavra_underscore seguida de {} (chaves vazias)
+    # Apenas se estiver isolado ou em linha própria
+    filtered = re.sub(r'^[a-z_]+(?:_[a-z_]+)*\{\}\s*$', '', filtered, flags=re.MULTILINE | re.IGNORECASE)
+    
+    return filtered
+
+def format_chat_text(text: str) -> str:
+    """
+    Pós-processa o texto do chat para remover templates indesejados.
+    
+    Esta função foca apenas em limpezas específicas do chat.
+    """
+    if not text:
+        return text
+    
+    # REMOVER TEMPLATES INDESEJADOS (forçado)
+    result = re.sub(r'\*Conteúdo atualizado no Canvas\.?\*\s*', '', text)
     result = re.sub(r'\*Canvas atualizado\.?\*\s*', '', result)
     result = re.sub(r'⚡\s*\*Conteúdo atualizado[^*]*\*\s*', '', result)
-    
-    # 0.1 CORRIGIR FORMATAÇÃO MARKDOWN QUEBRADA (espaços entre ** e texto)
-    # Estratégia: encontrar pares de ** ... ** e limpar espaços internos
-    
-    def fix_bold_spacing(match):
-        """Corrige espaços dentro de blocos **...**"""
-        content = match.group(1)
-        # Remove espaços no início e fim do conteúdo interno
-        return f"**{content.strip()}**"
-    
-    def fix_italic_spacing(match):
-        """Corrige espaços dentro de blocos *...*"""
-        content = match.group(1)
-        return f"*{content.strip()}*"
-    
-    # Corrigir negrito: ** texto ** -> **texto**
-    # Pattern: ** seguido de qualquer coisa (não-greedy) até **
-    result = re.sub(r'\*\*\s*([^*]+?)\s*\*\*', fix_bold_spacing, result)
-    
-    # Corrigir itálico: * texto * -> *texto* (não pegar **)
-    # Pattern mais cuidadoso para não pegar negrito
-    result = re.sub(r'(?<!\*)\*\s+([^*]+?)\s+\*(?!\*)', fix_italic_spacing, result)
-    
-    # Remover ** órfãos que ficaram sozinhos (sem par)
-    # Exemplo: "1. ** Abordagem**:" onde o primeiro ** não tem par válido
-    # Se ** aparece no início de linha seguido de espaço e depois texto e **, provavelmente é um negrito mal formatado
-    result = re.sub(r'^(\d+\.?\s*)\*\*\s+', r'\1**', result, flags=re.MULTILINE)
-    
-    # Corrigir caso especial: "****" (quando ** colou com **) -> remover
-    result = re.sub(r'\*{4,}', '', result)
-    
-
-    # 1. Quebra antes de bullet points com negrito: "texto- **" -> "texto\n\n- **"
-    result = re.sub(r'([^\n\-])(\s*-\s+\*\*)', r'\1\n\n\2', result)
-    
-    # 2. Quebra antes de bullet points simples: "texto- item" -> "texto\n\n- item"  
-    result = re.sub(r'([^-\n])(\s*-\s+[A-ZÁÉÍÓÚÇ])', r'\1\n\n\2', result)
-    
-    # 3. Quebra após parênteses fechado seguido de letra/emoji: ")É" -> ")\n\nÉ"
-    result = re.sub(r'\)([A-ZÁÉÍÓÚÇ✨💖🌙🎯📚🔧💡🎉⚡🌟❤️💕🌸☀️🌈🎨📝🚀💫🌺🔮✏️📖💻📱🎵🎶🌷])', r')\n\n\1', result)
-    
-    # 4. Quebra após reticências seguidas de emoji: "...💻" -> "...\n\n💻"
-    result = re.sub(r'\.\.\.(\s*[✨💖🌙🎯📚🔧💡🎉⚡🌟❤️💕🌸☀️🌈🎨📝🚀💫🌺🔮✏️📖💻📱🎵🎶🌷📂🗂️])', r'...\n\n\1', result)
-    
-    # 5. Quebra após ? ou ! seguido de letra maiúscula (nova frase): "?E" -> "?\n\nE"
-    result = re.sub(r'([?!])([A-ZÁÉÍÓÚÇ])', r'\1\n\n\2', result)
-    
-    # 6. Quebra após . seguido de emoji
-    result = re.sub(r'\.(\s*[✨💖🌙🎯📚🔧💡🎉⚡🌟❤️💕🌸☀️🌈🎨📝🚀💫🌺🔮✏️📖💻📱🎵🎶🌷📂🗂️])', r'.\n\n\1', result)
-    
-    # 7. Quebra antes de "Ou..." que indica nova opção
-    result = re.sub(r'([^\n])(Ou\.\.\.)', r'\1\n\n\2', result)
-    
-    # 8. QUEBRA APÓS TÍTULOS NUMERADOS: "1. RESUMO EXECUTIVOO texto" -> "1. RESUMO EXECUTIVO\n\nO texto"
-    # Padrão: número + ponto + título em maiúsculas + letra maiúscula colada
-    result = re.sub(r'(\d+\.\s*[A-ZÁÉÍÓÚÇ\s]+[A-ZÁÉÍÓÚÇ])([A-ZÁÉÍÓÚÇ][a-záéíóúç])', r'\1\n\n\2', result)
-    
-    # 9. Quebra após ** seguido imediatamente de letra (sem espaço)
-    result = re.sub(r'\*\*([A-Za-záéíóúç])', r'**\n\n\1', result)
-    
-    # 10. Quebra após * de itálico seguido de letra maiúscula sem espaço: "*texto*O" -> "*texto*\n\nO"
-    result = re.sub(r'\*([^*]+)\*([A-ZÁÉÍÓÚÇ])', r'*\1*\n\n\2', result)
-    
-    # 11. Evita múltiplas quebras de linha consecutivas (máximo 2)
-    result = re.sub(r'\n{3,}', '\n\n', result)
     
     return result
 
@@ -585,7 +542,7 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
             current_content = ""
             current_tool_calls_buffer = {}
             announced_tools = set()
-            parser = StreamStateParser()  # Inicializar Parser
+            # Não usamos StreamStateParser mais - Together API retorna tool calls nativamente
             
             # Tool choice strategy
             current_tool_choice = "auto"
@@ -645,8 +602,33 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
                 # 1. Thinking (DeepSeek reasoning)
                 rc = delta.get("reasoning_content")
                 if rc:
-                    current_thought += rc
-                    yield f"data: {json.dumps({'thinking': rc})}\n\n"
+                    # Filtro AGRESSIVO de tokens de tool calls que possam vazar no reasoning
+                    # O reasoning pode conter tokens que o modelo está "pensando" internamente
+                    # Remove tudo entre < e > (função centralizada já faz isso)
+                    filtered_rc = filter_tool_call_tokens(rc)
+                    
+                    # Remove linhas inteiras que contenham padrões de tool calls
+                    lines = filtered_rc.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        # Remove linhas que sejam principalmente tokens de tool calls
+                        if re.search(r'tool_(calls|call)_(begin|end|sep)', line, re.IGNORECASE):
+                            continue
+                        # Remove linhas que sejam JSON malformado de tool calls
+                        if re.match(r'^\s*\{?\s*"name"\s*:', line):
+                            continue
+                        cleaned_lines.append(line)
+                    filtered_rc = '\n'.join(cleaned_lines)
+                    
+                    # Remove blocos JSON malformados que possam ser tentativas de tool calls
+                    filtered_rc = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered_rc)
+                    
+                    # Remove espaços em branco excessivos
+                    filtered_rc = re.sub(r'\n{3,}', '\n\n', filtered_rc)
+                    
+                    if filtered_rc.strip():
+                        current_thought += filtered_rc
+                        yield f"data: {json.dumps({'thinking': filtered_rc})}\n\n"
                 
                 # 2. Tool Calls (Captura Robusta)
                 tc_deltas = delta.get("tool_calls", [])
@@ -701,52 +683,21 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
                             except Exception as e:
                                 safe_print(f"[DEBUG-STREAM] Falha: {str(e)}")
                 
-                # 3. Content (Parser Inteligente via State Machine)
+                # 3. Content (Together API retorna tool calls nativamente, não processamos do texto)
+                # Apenas processamos o conteúdo textual e filtramos tokens que possam vazar
                 chunk_text = delta.get("content", "")
                 if chunk_text:
-                    # Ingesta via State Machine
-                    parser_events = parser.ingest(chunk_text)
+                    # Filtro rigoroso de tokens de tool calls que possam vazar
+                    # Together API não deveria retornar esses tokens, mas filtramos por segurança
+                    filtered = filter_tool_call_tokens(chunk_text)
+                    # Remove blocos JSON malformados que possam ser tentativas de tool calls no texto
+                    # Padrão: {"name": ... sem fechamento adequado
+                    filtered = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered)
                     
-                    for event in parser_events:
-                        if event["type"] == "content":
-                            # Safe text to display
-                            filtered = event["text"]
-                            # Hard filter for residual tokens (safety net)
-                            filtered = filtered.replace("<|tool_calls_begin|>", "").replace("<|tool_calls_end|>", "")
-                            
-                            if filtered:
-                                display_text = format_chat_text(filtered)
-                                display_text = fix_markdown(display_text)
-                                current_content += filtered
-                                yield f"data: {json.dumps({'content': display_text})}\n\n"
-                        
-                        elif event["type"] == "tool_call_text":
-                            # Tool call recovered from text stream
-                            tc = event["json"]
-                            if isinstance(tc, list):
-                                for item in tc:
-                                    t_name = item.get("name")
-                                    t_args = item.get("arguments")
-                                    safe_print(f"[DEBUG-AGENT] Text Tool Call Detected via Parser: {t_name}")
-                                    idx = 2000 + len(current_tool_calls_buffer) 
-                                    current_tool_calls_buffer[idx] = {
-                                        "id": f"call_text_{idx}",
-                                        "name": t_name,
-                                        "arguments": json.dumps(t_args) if isinstance(t_args, (dict, list)) else str(t_args)
-                                    }
-                                    yield f"data: {json.dumps({'tool_call': {'name': t_name, 'args': t_args}})}\n\n"
-                            
-                            elif isinstance(tc, dict):
-                                t_name = tc.get("name")
-                                t_args = tc.get("arguments")
-                                safe_print(f"[DEBUG-AGENT] Text Tool Call Detected via Parser: {t_name}")
-                                idx = 2000 + len(current_tool_calls_buffer)
-                                current_tool_calls_buffer[idx] = {
-                                    "id": f"call_text_{idx}",
-                                    "name": t_name,
-                                    "arguments": json.dumps(t_args) if isinstance(t_args, (dict, list)) else str(t_args)
-                                }
-                                yield f"data: {json.dumps({'tool_call': {'name': t_name, 'args': t_args}})}\n\n" 
+                    if filtered:
+                        display_text = format_chat_text(filtered)
+                        current_content += filtered
+                        yield f"data: {json.dumps({'content': display_text})}\n\n" 
 
             # Process tool calls if any (Struct or Text-Based)
             if current_tool_calls_buffer:

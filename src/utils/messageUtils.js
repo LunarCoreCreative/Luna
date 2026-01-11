@@ -54,5 +54,13 @@ export const cleanContent = (content) => {
     // Fallback for residual pipes
     cleaned = cleaned.replace(/<\|.*?\|>/g, '');
 
+    // Remove tool calls in format: tool_name{...} (simple regex for basic cases)
+    // This is a simple regex that works for most cases; complex cases are handled by filterToolCallLeaks
+    const knownTools = "edit_artifact|create_artifact|get_artifact|web_search|run_command|add_knowledge|think|add_transaction|edit_transaction|update_transaction|delete_transaction|add_tag|get_balance|list_transactions|get_transactions|add_client|get_recurring_items|get_expenses_by_category|get_expenses|get_summary|search_clients";
+    cleaned = cleaned.replace(new RegExp(`\\b(${knownTools})\\s*\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}`, "g"), "");
+    
+    // Also capture generic pattern: word followed by {} (empty tool call)
+    cleaned = cleaned.replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\s*\{\s*\}/g, "");
+
     return cleaned;
 };

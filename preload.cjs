@@ -30,5 +30,9 @@ contextBridge.exposeInMainWorld('electron', {
         onUpdateProgress: (callback) => ipcRenderer.on('update:progress', (_, data) => callback(data)),
         onUpdateDownloaded: (callback) => ipcRenderer.on('update:downloaded', (_, data) => callback(data)),
         onUpdateError: (callback) => ipcRenderer.on('update:error', (_, data) => callback(data)),
+    },
+    // Fix para inputs que param de funcionar
+    inputFix: {
+        forceFocus: () => ipcRenderer.send('force-input-focus'),
     }
 });
