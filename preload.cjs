@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
+    // App info - versão será obtida via IPC
+    getAppVersion: () => ipcRenderer.invoke('app:get-version'),
     overlay: {
         toggle: (shouldOpen, initialPos) => ipcRenderer.send('overlay:toggle', shouldOpen, initialPos),
         showMain: () => ipcRenderer.send('overlay:show-main'),

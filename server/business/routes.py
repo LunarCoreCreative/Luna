@@ -52,8 +52,13 @@ class ClientCreate(BaseModel):
 # =============================================================================
 
 @router.get("/transactions")
-async def get_transactions(user_id: str = "local", limit: int = 50):
-    """Get all transactions for a user."""
+async def get_transactions(user_id: str = "local", limit: int = 50, period: Optional[str] = None):
+    """Get all transactions for a user. If period is provided (YYYY-MM), filters by that period."""
+    if period:
+        from .periods import get_transactions_by_period
+        transactions = get_transactions_by_period(user_id, period)
+        return {"transactions": transactions[:limit]}
+    
     transactions = load_transactions(user_id)
     # Sort by date descending and limit
     transactions.sort(key=lambda x: x.get("date", ""), reverse=True)
@@ -68,12 +73,17 @@ async def create_transaction(tx: TransactionCreate):
         raise HTTPException(400, "Value must be positive")
     
     user_id = tx.user_id or "local"
+    category = tx.category or "geral"
+    # Ensure tag exists for this category
+    if category:
+        get_or_create_tag(user_id, category)
+    
     new_tx = add_transaction(
         user_id=user_id,
         type=tx.type,
         value=tx.value,
         description=tx.description,
-        category=tx.category or "geral",
+        category=category,
         date=tx.date
     )
     return {"success": True, "transaction": new_tx}
@@ -96,6 +106,9 @@ async def edit_transaction(tx_id: str, tx: TransactionUpdate):
         updates["description"] = tx.description
     if tx.category is not None:
         updates["category"] = tx.category
+        # Ensure tag exists for this category
+        if tx.category:
+            get_or_create_tag(user_id, tx.category)
     if tx.date is not None:
         updates["date"] = tx.date
     
@@ -114,8 +127,15 @@ async def remove_transaction(tx_id: str, user_id: str = "local"):
     return {"success": True, "deleted_id": tx_id}
 
 @router.get("/summary")
-async def get_business_summary(user_id: str = "local"):
-    """Get financial summary."""
+async def get_business_summary(user_id: str = "local", period: Optional[str] = None):
+    """Get financial summary. If period is provided (YYYY-MM), returns summary for that period."""
+    if period:
+        from .periods import get_period_summary
+        summary = get_period_summary(user_id, period)
+        clients = load_clients(user_id)
+        summary["clients"] = len(clients)
+        return summary
+    
     summary = get_summary(user_id)
     clients = load_clients(user_id)
     summary["clients"] = len(clients)
@@ -206,7 +226,7 @@ async def process_recurring_items_endpoint(user_id: str = "local", month: Option
 # TAG ENDPOINTS
 # =============================================================================
 
-from .tags import load_tags, add_tag, delete_tag
+from .tags import load_tags, add_tag, delete_tag, get_or_create_tag, sync_tags_from_transactions
 
 class TagCreate(BaseModel):
     label: str
@@ -215,7 +235,10 @@ class TagCreate(BaseModel):
 
 @router.get("/tags")
 async def get_tags_endpoint(user_id: str = "local"):
-    """Get all tags."""
+    """Get all tags. Also syncs tags from existing transactions."""
+    # Sync tags from existing transactions to ensure all categories have tags
+    transactions = load_transactions(user_id)
+    sync_tags_from_transactions(user_id, transactions)
     return {"tags": load_tags(user_id)}
 
 @router.post("/tags")
@@ -341,3 +364,45 @@ async def get_overdue_summary_endpoint(user_id: str = "local"):
     """Get summary of overdue bills."""
     summary = get_overdue_summary(user_id)
     return summary
+
+# =============================================================================
+# PERIOD ENDPOINTS
+# =============================================================================
+
+from .periods import (
+    get_periods_list,
+    get_current_period,
+    get_period_summary as periods_get_period_summary,
+    close_period as periods_close_period,
+    get_transactions_by_period
+)
+
+@router.get("/periods")
+async def get_periods_endpoint(user_id: str = "local"):
+    """Get list of all available periods (months with transactions)."""
+    periods = get_periods_list(user_id)
+    current = get_current_period()
+    return {
+        "periods": periods,
+        "current_period": current
+    }
+
+@router.get("/periods/{period}/summary")
+async def get_period_summary_endpoint(period: str, user_id: str = "local"):
+    """Get summary for a specific period (YYYY-MM)."""
+    summary = periods_get_period_summary(user_id, period)
+    clients = load_clients(user_id)
+    summary["clients"] = len(clients)
+    return summary
+
+@router.post("/periods/{period}/close")
+async def close_period_endpoint(period: str, user_id: str = "local"):
+    """Close a period by calculating and saving its summary."""
+    summary = periods_close_period(user_id, period)
+    return {"success": True, "summary": summary}
+
+@router.get("/periods/{period}/transactions")
+async def get_period_transactions_endpoint(period: str, user_id: str = "local", limit: int = 100):
+    """Get all transactions for a specific period (YYYY-MM)."""
+    transactions = get_transactions_by_period(user_id, period)
+    return {"transactions": transactions[:limit]}

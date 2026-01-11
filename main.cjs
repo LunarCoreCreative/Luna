@@ -5,6 +5,15 @@ const { spawn, exec } = require('child_process');
 const { LinkService } = require('./LinkService.cjs');
 const { setupAutoUpdater } = require('./updater.cjs');
 
+// Lê a versão do package.json
+let appVersion = '1.0.0';
+try {
+    const packageJson = require('./package.json');
+    appVersion = packageJson.version || '1.0.0';
+} catch (e) {
+    console.warn('[MAIN] Não foi possível ler versão do package.json, usando fallback');
+}
+
 let mainWindow;
 let pythonProcess = null;
 let linkService = null;
@@ -339,6 +348,11 @@ ipcMain.handle('luna-link:pick-folder', async () => {
 // Luna Link: Status check
 ipcMain.handle('luna-link:status', () => {
     return linkService ? linkService.connected : false;
+});
+
+// App: Get version
+ipcMain.handle('app:get-version', () => {
+    return appVersion;
 });
 
 // Fix para inputs que param de funcionar: Handler IPC para forçar restauração de foco

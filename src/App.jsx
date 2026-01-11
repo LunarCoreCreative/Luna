@@ -60,6 +60,8 @@ import { SidebarProfile } from "./components/sidebar/SidebarProfile";
 import { parseThought, getGreeting } from "./utils/messageUtils";
 import { API_CONFIG } from "./config/api";
 import { UpdateNotification } from "./components/UpdateNotification";
+import { ChangelogModal } from "./components/ChangelogModal";
+import { parseChangelogVersion, getCurrentVersion } from "./utils/changelogParser";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
@@ -312,6 +314,9 @@ function App() {
     const [businessModeOpen, setBusinessModeOpen] = useState(false);
     const [settingsTab, setSettingsTab] = useState("general");
     const [learningNotification, setLearningNotification] = useState(null);
+    const [changelogModalOpen, setChangelogModalOpen] = useState(false);
+    const [changelogData, setChangelogData] = useState(null);
+    const [currentAppVersion, setCurrentAppVersion] = useState(null);
     const auth = useAuth();
     const { user, profile } = auth;
 
@@ -507,6 +512,66 @@ function App() {
     // Trigger initial overlay if enabled
     useEffect(() => {
         chat.loadChats();
+    }, []);
+
+    // Verificar versão e mostrar changelog após atualização
+    useEffect(() => {
+        const checkVersionAndShowChangelog = async () => {
+            try {
+                // Obtém a versão atual do package.json
+                const version = await getCurrentVersion();
+                setCurrentAppVersion(version);
+
+                // Verifica a última versão vista pelo usuário
+                const lastSeenVersion = localStorage.getItem('luna-last-seen-version');
+                
+                // Se a versão atual é diferente da última vista, mostra o changelog
+                if (lastSeenVersion && lastSeenVersion !== version) {
+                    // Carrega o CHANGELOG.md
+                    try {
+                        const response = await fetch('/CHANGELOG.md');
+                        if (response.ok) {
+                            const changelogContent = await response.text();
+                            const parsedData = parseChangelogVersion(changelogContent, version);
+                            
+                            if (parsedData) {
+                                setChangelogData(parsedData);
+                                setChangelogModalOpen(true);
+                                // Marca a versão como vista
+                                localStorage.setItem('luna-last-seen-version', version);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('[CHANGELOG] Erro ao carregar CHANGELOG.md:', error);
+                    }
+                } else if (!lastSeenVersion) {
+                    // Primeira vez que o app é aberto, salva a versão atual
+                    localStorage.setItem('luna-last-seen-version', version);
+                }
+            } catch (error) {
+                console.error('[CHANGELOG] Erro ao verificar versão:', error);
+            }
+        };
+
+        // Aguarda o app estar pronto antes de verificar
+        if (appState === "READY") {
+            checkVersionAndShowChangelog();
+        }
+    }, [appState]);
+
+    // Integração com sistema de autoupdate - detecta quando atualização foi instalada
+    useEffect(() => {
+        if (!window.electron?.updater) return;
+
+        const updater = window.electron.updater;
+
+        // Quando uma atualização é baixada e instalada, o app reinicia
+        // Na próxima inicialização, a versão será diferente e o modal aparecerá
+        updater.onUpdateDownloaded((data) => {
+            console.log('[CHANGELOG] Atualização baixada, versão:', data.version);
+            // Não mostra o modal aqui, pois o app vai reiniciar
+            // O modal será mostrado na próxima inicialização
+        });
     }, []);
 
     useEffect(() => {
@@ -1341,6 +1406,16 @@ function App() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Changelog Modal - Aparece após atualização */}
+            {currentAppVersion && (
+                <ChangelogModal
+                    isOpen={changelogModalOpen}
+                    version={currentAppVersion}
+                    changelogData={changelogData}
+                    onClose={() => setChangelogModalOpen(false)}
+                />
             )}
 
         </div >

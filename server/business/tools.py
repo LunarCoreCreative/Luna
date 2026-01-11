@@ -15,7 +15,7 @@ from .storage import (
     update_transaction as storage_update_transaction,
     delete_transaction as storage_delete_transaction
 )
-from .tags import add_tag as storage_add_tag
+from .tags import add_tag as storage_add_tag, get_or_create_tag
 
 # Import overdue functions
 try:
@@ -318,12 +318,17 @@ def execute_business_tool(name: str, args: Dict, user_id: str = "local") -> Dict
     """Execute a business tool and return the result."""
     
     if name == "add_transaction":
+        category = args.get("category", "geral")
+        # Ensure tag exists for this category
+        if category:
+            get_or_create_tag(user_id, category)
+        
         tx = storage_add_transaction(
             user_id=user_id,
             type=args.get("type", "expense"),
             value=args.get("value", 0),
             description=args.get("description", ""),
-            category=args.get("category", "geral"),
+            category=category,
             date=args.get("date")
         )
         return {
@@ -365,10 +370,14 @@ def execute_business_tool(name: str, args: Dict, user_id: str = "local") -> Dict
                 changes[k] = v
                 continue
                 
-            # Alias match
-            if k in FIELD_MAP:
-                final_key = FIELD_MAP[k]
-                changes[final_key] = v
+        # Alias match
+        if k in FIELD_MAP:
+            final_key = FIELD_MAP[k]
+            changes[final_key] = v
+        
+        # Ensure tag exists if category is being updated
+        if "category" in changes and changes["category"]:
+            get_or_create_tag(user_id, changes["category"])
         
         updated = storage_update_transaction(user_id, tx_id, changes)
         if updated:

@@ -21,7 +21,8 @@ import {
     Table,
     LineChart,
     Wallet,
-    AlertCircle
+    AlertCircle,
+    Clock
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
 import { useModalContext } from "../../contexts/ModalContext";
@@ -86,12 +87,39 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     // Summary stats
     const [summary, setSummary] = useState({ balance: 0, income: 0, expenses: 0, invested: 0, net_worth: 0 });
 
+    // Period management
+    const [selectedPeriod, setSelectedPeriod] = useState(null); // YYYY-MM format
+    const [periods, setPeriods] = useState([]);
+    const [currentPeriod, setCurrentPeriod] = useState(null);
+
     useEffect(() => {
         if (isOpen) {
-            loadData();
+            loadPeriods();
             loadTags();
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && (selectedPeriod || currentPeriod)) {
+            loadData();
+        }
+    }, [isOpen, selectedPeriod]);
+
+    const loadPeriods = async () => {
+        try {
+            const res = await fetch(`${API_CONFIG.BASE_URL}/business/periods?user_id=${userId}`);
+            const data = await res.json();
+            setPeriods(data.periods || []);
+            setCurrentPeriod(data.current_period || null);
+            
+            // Set selected period to current if not set
+            if (!selectedPeriod && data.current_period) {
+                setSelectedPeriod(data.current_period);
+            }
+        } catch (e) {
+            console.error("[BUSINESS] Error loading periods:", e);
+        }
+    };
 
     const loadData = async () => {
         setIsLoading(true);
@@ -103,10 +131,13 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                 body: JSON.stringify({ user_id: userId })
             });
 
-            // 2. Load fresh data
+            // 2. Load fresh data for selected period (or current if none selected)
+            const period = selectedPeriod || currentPeriod;
+            const periodParam = period ? `&period=${period}` : '';
+            
             const [summaryRes, txRes] = await Promise.all([
-                fetch(`${API_CONFIG.BASE_URL}/business/summary?user_id=${userId}`),
-                fetch(`${API_CONFIG.BASE_URL}/business/transactions?user_id=${userId}&limit=100`)
+                fetch(`${API_CONFIG.BASE_URL}/business/summary?user_id=${userId}${periodParam}`),
+                fetch(`${API_CONFIG.BASE_URL}/business/transactions?user_id=${userId}&limit=100${periodParam}`)
             ]);
 
             const summaryData = await summaryRes.json();
@@ -302,6 +333,20 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
     };
 
+    const formatPeriod = (period) => {
+        if (!period) return "";
+        try {
+            const [year, month] = period.split("-");
+            const monthNames = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ];
+            return `${monthNames[parseInt(month) - 1]} ${year}`;
+        } catch {
+            return period;
+        }
+    };
+
     // Filtered transactions
     const filteredTx = transactions.filter(tx => {
         if (filter !== "all" && tx.type !== filter) return false;
@@ -325,6 +370,29 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                     <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
                         Gestão Financeira
                     </h1>
+
+                    {/* Period Selector */}
+                    <div className="relative">
+                        <select
+                            value={selectedPeriod || currentPeriod || ""}
+                            onChange={(e) => setSelectedPeriod(e.target.value)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer appearance-none pr-8 outline-none transition-colors hover:bg-white/5"
+                            style={{
+                                background: 'var(--bg-tertiary)',
+                                border: '1px solid var(--border-color)',
+                                color: 'var(--text-primary)'
+                            }}
+                        >
+                            {periods.map(period => (
+                                <option key={period} value={period} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                                    {formatPeriod(period)}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                            <ChevronDown size={14} style={{ color: 'var(--text-secondary)' }} />
+                        </div>
+                    </div>
 
                     {/* Quick Stats */}
                     <div className="hidden md:flex items-center gap-4 ml-6">

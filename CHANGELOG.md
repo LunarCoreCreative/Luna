@@ -2,6 +2,32 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.0.4] - 2025-01-27
+
+### ✨ Novas Funcionalidades
+
+#### 💼 Business Mode
+- **Sistema de Períodos Mensais**: Histórico completo organizado por mês/ano
+  - Seletor de período no header para navegar entre meses
+  - Visualização de transações filtradas por período
+  - Resumo financeiro específico para cada período
+  - Fechamento de mês com salvamento automático do resumo
+  - Histórico completo preservado - não há mais necessidade de resetar manualmente
+
+- **Melhorias no Sistema de Tags**:
+  - Criação automática de tags quando uma categoria é usada em transações
+  - Sincronização automática: todas as tags usadas aparecem na aba de tags
+  - Sistema de cores distintas: cada tag recebe uma cor única automaticamente
+  - Paleta expandida com 20 cores distintas para melhor visualização
+
+### 🔧 Melhorias
+
+- **Business Mode**: Organização mais eficiente com histórico por período
+- **Tags**: Interface mais consistente com todas as categorias visíveis
+- **Navegação**: Fácil acesso a qualquer mês através do seletor de período
+
+---
+
 ## [1.0.3] - 2025-01-27
 
 ### ✨ Novas Funcionalidades
