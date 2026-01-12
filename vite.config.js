@@ -27,6 +27,36 @@ export default defineConfig({
                     console.warn('[VITE] Erro ao copiar CHANGELOG.md:', error);
                 }
             }
+        },
+        {
+            name: 'fix-react-load-order',
+            transformIndexHtml(html) {
+                // Garante que react-core seja carregado antes de vendor
+                const reactCoreRegex = /<link[^>]*react-core[^>]*>/i;
+                const vendorRegex = /<link[^>]*vendor[^>]*>/i;
+                const scriptRegex = /<script[^>]*index[^>]*>/i;
+                
+                const reactCoreMatch = html.match(reactCoreRegex);
+                const vendorMatch = html.match(vendorRegex);
+                const scriptMatch = html.match(scriptRegex);
+                
+                if (reactCoreMatch && vendorMatch) {
+                    // Remove ambos
+                    html = html.replace(reactCoreRegex, '');
+                    html = html.replace(vendorRegex, '');
+                    
+                    // Insere react-core ANTES do vendor
+                    const headEnd = html.indexOf('</head>');
+                    if (headEnd > -1) {
+                        html = html.slice(0, headEnd) + 
+                               reactCoreMatch[0] + '\n    ' +
+                               vendorMatch[0] + '\n    ' +
+                               html.slice(headEnd);
+                    }
+                }
+                
+                return html;
+            }
         }
     ],
     base: './',
@@ -40,7 +70,9 @@ export default defineConfig({
                     if (id.includes('node_modules')) {
                         // CRÍTICO: React e React-DOM devem estar juntos e carregar primeiro
                         // Separar React do resto para garantir carregamento prioritário
-                        if (id.includes('react/') || id.includes('react-dom/')) {
+                        // IMPORTANTE: React não deve depender de nenhum outro vendor
+                        if (id.includes('react/') || id.includes('react-dom/') || 
+                            id.includes('react/index') || id.includes('react-dom/index')) {
                             return 'react-core';
                         }
                         // Outras dependências do React podem estar juntas
@@ -53,7 +85,7 @@ export default defineConfig({
                         if (id.includes('firebase')) {
                             return 'firebase-vendor';
                         }
-                        // Outros vendors
+                        // Outros vendors - NÃO devem incluir React
                         return 'vendor';
                     }
                     // Feature chunks - apenas componentes pesados
@@ -85,11 +117,17 @@ export default defineConfig({
                 pure_funcs: ['console.debug', 'console.trace'],
                 // Não quebra referências do React
                 keep_classnames: true,
-                keep_fnames: true
+                keep_fnames: true,
+                // Evita problemas com React
+                passes: 2
             },
             format: {
                 // Mantém comentários importantes
                 comments: /^!|@preserve|@license|@cc_on/
+            },
+            mangle: {
+                // Não minifica propriedades do React
+                reserved: ['React', 'forwardRef', 'createElement', 'useState', 'useEffect']
             }
         },
         // Chunk size warnings
