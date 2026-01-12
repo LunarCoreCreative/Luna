@@ -1,14 +1,22 @@
 # Nixpacks config for Railway
-# Use Python provider, let Node be detected automatically
+# Use both Python and Node providers
 
-providers = ["python"]
+providers = ["python", "node"]
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "python311Packages.pip", "nodejs-20_x", "npm"]
 
 [phases.install]
 dependsOn = ["setup"]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+  "npm ci",
+  "pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu",
+  "pip install -r requirements.txt"
+]
+
+[phases.build]
+dependsOn = ["install"]
+cmds = ["npm run build"]
 
 [start]
 cmd = "python -m server.main"
