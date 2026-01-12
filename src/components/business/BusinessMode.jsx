@@ -137,7 +137,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
             
             const [summaryRes, txRes] = await Promise.all([
                 fetch(`${API_CONFIG.BASE_URL}/business/summary?user_id=${userId}${periodParam}`),
-                fetch(`${API_CONFIG.BASE_URL}/business/transactions?user_id=${userId}&limit=100${periodParam}`)
+                fetch(`${API_CONFIG.BASE_URL}/business/transactions?user_id=${userId}&limit=500${periodParam}`)
             ]);
 
             const summaryData = await summaryRes.json();
@@ -174,26 +174,54 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     };
 
     const handleAdd = async () => {
-        if (!formData.description.trim() || !formData.value) return;
+        if (!formData.description.trim() || !formData.value) {
+            console.warn("[BUSINESS] Campos obrigatórios não preenchidos");
+            return;
+        }
+
+        // Valida e converte valor
+        const value = parseFloat(formData.value);
+        if (isNaN(value) || value <= 0) {
+            console.error("[BUSINESS] Valor inválido:", formData.value);
+            showAlert("Por favor, insira um valor válido maior que zero.", "Erro");
+            return;
+        }
 
         try {
+            const payload = {
+                description: formData.description.trim(),
+                value: value,
+                type: formData.type,
+                category: formData.category || "outro",
+                date: formData.date || new Date().toISOString().split('T')[0],
+                user_id: userId
+            };
+
+            console.log("[BUSINESS] Enviando transação:", payload);
+
             const res = await fetch(`${API_CONFIG.BASE_URL}/business/transactions`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...formData,
-                    value: parseFloat(formData.value),
-                    user_id: userId
-                })
+                body: JSON.stringify(payload)
             });
 
-            if (res.ok) {
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                console.log("[BUSINESS] ✅ Transação criada com sucesso:", data.transaction);
                 setFormData({ description: "", value: "", type: "income", category: "outro", date: new Date().toISOString().split('T')[0] });
                 setShowAddRow(false);
-                loadData();
+                // Recarrega dados após um pequeno delay para garantir sincronização
+                setTimeout(() => {
+                    loadData();
+                }, 300);
+            } else {
+                console.error("[BUSINESS] ❌ Erro na resposta:", data);
+                showAlert(data.message || "Erro ao criar transação", "Erro");
             }
         } catch (e) {
-            console.error("[BUSINESS] Erro ao adicionar:", e);
+            console.error("[BUSINESS] ❌ Erro ao adicionar:", e);
+            showAlert("Erro ao comunicar com o servidor. Tente novamente.", "Erro");
         }
     };
 
@@ -226,26 +254,54 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     };
 
     const handleSaveEdit = async (txId) => {
-        if (!editData.description?.trim() || !editData.value) return;
+        if (!editData.description?.trim() || !editData.value) {
+            console.warn("[BUSINESS] Campos obrigatórios não preenchidos");
+            return;
+        }
+
+        // Valida e converte valor
+        const value = parseFloat(editData.value);
+        if (isNaN(value) || value <= 0) {
+            console.error("[BUSINESS] Valor inválido:", editData.value);
+            showAlert("Por favor, insira um valor válido maior que zero.", "Erro");
+            return;
+        }
 
         try {
+            const payload = {
+                description: editData.description.trim(),
+                value: value,
+                type: editData.type,
+                category: editData.category || "outro",
+                date: editData.date || new Date().toISOString().split('T')[0],
+                user_id: userId
+            };
+
+            console.log("[BUSINESS] Atualizando transação:", txId, payload);
+
             const res = await fetch(`${API_CONFIG.BASE_URL}/business/transactions/${txId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...editData,
-                    value: parseFloat(editData.value),
-                    user_id: userId
-                })
+                body: JSON.stringify(payload)
             });
 
-            if (res.ok) {
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                console.log("[BUSINESS] ✅ Transação atualizada com sucesso:", data.transaction);
                 setEditingId(null);
                 setEditData({});
-                loadData();
+                // Recarrega dados após um pequeno delay para garantir sincronização
+                setTimeout(() => {
+                    loadData();
+                }, 300);
+            } else {
+                console.error("[BUSINESS] ❌ Erro na resposta:", data);
+                showAlert(data.message || "Erro ao atualizar transação", "Erro");
             }
         } catch (e) {
-            console.error("[BUSINESS] Erro ao editar:", e);
+            console.error("[BUSINESS] ❌ Erro ao editar:", e);
+            showAlert("Erro ao comunicar com o servidor. Tente novamente.", "Erro");
         }
     };
 
@@ -356,20 +412,35 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
 
     if (!isOpen) return null;
 
+    if (!isOpen) return null;
+
     return (
         <div
-            className="fixed inset-0 z-50 flex flex-col animate-in fade-in duration-300"
-            style={{ background: 'var(--bg-primary)' }}
+            className="fixed inset-0 z-[100] flex flex-col animate-in fade-in duration-300"
+            style={{ background: 'var(--bg-primary)', width: '100vw', height: '100vh' }}
         >
+            {/* Background Gradient */}
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-violet-500/3 to-transparent pointer-events-none" />
+            
             {/* Header */}
             <header
-                className="flex items-center justify-between px-6 py-4"
-                style={{ borderBottom: '1px solid var(--border-color)' }}
+                className="relative flex items-center justify-between px-6 py-5 backdrop-blur-xl bg-[var(--bg-primary)]/80 border-b border-[var(--border-color)]/50 z-10"
             >
-                <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                        Gestão Financeira
-                    </h1>
+                <div className="flex items-center gap-5">
+                    <div className="relative">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20 transform transition-transform hover:scale-105">
+                            <DollarSign size={28} className="text-white drop-shadow-sm" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-purple-400 rounded-full animate-pulse border-2 border-[var(--bg-primary)]" />
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 bg-clip-text text-transparent">
+                            Gestão Financeira
+                        </h1>
+                        <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                            Controle completo das suas finanças
+                        </p>
+                    </div>
 
                     {/* Period Selector */}
                     <div className="relative">
@@ -395,46 +466,62 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                     </div>
 
                     {/* Quick Stats */}
-                    <div className="hidden md:flex items-center gap-4 ml-6">
+                    <div className="hidden md:flex items-center gap-3 ml-6">
                         <div
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                            style={{ background: 'var(--bg-tertiary)' }}
+                            className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 hover:scale-105 overflow-hidden"
+                            style={{ 
+                                background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)',
+                                border: '1px solid rgba(34, 197, 94, 0.2)'
+                            }}
                         >
-                            <TrendingUp size={14} className="text-green-400" />
-                            <span className="text-sm text-green-400 font-medium">{formatCurrency(summary.income)}</span>
+                            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                            <TrendingUp size={16} className="text-green-400 relative z-10" />
+                            <span className="text-sm text-green-400 font-bold relative z-10">{formatCurrency(summary.income)}</span>
                         </div>
                         <div
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                            style={{ background: 'var(--bg-tertiary)' }}
+                            className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 hover:scale-105 overflow-hidden"
+                            style={{ 
+                                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%)',
+                                border: '1px solid rgba(239, 68, 68, 0.2)'
+                            }}
                         >
-                            <TrendingDown size={14} className="text-red-400" />
-                            <span className="text-sm text-red-400 font-medium">{formatCurrency(summary.expenses)}</span>
+                            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                            <TrendingDown size={16} className="text-red-400 relative z-10" />
+                            <span className="text-sm text-red-400 font-bold relative z-10">{formatCurrency(summary.expenses)}</span>
                         </div>
                         <div
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                            style={{ background: 'var(--bg-tertiary)' }}
+                            className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 hover:scale-105 overflow-hidden"
+                            style={{ 
+                                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%)',
+                                border: '1px solid rgba(139, 92, 246, 0.3)'
+                            }}
                             title="Total em Caixa"
                         >
-                            <DollarSign size={14} style={{ color: 'var(--accent-primary)' }} />
-                            <span className="text-sm font-bold" style={{ color: 'var(--accent-primary)' }}>
+                            <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                            <DollarSign size={16} className="text-purple-400 relative z-10" />
+                            <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-violet-500 bg-clip-text text-transparent relative z-10">
                                 {formatCurrency(summary.balance)}
                             </span>
                         </div>
                         {summary.invested > 0 && (
                             <div
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                                style={{ background: 'rgba(234, 179, 8, 0.15)', border: '1px solid rgba(234, 179, 8, 0.3)' }}
+                                className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 hover:scale-105 overflow-hidden"
+                                style={{ 
+                                    background: 'linear-gradient(135deg, rgba(234, 179, 8, 0.2) 0%, rgba(234, 179, 8, 0.1) 100%)',
+                                    border: '1px solid rgba(234, 179, 8, 0.3)'
+                                }}
                                 title="Total Investido"
                             >
-                                <span className="text-yellow-500 text-xs font-bold uppercase">Investido</span>
-                                <span className="text-sm font-bold text-yellow-500">
+                                <div className="absolute top-0 right-0 w-20 h-20 bg-yellow-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                                <span className="text-yellow-500 text-xs font-bold uppercase relative z-10">Investido</span>
+                                <span className="text-sm font-bold bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent relative z-10">
                                     {formatCurrency(summary.invested)}
                                 </span>
                             </div>
                         )}
                         {(summary.invested > 0) && (
                             <div
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10"
+                                className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 hover:scale-105 overflow-hidden bg-white/5 border border-white/10"
                                 title="Patrimônio Líquido (Caixa + Investimentos)"
                             >
                                 <span className="text-gray-400 text-xs font-bold uppercase">Patrimônio</span>
@@ -449,10 +536,10 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                 <div className="flex items-center gap-2">
                     <button
                         onClick={onClose}
-                        className="p-2 rounded-lg transition-colors hover:bg-white/10"
+                        className="p-2.5 hover:bg-white/10 rounded-xl transition-all duration-200 hover:scale-110 active:scale-95 group"
                         style={{ color: 'var(--text-secondary)' }}
                     >
-                        <X size={20} />
+                        <X size={22} className="group-hover:rotate-90 transition-transform duration-200" />
                     </button>
                 </div>
             </header>
@@ -461,52 +548,91 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                 <div className="flex-1 flex flex-col min-w-0 relative">
                     {/* Tabs */}
                     <div
-                        className="flex items-center gap-1 px-6 py-2"
-                        style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}
+                        className="relative flex items-center gap-1 px-6 py-2 border-b border-[var(--border-color)]/50 bg-[var(--bg-primary)]/50 backdrop-blur-sm z-10"
                     >
                         <button
                             onClick={() => setActiveTab("transactions")}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "transactions" ? "" : "hover:bg-white/5"}`}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
                             style={{
-                                background: activeTab === "transactions" ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                                color: activeTab === "transactions" ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                                color: activeTab === "transactions" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <Table size={16} />
-                            Transações
+                            <span className="relative z-10 flex items-center gap-2">
+                                <Table size={18} />
+                                Transações
+                            </span>
+                            {activeTab === "transactions" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "transactions" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveTab("analytics")}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "analytics" ? "" : "hover:bg-white/5"}`}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
                             style={{
-                                background: activeTab === "analytics" ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                                color: activeTab === "analytics" ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                                color: activeTab === "analytics" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <BarChart3 size={16} />
-                            Analytics
+                            <span className="relative z-10 flex items-center gap-2">
+                                <BarChart3 size={18} />
+                                Analytics
+                            </span>
+                            {activeTab === "analytics" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "analytics" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveTab("projections")}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "projections" ? "" : "hover:bg-white/5"}`}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
                             style={{
-                                background: activeTab === "projections" ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                                color: activeTab === "projections" ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                                color: activeTab === "projections" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <LineChart size={16} />
-                            Projeções
+                            <span className="relative z-10 flex items-center gap-2">
+                                <LineChart size={18} />
+                                Projeções
+                            </span>
+                            {activeTab === "projections" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "projections" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveTab("investments")}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "investments" ? "" : "hover:bg-white/5"}`}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
                             style={{
-                                background: activeTab === "investments" ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                                color: activeTab === "investments" ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                                color: activeTab === "investments" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <Wallet size={16} />
-                            Investimentos
+                            <span className="relative z-10 flex items-center gap-2">
+                                <Wallet size={18} />
+                                Investimentos
+                            </span>
+                            {activeTab === "investments" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "investments" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
                         </button>
                     </div>
 
@@ -529,21 +655,19 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                             >
                                 <div className="flex items-center gap-3">
                                     {/* Search */}
-                                    <div
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors"
-                                        style={{
-                                            background: 'var(--bg-tertiary)',
-                                            border: '1px solid var(--border-color)'
-                                        }}
-                                    >
-                                        <Search size={16} style={{ color: 'var(--text-muted)' }} />
+                                    <div className="relative group flex-1 max-w-md">
+                                        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-200" style={{ color: 'var(--text-secondary)' }} />
                                         <input
                                             type="text"
-                                            placeholder="Buscar..."
+                                            placeholder="Buscar transações..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="bg-transparent border-0 outline-none text-sm w-40"
-                                            style={{ color: 'var(--text-primary)' }}
+                                            className="w-full pl-11 pr-4 py-3 rounded-xl border-2 transition-all duration-200 focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 focus:shadow-lg focus:shadow-purple-500/10"
+                                            style={{
+                                                background: 'var(--bg-tertiary)',
+                                                borderColor: 'var(--border-color)',
+                                                color: 'var(--text-primary)'
+                                            }}
                                         />
                                     </div>
 
@@ -575,39 +699,42 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                     {/* Manage Tags Button */}
                                     <button
                                         onClick={() => setShowTagModal(true)}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
+                                            background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <Tag size={14} />
+                                        <Tag size={16} />
                                         Tags
                                     </button>
 
                                     {/* Recurring Button */}
                                     <button
                                         onClick={() => setShowRecurringModal(true)}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
+                                            background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <Calendar size={14} />
+                                        <Calendar size={16} />
                                         Fixos
                                     </button>
 
                                     {/* Overdue Bills Button */}
                                     <button
                                         onClick={() => setShowOverdueModal(true)}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
+                                            background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <AlertCircle size={14} />
+                                        <AlertCircle size={16} />
                                         Contas em Atraso
                                     </button>
                                 </div>
@@ -615,10 +742,9 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                 {/* Add Button */}
                                 <button
                                     onClick={() => setShowAddRow(!showAddRow)}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
-                                    style={{ background: 'var(--accent-primary)' }}
+                                    className="flex items-center gap-2.5 px-6 py-3 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-600 hover:from-purple-400 hover:via-violet-400 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 shadow-lg shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/30 hover:scale-105 active:scale-95 font-semibold"
                                 >
-                                    <Plus size={16} />
+                                    <Plus size={20} className="drop-shadow-sm" />
                                     Nova Entrada
                                 </button>
                             </div>
@@ -1120,5 +1246,24 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         </div >
     );
 };
+
+// Add CSS animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+`;
+if (!document.head.querySelector('style[data-business-animations]')) {
+    style.setAttribute('data-business-animations', 'true');
+    document.head.appendChild(style);
+}
 
 export default BusinessMode;

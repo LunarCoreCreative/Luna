@@ -6,6 +6,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 import { auth, onAuthChange, getUserProfile, updateUserProfile, logout as firebaseLogout } from '../firebase';
+import { API_CONFIG } from '../config/api';
 
 // =============================================================================
 // CONTEXTO
@@ -22,6 +23,10 @@ export const AuthProvider = ({ children }) => {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isCreator, setIsCreator] = useState(false);
+    
+    // Health Profile State
+    const [healthProfile, setHealthProfile] = useState(null);
+    const [loadingHealthProfile, setLoadingHealthProfile] = useState(false);
 
     // NEW: Sistema de Energia & Planos
     const [plan, setPlan] = useState('spark'); // 'spark' | 'nexus' | 'eclipse'
@@ -33,6 +38,54 @@ export const AuthProvider = ({ children }) => {
 
     // UID do criador - IMUTÁVEL
     const CREATOR_UID = "aKp1czWVMqWQdJ9nAIcIKgxKNu92";
+
+    // =========================================================================
+    // ENERGY SYSTEM LOGIC (COOLDOWN MODE)
+    // =========================================================================
+
+    const checkCooldown = () => {
+        const stored = localStorage.getItem('luna_energy_local');
+        let localData = stored ? JSON.parse(stored) : { current: 50, max: 50, nextRefill: null };
+        const now = Date.now();
+
+        // Se estava zerado e o tempo de refill passou
+        if (localData.current <= 0 && localData.nextRefill && now >= localData.nextRefill) {
+            localData = { current: 50, max: 50, nextRefill: null };
+            console.log("[ENERGY] Cooldown acabou! Energia recarregada.");
+        }
+        // Se ainda está no periodo de espera
+        else if (localData.current <= 0 && localData.nextRefill) {
+            console.log("[ENERGY] Ainda em cooldown. Faltam:", (localData.nextRefill - now) / 1000 / 60, "minutos");
+        }
+
+        setEnergy(localData);
+        localStorage.setItem('luna_energy_local', JSON.stringify(localData));
+    };
+
+    // =========================================================================
+    // HEALTH PROFILE FUNCTIONS
+    // =========================================================================
+
+    const loadHealthProfile = async (userId) => {
+        if (!userId) return;
+        
+        try {
+            setLoadingHealthProfile(true);
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`);
+            const data = await response.json();
+            
+            if (data.success && data.profile) {
+                setHealthProfile(data.profile);
+            } else {
+                setHealthProfile(null);
+            }
+        } catch (error) {
+            console.error("[AUTH] Erro ao carregar perfil de saúde:", error);
+            setHealthProfile(null);
+        } finally {
+            setLoadingHealthProfile(false);
+        }
+    };
 
     useEffect(() => {
         const unsubscribe = onAuthChange(async (firebaseUser) => {
@@ -72,6 +125,9 @@ export const AuthProvider = ({ children }) => {
 
                 console.log("[AUTH] Usuário autenticado:", firebaseUser.email);
 
+                // ===== CARREGAR PERFIL DE SAÚDE =====
+                await loadHealthProfile(firebaseUser.uid);
+
                 // ===== LUNA LINK: Conectar ao servidor cloud =====
                 // Só funciona em ambiente Electron (app desktop)
                 if (typeof window !== 'undefined' && window.electron?.lunaLink) {
@@ -86,6 +142,7 @@ export const AuthProvider = ({ children }) => {
             } else {
                 setUser(null);
                 setProfile(null);
+                setHealthProfile(null);
                 setIsCreator(false);
                 // Reset para defaults anônimos se necessário, ou manter estado local
                 setPlan('spark');
@@ -102,11 +159,62 @@ export const AuthProvider = ({ children }) => {
         return () => unsubscribe();
     }, []);
 
+    const updateHealthProfile = async (type) => {
+        if (!user) return { success: false, error: "Usuário não autenticado" };
+        
+        try {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Recarregar perfil atualizado
+                await loadHealthProfile(user.uid);
+                return { success: true, profile: data.profile };
+            } else {
+                return { success: false, error: data.error || "Erro ao atualizar perfil" };
+            }
+        } catch (error) {
+            console.error("[AUTH] Erro ao atualizar perfil de saúde:", error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    const linkToEvaluator = async (code) => {
+        if (!user) return { success: false, error: "Usuário não autenticado" };
+        
+        try {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile/link`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code, user_id: user.uid })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Recarregar perfil atualizado
+                await loadHealthProfile(user.uid);
+                return { success: true, evaluator: data.evaluator };
+            } else {
+                return { success: false, error: data.error || "Erro ao vincular ao avaliador" };
+            }
+        } catch (error) {
+            console.error("[AUTH] Erro ao vincular ao avaliador:", error);
+            return { success: false, error: error.message };
+        }
+    };
+
     const logout = async () => {
         try {
             await firebaseLogout();
             setUser(null);
             setProfile(null);
+            setHealthProfile(null);
             setIsCreator(false);
             setPlan('spark');
             localStorage.removeItem('luna_energy_local'); // Limpa cache local ao sair
@@ -129,29 +237,6 @@ export const AuthProvider = ({ children }) => {
     // =========================================================================
     // ENERGY SYSTEM LOGIC
     // =========================================================================
-
-    // =========================================================================
-    // ENERGY SYSTEM LOGIC (COOLDOWN MODE)
-    // =========================================================================
-
-    const checkCooldown = () => {
-        const stored = localStorage.getItem('luna_energy_local');
-        let localData = stored ? JSON.parse(stored) : { current: 50, max: 50, nextRefill: null };
-        const now = Date.now();
-
-        // Se estava zerado e o tempo de refill passou
-        if (localData.current <= 0 && localData.nextRefill && now >= localData.nextRefill) {
-            localData = { current: 50, max: 50, nextRefill: null };
-            console.log("[ENERGY] Cooldown acabou! Energia recarregada.");
-        }
-        // Se ainda está no periodo de espera
-        else if (localData.current <= 0 && localData.nextRefill) {
-            console.log("[ENERGY] Ainda em cooldown. Faltam:", (localData.nextRefill - now) / 1000 / 60, "minutos");
-        }
-
-        setEnergy(localData);
-        localStorage.setItem('luna_energy_local', JSON.stringify(localData));
-    };
 
     const consumeEnergy = (cost) => {
         if (plan === 'nexus' || plan === 'eclipse') return true; // Infinito
@@ -246,7 +331,13 @@ export const AuthProvider = ({ children }) => {
         consumeEnergy,
         upgradePlan,
         createCheckout,
-        syncPlan
+        syncPlan,
+        // Health Profile
+        healthProfile,
+        loadingHealthProfile,
+        loadHealthProfile,
+        updateHealthProfile,
+        linkToEvaluator
     };
 
     return (

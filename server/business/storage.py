@@ -70,15 +70,31 @@ def load_transactions(user_id: str) -> List[Dict]:
     """
     Load all transactions for a user.
     Uses Firebase if available, otherwise local storage.
+    Always syncs local cache with Firebase when available.
     """
     # Se user_id parece ser um Firebase UID (longo) e Firebase está disponível
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            transactions = get_user_transactions(user_id, limit=500)
+            # Carrega TODAS as transações do Firebase (limite alto para garantir)
+            transactions = get_user_transactions(user_id, limit=2000)
+            
+            # Se encontrou transações no Firebase, sincroniza o cache local
             if transactions:
+                print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações do Firebase, sincronizando cache local...")
+                _save_local_transactions(user_id, transactions)
                 return transactions
+            else:
+                # Firebase retornou vazio - pode ser que não há transações ou houve problema
+                # Tenta carregar do cache local e verificar se há algo
+                local_txs = _load_local_transactions(user_id)
+                if local_txs:
+                    print(f"[BUSINESS] ⚠️ Firebase vazio, usando cache local com {len(local_txs)} transações")
+                return local_txs
+                
         except Exception as e:
-            print(f"[BUSINESS] Firebase load failed, fallback local: {e}")
+            print(f"[BUSINESS] ❌ Firebase load failed, fallback local: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Fallback para storage local
     return _load_local_transactions(user_id)
@@ -94,6 +110,15 @@ def add_transaction(
 ) -> Dict:
     """Add a new transaction. Saves to Firebase + local cache."""
     
+    # Garante que value é float
+    try:
+        value = float(value)
+        if value <= 0:
+            raise ValueError("Value must be positive")
+    except (ValueError, TypeError) as e:
+        print(f"[BUSINESS] ❌ Valor inválido: {value}, erro: {e}")
+        raise ValueError(f"Invalid value: {value}")
+    
     # Use data fornecida ou data atual
     tx_date = date if date else datetime.now().isoformat()
     # Se a data for só YYYY-MM-DD, adiciona hora
@@ -103,24 +128,38 @@ def add_transaction(
     new_tx = {
         "id": str(uuid.uuid4())[:8],
         "type": type,
-        "value": abs(value),
-        "description": description,
-        "category": category,
+        "value": abs(value),  # Garante valor positivo
+        "description": str(description).strip(),
+        "category": str(category).strip() if category else "geral",
         "date": tx_date,
         "created_at": datetime.now().isoformat()
     }
     
-    # Salva no Firebase se disponível e user_id é válido
+    print(f"[BUSINESS] 📝 Adicionando transação: {new_tx['id']} - {new_tx['type']} - R$ {new_tx['value']:.2f}")
+    
+    # SEMPRE salva localmente primeiro (garantia de persistência)
+    transactions = _load_local_transactions(user_id)
+    # Evita duplicatas por ID
+    if not any(tx.get("id") == new_tx["id"] for tx in transactions):
+        transactions.append(new_tx)
+        _save_local_transactions(user_id, transactions)
+        print(f"[BUSINESS] ✅ Transação {new_tx['id']} salva no cache local")
+    else:
+        print(f"[BUSINESS] ⚠️ Transação {new_tx['id']} já existe no cache local, pulando...")
+    
+    # Depois tenta salvar no Firebase (opcional, mas desejável)
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            save_transaction_to_firebase(user_id, new_tx)
+            firebase_success = save_transaction_to_firebase(user_id, new_tx)
+            if firebase_success:
+                print(f"[BUSINESS] ✅ Transação {new_tx['id']} também salva no Firebase")
+            else:
+                print(f"[BUSINESS] ⚠️ Falha ao salvar no Firebase, mas transação está salva localmente")
         except Exception as e:
-            print(f"[BUSINESS] Firebase save failed: {e}")
-    
-    # Sempre salva localmente como cache/fallback
-    transactions = _load_local_transactions(user_id)
-    transactions.append(new_tx)
-    _save_local_transactions(user_id, transactions)
+            print(f"[BUSINESS] ❌ Firebase save failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Não falha a operação, já salvou localmente
     
     return new_tx
 
@@ -128,21 +167,30 @@ def add_transaction(
 def get_summary(user_id: str) -> Dict:
     """Calculate financial summary from Firebase or local."""
     
-    # Tenta Firebase primeiro
-    if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
+    # Carrega transações (já sincroniza Firebase com local)
+    transactions = load_transactions(user_id)
+    
+    print(f"[BUSINESS] 📊 Calculando summary para {len(transactions)} transações")
+    
+    # Garante que todos os valores são floats
+    income = 0.0
+    expenses = 0.0
+    invested = 0.0
+    
+    for tx in transactions:
         try:
-            summary = get_business_summary_from_firebase(user_id)
-            if summary.get("transaction_count", 0) > 0:
-                return summary
-        except Exception as e:
-            print(f"[BUSINESS] Firebase summary failed: {e}")
-    
-    # Fallback local
-    transactions = _load_local_transactions(user_id)
-    
-    income = sum(tx["value"] for tx in transactions if tx["type"] == "income")
-    expenses = sum(tx["value"] for tx in transactions if tx["type"] == "expense")
-    invested = sum(tx["value"] for tx in transactions if tx.get("type") == "investment")
+            tx_value = float(tx.get("value", 0))
+            tx_type = tx.get("type", "").lower()
+            
+            if tx_type == "income":
+                income += tx_value
+            elif tx_type == "expense":
+                expenses += tx_value
+            elif tx_type == "investment":
+                invested += tx_value
+        except (ValueError, TypeError) as e:
+            print(f"[BUSINESS] ⚠️ Erro ao processar transação {tx.get('id')}: {e}")
+            continue
     
     # Balance is cash on hand (Income - Expenses - Outflows to Investment)
     balance = income - expenses - invested
@@ -150,14 +198,18 @@ def get_summary(user_id: str) -> Dict:
     # Net Worth is Balance + Invested Assets
     net_worth = balance + invested
     
-    return {
-        "balance": balance,
-        "income": income,
-        "expenses": expenses,
-        "invested": invested,
-        "net_worth": net_worth,
+    summary = {
+        "balance": round(balance, 2),
+        "income": round(income, 2),
+        "expenses": round(expenses, 2),
+        "invested": round(invested, 2),
+        "net_worth": round(net_worth, 2),
         "transaction_count": len(transactions)
     }
+    
+    print(f"[BUSINESS] 📊 Summary calculado: Balance={summary['balance']}, Income={summary['income']}, Expenses={summary['expenses']}, Invested={summary['invested']}, Net Worth={summary['net_worth']}")
+    
+    return summary
 
 
 def delete_transaction(user_id: str, tx_id: str) -> bool:

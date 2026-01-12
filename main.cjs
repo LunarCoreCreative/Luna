@@ -40,8 +40,22 @@ function startLocalWebServer() {
     const appServer = express();
     const PORT = 4173;
 
-    // Serve static files
-    appServer.use(express.static(path.join(__dirname, 'dist')));
+    // Serve static files (incluindo CHANGELOG.md)
+    appServer.use(express.static(path.join(__dirname, 'dist'), {
+        // Permite servir arquivos .md
+        extensions: ['html', 'js', 'css', 'json', 'md']
+    }));
+
+    // Rota específica para CHANGELOG.md (garantir que funcione)
+    appServer.get('/CHANGELOG.md', (req, res) => {
+        const changelogPath = path.join(__dirname, 'dist', 'CHANGELOG.md');
+        res.sendFile(changelogPath, (err) => {
+            if (err) {
+                console.error('[ELECTRON] Erro ao servir CHANGELOG.md:', err);
+                res.status(404).send('CHANGELOG.md não encontrado');
+            }
+        });
+    });
 
     // SPA Fallback (using app.use for catch-all to avoid Express 5 regex issues)
     appServer.use((req, res) => {

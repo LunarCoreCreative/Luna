@@ -35,9 +35,11 @@ class ChatRequest(BaseModel):
     deep_thinking: bool = False
     canvas_mode: bool = False # Controle explícito de ferramentas de Canvas
     business_mode: bool = False # Modo Business Advisor
+    health_mode: bool = False # Modo Health/Nutrition
     active_artifact_id: Optional[str] = None
     user_id: Optional[str] = None
     user_name: Optional[str] = "Usuário"
+    view_as_student_id: Optional[str] = None # Para avaliadores visualizarem dados de alunos
 
 class SaveChatRequest(BaseModel):
     chat_id: Optional[str] = None

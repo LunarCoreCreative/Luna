@@ -27,6 +27,15 @@ export const ChangelogModal = ({ isOpen, version, changelogData, onClose }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose]);
 
+    // Salva a versão como vista quando o modal é fechado
+    const handleClose = () => {
+        if (version) {
+            localStorage.setItem('luna-last-seen-version', version);
+            console.log('[CHANGELOG] Versão marcada como vista:', version);
+        }
+        onClose();
+    };
+
     if (!isOpen || !changelogData) return null;
 
     const { date, features, improvements, bugfixes } = changelogData;
@@ -75,7 +84,7 @@ export const ChangelogModal = ({ isOpen, version, changelogData, onClose }) => {
                         </div>
                     </div>
                     <button
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors"
                         style={{ color: 'var(--text-secondary)' }}
                     >
@@ -203,7 +212,7 @@ export const ChangelogModal = ({ isOpen, version, changelogData, onClose }) => {
                     style={{ borderTop: '1px solid var(--border-color)' }}
                 >
                     <button
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="px-5 py-2.5 rounded-lg text-sm font-medium transition-colors bg-violet-600 hover:bg-violet-500 text-white"
                     >
                         Entendi, obrigado!

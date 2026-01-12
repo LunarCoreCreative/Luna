@@ -27,6 +27,7 @@ from .memory import preload_models, is_ready, save_technical_knowledge
 from .chat import ChatManager, Message, ChatRequest, SaveChatRequest, CreateThreadRequest
 from .agent import unified_generator
 from .business_agent import business_generator
+from .health_agent import health_generator
 from .artifacts import save_artifact, list_artifacts, get_artifact, delete_artifact, update_artifact_content
 
 # Study Mode
@@ -34,6 +35,9 @@ from .study.routes import router as study_router
 
 # Business Mode
 from .business.routes import router as business_router
+
+# Health Mode
+from .health.routes import router as health_router
 
 # Luna Link (Remote Agent Tunnel)
 from . import link_manager
@@ -133,6 +137,7 @@ if os.path.exists("dist"):
 # IMPORTANTE: A ordem importa! Rotas mais específicas devem ser registradas primeiro
 app.include_router(study_router)
 app.include_router(business_router)
+app.include_router(health_router)
 
 # =============================================================================
 # HEALTH & STATUS
@@ -286,9 +291,11 @@ async def delete_artifact_endpoint(artifact_id: str, user_id: Optional[str] = No
 @app.post("/chat/stream")
 @app.post("/agent/stream")
 async def agent_stream(request: ChatRequest):
-    # Use non-streaming native tool calling for Business Mode
+    # Use non-streaming native tool calling for Business/Health Mode
     if request.business_mode:
         return StreamingResponse(business_generator(request), media_type="text/event-stream")
+    if request.health_mode:
+        return StreamingResponse(health_generator(request), media_type="text/event-stream")
     return StreamingResponse(unified_generator(request), media_type="text/event-stream")
 
 @app.post("/agent/message")
@@ -299,7 +306,12 @@ async def agent_message(request: ChatRequest):
     """
     try:
         # Escolhe o gerador apropriado
-        generator = business_generator(request) if request.business_mode else unified_generator(request)
+        if request.business_mode:
+            generator = business_generator(request)
+        elif request.health_mode:
+            generator = health_generator(request)
+        else:
+            generator = unified_generator(request)
         
         # Coleta todos os eventos do stream
         events = []
@@ -711,6 +723,7 @@ async def ws_agent(websocket: WebSocket):
                 messages_raw = req_data.get("messages", [])
                 deep_thinking = req_data.get("deep_thinking", False)
                 business_mode = req_data.get("business_mode", False)
+                health_mode = req_data.get("health_mode", False)
                 active_artifact_id = req_data.get("active_artifact_id")
                 
                 # Convert to Message objects
@@ -728,6 +741,7 @@ async def ws_agent(websocket: WebSocket):
                     agent_mode=True, 
                     deep_thinking=deep_thinking,
                     business_mode=business_mode,
+                    health_mode=health_mode,
                     active_artifact_id=active_artifact_id,
                     user_id=req_data.get("user_id"),
                     user_name=req_data.get("user_name", "Usuário")
@@ -738,7 +752,16 @@ async def ws_agent(websocket: WebSocket):
                 if messages:
                     last = messages[-1]
                     print(f"[WS] Last message role={last.role}, has images={len(last.images) if last.images else 0}")
-                async for chunk in unified_generator(request):
+                
+                # Escolhe o gerador apropriado
+                if request.business_mode:
+                    generator = business_generator(request)
+                elif request.health_mode:
+                    generator = health_generator(request)
+                else:
+                    generator = unified_generator(request)
+                
+                async for chunk in generator:
                     chunk = chunk.strip()
                     if chunk.startswith("data: "):
                         data_str = chunk[6:]
@@ -936,7 +959,8 @@ async def ws_code_agent(websocket: WebSocket):
 
 # Servir assets estáticos do frontend
 # O middleware FrontendMiddleware cuida do SPA routing (servir index.html para rotas não-API)
-if os.path.exists("dist"):
+# Só montar assets se o diretório existir (modo produção após build)
+if os.path.exists("dist/assets"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
 # =============================================================================

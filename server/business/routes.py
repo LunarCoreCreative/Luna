@@ -52,41 +52,64 @@ class ClientCreate(BaseModel):
 # =============================================================================
 
 @router.get("/transactions")
-async def get_transactions(user_id: str = "local", limit: int = 50, period: Optional[str] = None):
+async def get_transactions(user_id: str = "local", limit: int = 500, period: Optional[str] = None):
     """Get all transactions for a user. If period is provided (YYYY-MM), filters by that period."""
     if period:
         from .periods import get_transactions_by_period
         transactions = get_transactions_by_period(user_id, period)
-        return {"transactions": transactions[:limit]}
+        # Quando há período, não limita (ou limita com valor alto) para garantir todas as transações do período
+        return {"transactions": transactions[:limit] if limit > 0 else transactions}
     
     transactions = load_transactions(user_id)
     # Sort by date descending and limit
     transactions.sort(key=lambda x: x.get("date", ""), reverse=True)
-    return {"transactions": transactions[:limit]}
+    return {"transactions": transactions[:limit] if limit > 0 else transactions}
 
 @router.post("/transactions")
 async def create_transaction(tx: TransactionCreate):
     """Create a new transaction."""
     if tx.type not in ["income", "expense", "investment"]:
         raise HTTPException(400, "Type must be 'income', 'expense' or 'investment'")
-    if tx.value <= 0:
-        raise HTTPException(400, "Value must be positive")
+    
+    # Valida e converte valor
+    try:
+        value = float(tx.value)
+        if value <= 0:
+            raise HTTPException(400, "Value must be positive")
+    except (ValueError, TypeError):
+        raise HTTPException(400, f"Invalid value: {tx.value}")
+    
+    # Valida descrição
+    if not tx.description or not tx.description.strip():
+        raise HTTPException(400, "Description is required")
     
     user_id = tx.user_id or "local"
     category = tx.category or "geral"
+    
     # Ensure tag exists for this category
     if category:
         get_or_create_tag(user_id, category)
     
-    new_tx = add_transaction(
-        user_id=user_id,
-        type=tx.type,
-        value=tx.value,
-        description=tx.description,
-        category=category,
-        date=tx.date
-    )
-    return {"success": True, "transaction": new_tx}
+    try:
+        new_tx = add_transaction(
+            user_id=user_id,
+            type=tx.type,
+            value=value,  # Já convertido para float
+            description=tx.description.strip(),
+            category=category,
+            date=tx.date
+        )
+        
+        # Garante que os valores numéricos estão corretos na resposta
+        new_tx["value"] = float(new_tx["value"])
+        
+        print(f"[BUSINESS-ROUTES] ✅ Transação criada: {new_tx['id']} - {new_tx['type']} - R$ {new_tx['value']:.2f}")
+        return {"success": True, "transaction": new_tx}
+    except Exception as e:
+        print(f"[BUSINESS-ROUTES] ❌ Erro ao criar transação: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error creating transaction: {str(e)}")
 
 @router.put("/transactions/{tx_id}")
 async def edit_transaction(tx_id: str, tx: TransactionUpdate):
@@ -99,11 +122,18 @@ async def edit_transaction(tx_id: str, tx: TransactionUpdate):
             raise HTTPException(400, "Type must be 'income', 'expense' or 'investment'")
         updates["type"] = tx.type
     if tx.value is not None:
-        if tx.value <= 0:
-            raise HTTPException(400, "Value must be positive")
-        updates["value"] = tx.value
+        # Valida e converte valor
+        try:
+            value = float(tx.value)
+            if value <= 0:
+                raise HTTPException(400, "Value must be positive")
+            updates["value"] = value
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"Invalid value: {tx.value}")
     if tx.description is not None:
-        updates["description"] = tx.description
+        if not tx.description.strip():
+            raise HTTPException(400, "Description cannot be empty")
+        updates["description"] = tx.description.strip()
     if tx.category is not None:
         updates["category"] = tx.category
         # Ensure tag exists for this category
@@ -112,11 +142,24 @@ async def edit_transaction(tx_id: str, tx: TransactionUpdate):
     if tx.date is not None:
         updates["date"] = tx.date
     
-    updated = update_transaction(user_id, tx_id, updates)
-    if not updated:
-        raise HTTPException(404, "Transaction not found")
-    
-    return {"success": True, "transaction": updated}
+    try:
+        updated = update_transaction(user_id, tx_id, updates)
+        if not updated:
+            raise HTTPException(404, "Transaction not found")
+        
+        # Garante que os valores numéricos estão corretos na resposta
+        if "value" in updated:
+            updated["value"] = float(updated["value"])
+        
+        print(f"[BUSINESS-ROUTES] ✅ Transação atualizada: {tx_id}")
+        return {"success": True, "transaction": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[BUSINESS-ROUTES] ❌ Erro ao atualizar transação: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error updating transaction: {str(e)}")
 
 @router.delete("/transactions/{tx_id}")
 async def remove_transaction(tx_id: str, user_id: str = "local"):

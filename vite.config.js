@@ -29,6 +29,51 @@ export default defineConfig({
     base: './',
     build: {
         outDir: 'dist',
-        emptyOutDir: true
+        emptyOutDir: true,
+        rollupOptions: {
+            output: {
+                manualChunks: (id) => {
+                    // Vendor chunks - separados para melhor cache
+                    if (id.includes('node_modules')) {
+                        if (id.includes('react') || id.includes('react-dom')) {
+                            return 'react-vendor';
+                        }
+                        if (id.includes('lucide-react')) {
+                            return 'ui-vendor';
+                        }
+                        if (id.includes('react-markdown') || id.includes('remark-gfm') || id.includes('react-syntax-highlighter')) {
+                            return 'markdown-vendor';
+                        }
+                        if (id.includes('firebase')) {
+                            return 'firebase-vendor';
+                        }
+                        // Outros vendors
+                        return 'vendor';
+                    }
+                    // Feature chunks - apenas componentes pesados
+                    if (id.includes('/components/ide/')) {
+                        return 'ide';
+                    }
+                    if (id.includes('/components/Canvas')) {
+                        return 'canvas';
+                    }
+                }
+            }
+        },
+        // Otimizações de build
+        minify: 'terser',
+        terserOptions: {
+            compress: {
+                drop_console: false, // Mantém console.log para debug
+                drop_debugger: true,
+                pure_funcs: ['console.debug', 'console.trace']
+            }
+        },
+        // Chunk size warnings
+        chunkSizeWarningLimit: 1000
+    },
+    // Otimizações de desenvolvimento
+    optimizeDeps: {
+        include: ['react', 'react-dom', 'lucide-react']
     }
 })

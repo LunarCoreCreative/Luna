@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, memo } from "react";
 import {
     MessageSquare,
     Plus,
@@ -37,16 +37,22 @@ import {
     XCircle,
     BookOpen,
     LogOut,
-    Building2
+    Building2,
+    Heart
 } from "lucide-react";
-import { Canvas } from "./components/Canvas";
+// Importações normais - tudo carregado diretamente
 import { StudyMode } from "./components/StudyMode";
 import { BusinessMode } from "./components/business/BusinessMode";
+import { SettingsPage } from "./pages/SettingsPage";
+import Canvas from "./components/Canvas";
+import IDEView from "./components/ide/IDEView";
+import { HealthMode } from "./components/health";
+
+// Keep lightweight components as regular imports
 import { Markdown } from "./components/markdown/Markdown";
 import { TypingIndicator } from "./components/chat/TypingIndicator";
 import { MessageList } from "./components/chat/MessageList";
 import { ChatInput } from "./components/chat/ChatInput";
-import IDEView from "./components/ide/IDEView";
 
 import { useChat } from "./hooks/useChat";
 import { useArtifacts } from "./hooks/useArtifacts";
@@ -55,13 +61,14 @@ import { generateArtifactSummary, filterSummaryText } from "./utils/artifactUtil
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ModalProvider } from "./contexts/ModalContext";
 import { LoginPage } from "./pages/LoginPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { SidebarProfile } from "./components/sidebar/SidebarProfile";
 import { parseThought, getGreeting } from "./utils/messageUtils";
 import { API_CONFIG } from "./config/api";
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ChangelogModal } from "./components/ChangelogModal";
 import { parseChangelogVersion, getCurrentVersion } from "./utils/changelogParser";
+import { LoadingFeedback, LoadingOverlay, LoadingToast } from "./components/LoadingFeedback";
+import { usePreloader } from "./hooks/usePreloader";
 
 const MEMORY_SERVER = API_CONFIG.BASE_URL;
 
@@ -152,7 +159,7 @@ const filterToolCallLeaks = (text) => {
         return result;
     };
     
-    // List of known tool names (including business tools)
+    // List of known tool names (including business and health tools)
     const toolNames = [
         "edit_artifact", "create_artifact", "get_artifact", "web_search", "run_command", "add_knowledge", "think",
         // Business tools
@@ -161,6 +168,9 @@ const filterToolCallLeaks = (text) => {
         "add_client", "get_recurring_items",
         // Overdue bills tools
         "add_overdue_bill", "list_overdue_bills", "pay_overdue_bill", "get_overdue_summary",
+        // Health tools
+        "add_meal", "edit_meal", "delete_meal", "list_meals",
+        "get_nutrition_summary", "update_goals", "get_goals",
         // Common patterns that might leak
         "get_expenses_by_category", "get_expenses", "get_summary", "search_clients"
     ];
@@ -190,14 +200,18 @@ const filterToolCallLeaks = (text) => {
 
 
 
-// Energy Components with Timer Support
-const EnergyDisplay = () => {
+// Energy Components with Timer Support - Memoized for performance
+const EnergyDisplay = memo(() => {
     const { energy, plan } = useAuth();
     const [timeLeft, setTimeLeft] = useState("");
 
+    // Memoize computed values
+    const isInfinite = useMemo(() => ['nexus', 'eclipse'].includes(plan), [plan]);
+    const isEmpty = useMemo(() => energy?.current <= 0, [energy?.current]);
+
     // Hook para atualizar o timer a cada minuto se estiver em cooldown
     useEffect(() => {
-        if (energy.nextRefill && energy.current <= 0) {
+        if (energy?.nextRefill && energy.current <= 0) {
             const updateTimer = () => {
                 const diff = Math.max(0, energy.nextRefill - Date.now());
                 if (diff <= 0) {
@@ -213,12 +227,9 @@ const EnergyDisplay = () => {
 
             return () => clearInterval(interval);
         }
-    }, [energy.nextRefill, energy.current]);
+    }, [energy?.nextRefill, energy?.current]);
 
     if (!energy) return null;
-
-    const isInfinite = ['nexus', 'eclipse'].includes(plan);
-    const isEmpty = energy.current <= 0;
 
     return (
         <div className="fixed top-16 right-4 z-20 text-white animate-in slide-in-from-top-4 fade-in duration-500 select-none group">
@@ -284,10 +295,13 @@ const EnergyDisplay = () => {
             </div>
         </div>
     );
-};
+});
 
 
 function App() {
+    // Pré-carregamento em segundo plano
+    const preloader = usePreloader();
+
     // Boot state
     const [appState, setAppState] = useState("BOOTING");
     const [bootStatus, setBootStatus] = useState("Conectando ao núcleo...");
@@ -312,11 +326,16 @@ function App() {
     const [studyModeOpen, setStudyModeOpen] = useState(false);
     const [ideMode, setIdeMode] = useState(false);
     const [businessModeOpen, setBusinessModeOpen] = useState(false);
+    const [healthModeOpen, setHealthModeOpen] = useState(false);
     const [settingsTab, setSettingsTab] = useState("general");
     const [learningNotification, setLearningNotification] = useState(null);
     const [changelogModalOpen, setChangelogModalOpen] = useState(false);
     const [changelogData, setChangelogData] = useState(null);
     const [currentAppVersion, setCurrentAppVersion] = useState(null);
+    
+    // Loading states com feedbacks
+    const [loadingState, setLoadingState] = useState(null); // { message, subMessage, type }
+    const [operationFeedback, setOperationFeedback] = useState(null); // Feedback durante operações
     const auth = useAuth();
     const { user, profile } = auth;
 
@@ -426,11 +445,8 @@ function App() {
     useEffect(() => {
         // 2. Apply Theme
         document.documentElement.classList.remove(
-            "light", "dark", "glass", "neon", "midnight",
-            "light-blue", "light-green", "light-pink", "warm-light", 
-            "nord-light", "paper",
-            "premium-glass", "premium-dark", "premium-purple", 
-            "premium-gold", "premium-light", "premium-cyan"
+            "dark", "dark-ocean", "dark-forest",
+            "light", "light-sky", "light-mint"
         );
         document.documentElement.classList.add(theme);
         localStorage.setItem("luna-theme", theme);
@@ -479,15 +495,22 @@ function App() {
                 
                 if (d.status === "ready") {
                     setBootStatus("Carregando memórias...");
+                    setLoadingState({ message: "Carregando memórias", subMessage: "Preparando sua experiência", type: "loading" });
                     await chat.loadChats();
-                    setAppState("READY");
+                    setLoadingState({ message: "Tudo pronto!", subMessage: "Bem-vindo de volta", type: "success" });
+                    setTimeout(() => {
+                        setLoadingState(null);
+                        setAppState("READY");
+                    }, 500);
                 } else {
                     retries++;
                     setBootStatus(`Aquecendo motores neurais... (${retries})`);
+                    setLoadingState({ message: "Aquecendo motores neurais", subMessage: `Tentativa ${retries}/${maxRetries}`, type: "processing" });
                     if (retries < maxRetries) {
                         setTimeout(checkHealth, 1000);
                     } else {
                         setBootStatus(`Servidor não está pronto. Tentando novamente...`);
+                        setLoadingState({ message: "Servidor não está pronto", subMessage: "Tentando novamente...", type: "loading" });
                         retries = 0;
                         setTimeout(checkHealth, 2000);
                     }
@@ -496,10 +519,12 @@ function App() {
                 retries++;
                 console.error(`[BOOT] Erro na conexão (tentativa ${retries}):`, e);
                 setBootStatus(`Tentando conexão com servidor... (${retries}/${maxRetries})`);
+                setLoadingState({ message: "Tentando conexão", subMessage: `Tentativa ${retries}/${maxRetries}`, type: "loading" });
                 
                 // Após muitas tentativas, mostra erro mas continua tentando
                 if (retries >= maxRetries) {
                     setBootStatus(`Não foi possível conectar ao servidor em ${MEMORY_SERVER}. Verifique se o servidor Python está rodando.`);
+                    setLoadingState({ message: "Servidor não encontrado", subMessage: "Verifique se o servidor está rodando", type: "loading" });
                     retries = 0; // Reinicia contador
                 }
                 
@@ -518,35 +543,78 @@ function App() {
     useEffect(() => {
         const checkVersionAndShowChangelog = async () => {
             try {
+                console.log('[CHANGELOG] Iniciando verificação de versão...');
+                
                 // Obtém a versão atual do package.json
                 const version = await getCurrentVersion();
+                console.log('[CHANGELOG] Versão atual detectada:', version);
                 setCurrentAppVersion(version);
 
                 // Verifica a última versão vista pelo usuário
                 const lastSeenVersion = localStorage.getItem('luna-last-seen-version');
+                console.log('[CHANGELOG] Última versão vista:', lastSeenVersion);
                 
-                // Se a versão atual é diferente da última vista, mostra o changelog
-                if (lastSeenVersion && lastSeenVersion !== version) {
+                // Sempre tenta carregar o changelog para a versão atual
+                // Se a versão for diferente da última vista OU se não há versão salva, mostra
+                const shouldShow = !lastSeenVersion || lastSeenVersion !== version;
+                
+                if (shouldShow && version) {
+                    console.log('[CHANGELOG] Verificando changelog para versão:', version);
+                    
                     // Carrega o CHANGELOG.md
                     try {
                         const response = await fetch('/CHANGELOG.md');
+                        console.log('[CHANGELOG] Resposta do fetch:', response.status, response.statusText);
+                        
                         if (response.ok) {
                             const changelogContent = await response.text();
-                            const parsedData = parseChangelogVersion(changelogContent, version);
+                            console.log('[CHANGELOG] Conteúdo carregado, tamanho:', changelogContent.length);
                             
-                            if (parsedData) {
+                            const parsedData = parseChangelogVersion(changelogContent, version);
+                            console.log('[CHANGELOG] Dados parseados:', parsedData);
+                            
+                            if (parsedData && (parsedData.features?.length > 0 || parsedData.improvements?.length > 0 || parsedData.bugfixes?.length > 0 || parsedData.raw)) {
                                 setChangelogData(parsedData);
                                 setChangelogModalOpen(true);
-                                // Marca a versão como vista
+                                console.log('[CHANGELOG] Modal será exibido!');
+                                // NÃO salva a versão aqui - será salva quando o modal for fechado
+                            } else {
+                                console.warn('[CHANGELOG] Não foi possível parsear os dados da versão', version, 'ou changelog vazio');
+                                // Mesmo sem changelog, salva a versão para não tentar novamente
+                                if (!lastSeenVersion) {
+                                    localStorage.setItem('luna-last-seen-version', version);
+                                }
+                            }
+                        } else {
+                            console.error('[CHANGELOG] Erro ao carregar CHANGELOG.md:', response.status, response.statusText);
+                            // Tenta caminho alternativo
+                            try {
+                                const altResponse = await fetch('./CHANGELOG.md');
+                                if (altResponse.ok) {
+                                    const changelogContent = await altResponse.text();
+                                    const parsedData = parseChangelogVersion(changelogContent, version);
+                                    if (parsedData && (parsedData.features?.length > 0 || parsedData.improvements?.length > 0 || parsedData.bugfixes?.length > 0)) {
+                                        setChangelogData(parsedData);
+                                        setChangelogModalOpen(true);
+                                    }
+                                }
+                            } catch (altError) {
+                                console.error('[CHANGELOG] Erro no caminho alternativo:', altError);
+                            }
+                            // Se não conseguiu carregar, salva a versão para não tentar infinitamente
+                            if (!lastSeenVersion) {
                                 localStorage.setItem('luna-last-seen-version', version);
                             }
                         }
                     } catch (error) {
                         console.error('[CHANGELOG] Erro ao carregar CHANGELOG.md:', error);
+                        // Se não conseguiu carregar, salva a versão para não tentar infinitamente
+                        if (!lastSeenVersion) {
+                            localStorage.setItem('luna-last-seen-version', version);
+                        }
                     }
-                } else if (!lastSeenVersion) {
-                    // Primeira vez que o app é aberto, salva a versão atual
-                    localStorage.setItem('luna-last-seen-version', version);
+                } else {
+                    console.log('[CHANGELOG] Versão já vista ou não há versão, não exibindo modal. Last seen:', lastSeenVersion, 'Current:', version);
                 }
             } catch (error) {
                 console.error('[CHANGELOG] Erro ao verificar versão:', error);
@@ -555,7 +623,10 @@ function App() {
 
         // Aguarda o app estar pronto antes de verificar
         if (appState === "READY") {
-            checkVersionAndShowChangelog();
+            // Pequeno delay para garantir que tudo está carregado
+            setTimeout(() => {
+                checkVersionAndShowChangelog();
+            }, 1000);
         }
     }, [appState]);
 
@@ -593,53 +664,30 @@ function App() {
         }
     }, [homeInput]);
 
-    const startNewChat = () => {
+    // Memoize artifact messages for sidebar
+    const artifactMessages = useMemo(() => {
+        return chat.messages.filter(m => m.artifact);
+    }, [chat.messages]);
+
+    const startNewChat = useCallback(() => {
         if (chat.isStreamingRef.current) return;
         chat.startNewChat();
         setStreamBuffer(""); // Limpa buffer para compatibilidade
-    };
+    }, [chat]);
 
-    const loadChat = async (id) => {
+    const loadChat = useCallback(async (id) => {
         if (chat.isStreamingRef.current) return;
         await chat.loadChat(id);
         setStreamBuffer(""); // Limpa buffer para compatibilidade
-    };
+    }, [chat]);
 
-
-    const regenerateResponse = async (messageIndex) => {
-        // Find the last user message before this assistant message
-        let lastUserMsgIndex = -1;
-        for (let i = messageIndex - 1; i >= 0; i--) {
-            if (chat.messages[i].role === "user") {
-                lastUserMsgIndex = i;
-                break;
-            }
-        }
-
-        if (lastUserMsgIndex === -1) return;
-
-        // Remove all messages AFTER the user message (keep user message)
-        const newMessages = chat.messages.slice(0, lastUserMsgIndex + 1);
-
-        chat.setMessages(newMessages);
-
-        // Prepara nova mensagem e usa sendMessage para reutilizar a lógica
-        const lastUserMsg = newMessages[newMessages.length - 1];
-        // Atualiza o input home com a última mensagem do usuário para reenviar
-        setHomeInput(lastUserMsg.content || "");
-        // Usa sendMessage com o texto da última mensagem do usuário
-        setTimeout(() => {
-            sendMessage(lastUserMsg.content);
-        }, 100);
-    };
-
-    const stopGeneration = () => {
+    const stopGeneration = useCallback(() => {
         // Reset streaming state (não há mais WebSocket para fechar)
         chat.isStreamingRef.current = false;
         setIsStreaming(false);
-    };
+    }, [chat]);
 
-    const sendMessage = async (textInput = null) => {
+    const sendMessage = useCallback(async (textInput = null) => {
         // Prevent race conditions / double submits synchronously
         if (chat.isStreamingRef.current) return;
         // Determine text source: argument (from ChatInput/Suggestions) or homeInput state
@@ -650,6 +698,8 @@ function App() {
         const hasEnergy = (!auth.isAuthenticated) || (auth.plan === 'nexus') || (auth.energy.current > 0);
 
         const handleSend = async (text, attachments = [], documentAttachments = []) => {
+            // Feedback inicial
+            setOperationFeedback({ message: "Analisando sua mensagem", type: "analyzing" });
             if (!text.trim() && attachments.length === 0 && documentAttachments.length === 0) return;
 
             // Verificar Energia antes de enviar
@@ -722,6 +772,9 @@ function App() {
             }
 
             try {
+                // Feedback: Processando
+                setOperationFeedback({ message: "Processando sua solicitação", subMessage: "Aguarde um momento...", type: "processing" });
+                
                 // Usa endpoint não-streaming
                 const response = await fetch(`${MEMORY_SERVER}/agent/message`, {
                     method: "POST",
@@ -740,6 +793,9 @@ function App() {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
+                // Feedback: Analisando resposta
+                setOperationFeedback({ message: "Analisando resposta", subMessage: "Preparando conteúdo...", type: "analyzing" });
+                
                 const data = await response.json();
 
                 if (!data.success) {
@@ -863,6 +919,7 @@ function App() {
                 setToolStatus(null);
                 setActiveTool(null);
                 activeToolRef.current = null;
+                setOperationFeedback(null); // Limpa feedback
 
                 chat.isStreamingRef.current = false;
                 setIsStreaming(false);
@@ -873,6 +930,7 @@ function App() {
                 console.error("[SEND] Erro:", e);
                 chat.setMessages(prev => [...prev, { role: "assistant", content: `Erro: ${e.message}` }]);
                 setToolStatus({ message: "Erro na conexão", type: 'error' });
+                setOperationFeedback(null); // Limpa feedback em caso de erro
                 setTimeout(() => setToolStatus(null), 3000);
 
                 chat.isStreamingRef.current = false;
@@ -882,7 +940,34 @@ function App() {
 
         // Call the new handleSend function with current inputs
         await handleSend(text, attachmentsHook.attachments, attachmentsHook.documentAttachments);
-    };
+    }, [chat, homeInput, attachmentsHook, auth, isThinkingMode, artifacts, user, profile, setToolStatus, setActiveTool, setStreamThought, setHomeInput, setStreamBuffer, setIsStreaming]);
+
+    const regenerateResponse = useCallback(async (messageIndex) => {
+        // Find the last user message before this assistant message
+        let lastUserMsgIndex = -1;
+        for (let i = messageIndex - 1; i >= 0; i--) {
+            if (chat.messages[i].role === "user") {
+                lastUserMsgIndex = i;
+                break;
+            }
+        }
+
+        if (lastUserMsgIndex === -1) return;
+
+        // Remove all messages AFTER the user message (keep user message)
+        const newMessages = chat.messages.slice(0, lastUserMsgIndex + 1);
+
+        chat.setMessages(newMessages);
+
+        // Prepara nova mensagem e usa sendMessage para reutilizar a lógica
+        const lastUserMsg = newMessages[newMessages.length - 1];
+        // Atualiza o input home com a última mensagem do usuário para reenviar
+        setHomeInput(lastUserMsg.content || "");
+        // Usa sendMessage com o texto da última mensagem do usuário
+        setTimeout(() => {
+            sendMessage(lastUserMsg.content);
+        }, 100);
+    }, [chat.messages, chat.setMessages, sendMessage, setHomeInput]);
 
     const handleHomeKeyDown = (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -901,10 +986,19 @@ function App() {
                         <Bot size={96} className="text-violet-500 relative z-10 drop-shadow-[0_0_30px_rgba(139,92,246,0.5)]" />
                     </div>
                     <h1 className="text-3xl font-bold text-white tracking-tight">Luna AI</h1>
-                    <div className="flex items-center gap-3 text-blue-300/80 bg-blue-900/20 px-4 py-2 rounded-full border border-blue-500/10">
-                        <Loader2 size={16} className="animate-spin" />
-                        <span className="text-sm font-medium">{bootStatus}</span>
-                    </div>
+                    {loadingState ? (
+                        <LoadingFeedback 
+                            message={loadingState.message} 
+                            subMessage={loadingState.subMessage}
+                            type={loadingState.type}
+                            size="default"
+                        />
+                    ) : (
+                        <div className="flex items-center gap-3 text-blue-300/80 bg-blue-900/20 px-4 py-2 rounded-full border border-blue-500/10">
+                            <Loader2 size={16} className="animate-spin" />
+                            <span className="text-sm font-medium">{bootStatus}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -918,13 +1012,26 @@ function App() {
             {/* Sidebar Backdrop - Click to close */}
             {sidebarOpen && (
                 <div
-                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[150] transition-opacity animate-in fade-in duration-300"
+                    className="fixed inset-0 bg-black/40 z-[150] transition-opacity duration-200"
+                    style={{ 
+                        opacity: sidebarOpen ? 1 : 0,
+                        willChange: 'opacity',
+                        pointerEvents: sidebarOpen ? 'auto' : 'none'
+                    }}
                     onClick={() => setSidebarOpen(false)}
                 />
             )}
 
-            {/* Sidebar (Overlay/Slide) */}
-            <div className={`fixed inset-y-0 left-0 z-[160] w-[280px] bg-[var(--bg-glass-solid)] backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+            {/* Sidebar (Overlay/Slide) - Optimized */}
+            <div 
+                className={`fixed inset-y-0 left-0 z-[160] w-[280px] bg-[var(--bg-glass-solid)] border-r border-white/10 ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
+                style={{
+                    willChange: 'transform',
+                    transform: sidebarOpen ? 'translate3d(0, 0, 0)' : 'translate3d(-100%, 0, 0)',
+                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    contain: 'layout style paint'
+                }}
+            >
                 <div className="p-4 pt-12 flex flex-col h-full">
                     <button onClick={startNewChat} className="flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 mb-3">
                         <Plus size={18} />
@@ -932,14 +1039,14 @@ function App() {
                     </button>
 
                     {/* Artifacts Quick Access */}
-                    {chat.messages.filter(m => m.artifact).length > 0 && (
+                    {artifactMessages.length > 0 && (
                         <div className="mb-4">
                             <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
                                 <PanelRight size={12} />
                                 Artefatos
                             </div>
                             <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                                {chat.messages.filter(m => m.artifact).map((m, idx) => (
+                                {artifactMessages.map((m, idx) => (
                                     <button
                                         key={m.artifact.id || idx}
                                         onClick={() => {
@@ -967,7 +1074,7 @@ function App() {
                     </button>
 
                     <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 px-2">Recentes</div>
-                    <div className="flex-1 overflow-y-auto space-y-1 pr-2">
+                    <div className="flex-1 overflow-y-auto space-y-1 pr-2 custom-scrollbar" style={{ contain: 'layout style paint' }}>
                         {chat.chats.map(c => (
                             <div key={c.id} className="relative group">
                                 <div
@@ -988,9 +1095,17 @@ function App() {
                                     </button>
                                 </div>
 
-                                {/* Dropdown Menu */}
+                                {/* Dropdown Menu - Optimized */}
                                 {activeMenu === c.id && (
-                                    <div className="absolute right-2 top-10 w-32 bg-[#161b22] border border-white/10 rounded-lg shadow-xl z-50 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                    <div 
+                                        className="absolute right-2 top-10 w-32 bg-[#161b22] border border-white/10 rounded-lg shadow-xl z-50 text-sm overflow-hidden"
+                                        style={{
+                                            willChange: 'transform, opacity',
+                                            transform: 'translateZ(0)',
+                                            animation: 'fadeInUp 0.15s ease-out',
+                                            contain: 'layout style paint'
+                                        }}
+                                    >
                                         <button
                                             onClick={(e) => { chat.renameChat(e, c.id, c.title); setActiveMenu(null); }}
                                             className="w-full text-left px-4 py-2 hover:bg-white/5 text-gray-300 hover:text-white flex items-center gap-2"
@@ -1014,10 +1129,7 @@ function App() {
                 </div>
             </div>
 
-            {/* Overlay to close sidebar */}
-            {sidebarOpen && (
-                <div className="fixed inset-0 bg-black/60 z-30 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-            )}
+            {/* Overlay removed - already handled in Sidebar Backdrop above */}
 
             {/* Hidden File Input */}
             <input
@@ -1030,7 +1142,7 @@ function App() {
             />
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col h-full relative z-10">
+            <main className={`flex-1 flex flex-col h-full relative z-10 ${businessModeOpen || healthModeOpen ? 'hidden' : ''}`}>
                 {/* Header */}
                 {!ideMode && chat.view !== "SETTINGS" && (
                     <header className="absolute top-0 left-0 w-full p-4 flex items-center justify-between z-20" style={{ WebkitAppRegion: "drag" }}>
@@ -1070,11 +1182,26 @@ function App() {
 
                             {/* Business Mode Toggle */}
                             <button
-                                onClick={() => setBusinessModeOpen(true)}
+                                onClick={() => {
+                                    setBusinessModeOpen(true);
+                                    setHealthModeOpen(false); // Fecha Health Mode se estiver aberto
+                                }}
                                 className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-emerald-400"
                                 title="Luna Gestão"
                             >
                                 <Building2 size={20} />
+                            </button>
+
+                            {/* Health Mode Toggle */}
+                            <button
+                                onClick={() => {
+                                    setHealthModeOpen(true);
+                                    setBusinessModeOpen(false); // Fecha Business Mode se estiver aberto
+                                }}
+                                className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-green-400"
+                                title="Luna Health"
+                            >
+                                <Heart size={20} />
                             </button>
 
                             {/* Canvas Toggle */}
@@ -1368,30 +1495,54 @@ function App() {
             </main>
 
             {/* Canvas Panel */}
-            <Canvas
-                artifact={artifacts.activeArtifact}
-                artifacts={chat.messages.filter(m => m.artifact).map(m => m.artifact)}
-                onSelectArtifact={(art) => {
-                    artifacts.setActiveArtifact(art);
-                }}
-                isOpen={artifacts.canvasOpen}
-                onClose={() => artifacts.setCanvasOpen(false)}
-                onSave={(content) => artifacts.handleSaveArtifact(content, chat.messages, chat.setMessages)}
-                onDelete={(id) => artifacts.handleDeleteArtifact(id, chat.messages, chat.setMessages)}
-            />
+            {artifacts.canvasOpen && (
+                <Canvas
+                    artifact={artifacts.activeArtifact}
+                    artifacts={chat.messages.filter(m => m.artifact).map(m => m.artifact)}
+                    onSelectArtifact={(art) => {
+                        artifacts.setActiveArtifact(art);
+                    }}
+                    isOpen={artifacts.canvasOpen}
+                    onClose={() => artifacts.setCanvasOpen(false)}
+                    onSave={(content) => artifacts.handleSaveArtifact(content, chat.messages, chat.setMessages)}
+                    onDelete={(id) => artifacts.handleDeleteArtifact(id, chat.messages, chat.setMessages)}
+                />
+            )}
 
             {/* Study Mode Modal */}
-            <StudyMode
-                isOpen={studyModeOpen}
-                onClose={() => setStudyModeOpen(false)}
-            />
+            {studyModeOpen && (
+                <StudyMode
+                    isOpen={studyModeOpen}
+                    onClose={() => setStudyModeOpen(false)}
+                />
+            )}
 
             {/* Business Mode */}
-            <BusinessMode
-                isOpen={businessModeOpen}
-                onClose={() => setBusinessModeOpen(false)}
-                userId={user?.uid}
-            />
+            {businessModeOpen && (
+                <BusinessMode
+                    isOpen={businessModeOpen}
+                    onClose={() => setBusinessModeOpen(false)}
+                    userId={user?.uid}
+                />
+            )}
+
+            {/* Health Mode */}
+            {healthModeOpen && (
+                <HealthMode
+                    isOpen={healthModeOpen}
+                    onClose={() => setHealthModeOpen(false)}
+                    userId={user?.uid}
+                />
+            )}
+
+            {/* Operation Feedback Toast */}
+            {operationFeedback && (
+                <LoadingToast 
+                    message={operationFeedback.message}
+                    type={operationFeedback.type}
+                    onClose={() => setOperationFeedback(null)}
+                />
+            )}
 
             {/* Learning Notification Toast */}
             {learningNotification && (
@@ -1414,8 +1565,71 @@ function App() {
                     isOpen={changelogModalOpen}
                     version={currentAppVersion}
                     changelogData={changelogData}
-                    onClose={() => setChangelogModalOpen(false)}
+                    onClose={() => {
+                        console.log('[CHANGELOG] Modal fechado');
+                        setChangelogModalOpen(false);
+                        // Garante que a versão seja salva mesmo se fechar sem usar handleClose
+                        if (currentAppVersion) {
+                            localStorage.setItem('luna-last-seen-version', currentAppVersion);
+                            console.log('[CHANGELOG] Versão salva no localStorage:', currentAppVersion);
+                        }
+                    }}
                 />
+            )}
+
+            {/* Pré-carregamento em segundo plano - Feedback visual */}
+            {preloader.isPreloading && preloader.loadingProgress.current && (
+                <div className="fixed bottom-4 left-4 z-50 animate-in slide-in-from-left-5 fade-in duration-300">
+                    <div className="glass-panel px-4 py-3 rounded-xl border border-blue-500/30 shadow-lg shadow-blue-500/10 flex items-center gap-3 max-w-sm">
+                        <Loader2 size={16} className="text-blue-400 animate-spin" />
+                        <div className="flex-1 min-w-0">
+                            <div className="text-xs text-blue-400 font-medium mb-0.5">Carregando componentes</div>
+                            <div className="text-sm text-gray-200 truncate">{preloader.loadingProgress.current}</div>
+                            {preloader.progress > 0 && (
+                                <div className="mt-1 w-full bg-white/10 rounded-full h-1">
+                                    <div 
+                                        className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                                        style={{ width: `${preloader.progress}%` }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Debug: Botão para testar o modal (apenas em dev) */}
+            {import.meta.env.DEV && (
+                <button
+                    onClick={() => {
+                        console.log('[CHANGELOG] Teste manual do modal');
+                        // Limpa a versão vista para forçar o modal
+                        localStorage.removeItem('luna-last-seen-version');
+                        // Recarrega a verificação
+                        const checkVersion = async () => {
+                            const version = await getCurrentVersion();
+                            setCurrentAppVersion(version);
+                            try {
+                                const response = await fetch('/CHANGELOG.md');
+                                if (response.ok) {
+                                    const content = await response.text();
+                                    const parsed = parseChangelogVersion(content, version);
+                                    if (parsed) {
+                                        setChangelogData(parsed);
+                                        setChangelogModalOpen(true);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('[CHANGELOG] Erro no teste:', e);
+                            }
+                        };
+                        checkVersion();
+                    }}
+                    className="fixed bottom-4 left-4 z-50 px-3 py-2 bg-red-500 text-white text-xs rounded"
+                    style={{ display: 'none' }} // Escondido por padrão, pode remover o style para ver
+                >
+                    Testar Changelog
+                </button>
             )}
 
         </div >

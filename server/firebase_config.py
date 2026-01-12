@@ -5,8 +5,12 @@ Configuração do Firebase Admin SDK para autenticação e Firestore.
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # INICIALIZAÇÃO DO FIREBASE
@@ -422,29 +426,74 @@ def get_user_transactions(uid: str, limit: int = 100) -> list:
     Args:
         uid: Firebase UID do usuário
         limit: Limite de transações a retornar
-        
+    
     Returns:
         Lista de transações ordenadas por data (mais recente primeiro)
     """
     db = get_firestore()
     if db is None:
+        print(f"[FIREBASE-BIZ] ⚠️ Firestore não disponível")
         return []
     
     try:
         tx_ref = db.collection("users").document(uid).collection("transactions")
-        query = tx_ref.order_by("date", direction="DESCENDING").limit(limit)
         
-        transactions = []
-        for doc in query.stream():
-            tx = doc.to_dict()
-            tx["id"] = doc.id
-            transactions.append(tx)
+        # Verifica se a coleção existe e tem documentos
+        collection_ref = tx_ref
+        count_query = collection_ref.count()
+        try:
+            count_result = count_query.get()
+            total_count = list(count_result)[0][0].value if count_result else 0
+            print(f"[FIREBASE-BIZ] 📊 Total de transações na coleção: {total_count}")
+        except Exception as count_err:
+            print(f"[FIREBASE-BIZ] ⚠️ Não foi possível contar transações: {count_err}")
         
-        print(f"[FIREBASE-BIZ] Carregadas {len(transactions)} transações para {uid}")
+        # Se o limite for muito alto, carrega em batches
+        if limit > 500:
+            transactions = []
+            query = tx_ref.order_by("date", direction="DESCENDING")
+            
+            # Firestore tem limite de 500 por query, então fazemos múltiplas queries se necessário
+            last_doc = None
+            batch_size = 500
+            
+            while len(transactions) < limit:
+                current_query = query.limit(batch_size)
+                if last_doc:
+                    current_query = current_query.start_after(last_doc)
+                
+                batch = list(current_query.stream())
+                if not batch:
+                    break
+                
+                for doc in batch:
+                    tx = doc.to_dict()
+                    tx["id"] = doc.id
+                    transactions.append(tx)
+                
+                if len(batch) < batch_size:
+                    break
+                
+                last_doc = batch[-1]
+                
+                if len(transactions) >= limit:
+                    break
+        else:
+            # Query simples para limites menores
+            query = tx_ref.order_by("date", direction="DESCENDING").limit(limit)
+            transactions = []
+            for doc in query.stream():
+                tx = doc.to_dict()
+                tx["id"] = doc.id
+                transactions.append(tx)
+        
+        print(f"[FIREBASE-BIZ] ✅ Carregadas {len(transactions)} transações para {uid} (limite solicitado: {limit})")
         return transactions
         
     except Exception as e:
-        print(f"[FIREBASE-BIZ] Erro ao listar transações: {e}")
+        print(f"[FIREBASE-BIZ] ❌ Erro ao listar transações: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -507,17 +556,387 @@ def get_business_summary_from_firebase(uid: str) -> Dict:
     Calcula o resumo financeiro a partir das transações no Firebase.
     
     Returns:
-        Dict com balance, income, expenses, transaction_count
+        Dict com balance, income, expenses, invested, net_worth, transaction_count
     """
-    transactions = get_user_transactions(uid, limit=1000)  # Get all for summary
+    transactions = get_user_transactions(uid, limit=2000)  # Get all for summary
     
-    income = sum(tx.get("value", 0) for tx in transactions if tx.get("type") == "income")
-    expenses = sum(tx.get("value", 0) for tx in transactions if tx.get("type") == "expense")
+    income = 0.0
+    expenses = 0.0
+    invested = 0.0
+    
+    for tx in transactions:
+        try:
+            tx_value = float(tx.get("value", 0))
+            tx_type = tx.get("type", "").lower()
+            
+            if tx_type == "income":
+                income += tx_value
+            elif tx_type == "expense":
+                expenses += tx_value
+            elif tx_type == "investment":
+                invested += tx_value
+        except (ValueError, TypeError):
+            continue
+    
+    balance = income - expenses - invested
+    net_worth = balance + invested
     
     return {
-        "balance": income - expenses,
-        "income": income,
-        "expenses": expenses,
+        "balance": round(balance, 2),
+        "income": round(income, 2),
+        "expenses": round(expenses, 2),
+        "invested": round(invested, 2),
+        "net_worth": round(net_worth, 2),
         "transaction_count": len(transactions)
     }
 
+
+# =============================================================================
+# FIRESTORE: HEALTH DATA (Meals, Goals, Weights)
+# =============================================================================
+
+def save_meal_to_firebase(uid: str, meal_data: Dict) -> bool:
+    """
+    Salva uma refeição no Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        meal_data: Dados da refeição (deve incluir 'id')
+        
+    Returns:
+        True se salvo com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        meal_id = meal_data.get("id")
+        if not meal_id:
+            import uuid
+            meal_id = str(uuid.uuid4())
+            meal_data["id"] = meal_id
+        
+        # Adiciona timestamp de sync
+        meal_data["synced_at"] = datetime.utcnow().isoformat()
+        
+        # Salva em /users/{uid}/meals/{meal_id}
+        db.collection("users").document(uid).collection("meals").document(meal_id).set(meal_data, merge=True)
+        logger.info(f"[FIREBASE-HEALTH] ✅ Refeição salva: {meal_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao salvar refeição: {e}")
+        return False
+
+
+def get_user_meals_from_firebase(uid: str, limit: Optional[int] = None, date: Optional[str] = None) -> list:
+    """
+    Lista as refeições de um usuário do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        limit: Limite de refeições a retornar
+        date: Filtrar por data (YYYY-MM-DD)
+        
+    Returns:
+        Lista de refeições ordenadas por data (mais recente primeiro)
+    """
+    db = get_firestore()
+    if db is None:
+        return []
+    
+    try:
+        meals_ref = db.collection("users").document(uid).collection("meals")
+        
+        # Ordena por data (mais recente primeiro)
+        query = meals_ref.order_by("date", direction="DESCENDING")
+        
+        # Aplica filtro de data se fornecido
+        if date:
+            # Firestore precisa de range queries para datas
+            # Vamos filtrar no código após buscar
+            pass
+        
+        if limit:
+            query = query.limit(limit)
+        
+        meals = []
+        for doc in query.stream():
+            meal = doc.to_dict()
+            meal["id"] = doc.id
+            
+            # Filtro por data se fornecido
+            if date:
+                meal_date = meal.get("date", "")
+                if not meal_date.startswith(date):
+                    continue
+            
+            meals.append(meal)
+        
+        logger.info(f"[FIREBASE-HEALTH] Carregadas {len(meals)} refeições para {uid}")
+        return meals
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao listar refeições: {e}")
+        return []
+
+
+def update_meal_in_firebase(uid: str, meal_id: str, updates: Dict) -> bool:
+    """
+    Atualiza uma refeição no Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        meal_id: ID da refeição
+        updates: Campos a atualizar
+        
+    Returns:
+        True se atualizado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["synced_at"] = datetime.utcnow().isoformat()
+        
+        db.collection("users").document(uid).collection("meals").document(meal_id).update(updates)
+        logger.info(f"[FIREBASE-HEALTH] ✅ Refeição atualizada: {meal_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao atualizar refeição: {e}")
+        return False
+
+
+def delete_meal_from_firebase(uid: str, meal_id: str) -> bool:
+    """
+    Deleta uma refeição do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        meal_id: ID da refeição a deletar
+        
+    Returns:
+        True se deletado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        db.collection("users").document(uid).collection("meals").document(meal_id).delete()
+        logger.info(f"[FIREBASE-HEALTH] ✅ Refeição deletada: {meal_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao deletar refeição: {e}")
+        return False
+
+
+def save_goals_to_firebase(uid: str, goals_data: Dict) -> bool:
+    """
+    Salva as metas nutricionais de um usuário no Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        goals_data: Dados das metas
+        
+    Returns:
+        True se salvo com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        goals_data["synced_at"] = datetime.utcnow().isoformat()
+        goals_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Salva em /users/{uid}/health/goals
+        db.collection("users").document(uid).collection("health").document("goals").set(goals_data, merge=True)
+        logger.info(f"[FIREBASE-HEALTH] ✅ Metas salvas para {uid}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao salvar metas: {e}")
+        return False
+
+
+def get_user_goals_from_firebase(uid: str) -> Dict:
+    """
+    Busca as metas nutricionais de um usuário do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        
+    Returns:
+        Dicionário com as metas ou {} se não encontrado
+    """
+    db = get_firestore()
+    if db is None:
+        return {}
+    
+    try:
+        doc = db.collection("users").document(uid).collection("health").document("goals").get()
+        if doc.exists:
+            return doc.to_dict() or {}
+        return {}
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao buscar metas: {e}")
+        return {}
+
+
+# =============================================================================
+# FIRESTORE: HEALTH WEIGHTS
+# =============================================================================
+
+def save_weight_to_firebase(uid: str, weight_data: Dict) -> bool:
+    """
+    Salva um registro de peso no Firestore.
+    Usa last write wins para resolução de conflitos.
+    
+    Args:
+        uid: Firebase UID do usuário
+        weight_data: Dados do peso (deve incluir 'id' e 'date')
+        
+    Returns:
+        True se salvo com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        weight_id = weight_data.get("id")
+        if not weight_id:
+            import uuid
+            weight_id = str(uuid.uuid4())
+            weight_data["id"] = weight_id
+        
+        # Adiciona timestamp de sync (para last write wins)
+        weight_data["synced_at"] = datetime.utcnow().isoformat()
+        weight_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Salva em /users/{uid}/health/weights/{weight_id}
+        # Usa merge=True para não sobrescrever created_at se já existe
+        weight_ref = db.collection("users").document(uid).collection("health").collection("weights").document(weight_id)
+        
+        if not weight_ref.get().exists:
+            weight_data["created_at"] = datetime.utcnow().isoformat()
+        
+        weight_ref.set(weight_data, merge=True)
+        logger.info(f"[FIREBASE-HEALTH] ✅ Peso salvo: {weight_id} para {uid}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao salvar peso: {e}")
+        return False
+
+
+def get_user_weights_from_firebase(uid: str, limit: Optional[int] = None) -> list:
+    """
+    Lista os registros de peso de um usuário do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        limit: Limite de registros a retornar
+        
+    Returns:
+        Lista de registros de peso ordenados por data (mais recente primeiro)
+    """
+    db = get_firestore()
+    if db is None:
+        return []
+    
+    try:
+        weights_ref = db.collection("users").document(uid).collection("health").collection("weights")
+        
+        # Ordena por data (mais recente primeiro)
+        query = weights_ref.order_by("date", direction="DESCENDING")
+        
+        if limit:
+            query = query.limit(limit)
+        
+        weights = []
+        for doc in query.stream():
+            weight = doc.to_dict()
+            weight["id"] = doc.id
+            weights.append(weight)
+        
+        logger.info(f"[FIREBASE-HEALTH] Carregados {len(weights)} registros de peso para {uid}")
+        return weights
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao carregar pesos: {e}")
+        return []
+
+
+def update_weight_in_firebase(uid: str, weight_id: str, updates: Dict) -> bool:
+    """
+    Atualiza um registro de peso no Firestore.
+    Usa last write wins para resolução de conflitos.
+    
+    Args:
+        uid: Firebase UID do usuário
+        weight_id: ID do registro de peso
+        updates: Campos a atualizar
+        
+    Returns:
+        True se atualizado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        from datetime import datetime
+        
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["synced_at"] = datetime.utcnow().isoformat()
+        
+        weight_ref = db.collection("users").document(uid).collection("health").collection("weights").document(weight_id)
+        weight_ref.update(updates)
+        
+        logger.info(f"[FIREBASE-HEALTH] ✅ Peso atualizado: {weight_id} para {uid}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao atualizar peso: {e}")
+        return False
+
+
+def delete_weight_from_firebase(uid: str, weight_id: str) -> bool:
+    """
+    Deleta um registro de peso do Firestore.
+    
+    Args:
+        uid: Firebase UID do usuário
+        weight_id: ID do registro de peso a deletar
+        
+    Returns:
+        True se deletado com sucesso
+    """
+    db = get_firestore()
+    if db is None:
+        return False
+    
+    try:
+        db.collection("users").document(uid).collection("health").collection("weights").document(weight_id).delete()
+        logger.info(f"[FIREBASE-HEALTH] ✅ Peso deletado: {weight_id} para {uid}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[FIREBASE-HEALTH] Erro ao deletar peso: {e}")
+        return False

@@ -10,10 +10,14 @@
  * @returns {Object|null} - Objeto com informações da versão ou null se não encontrada
  */
 export function parseChangelogVersion(changelogContent, version) {
-    if (!changelogContent || !version) return null;
+    if (!changelogContent || !version) {
+        console.warn('[CHANGELOG PARSER] Conteúdo ou versão ausente');
+        return null;
+    }
 
     // Remove o prefixo "v" se existir
     const cleanVersion = version.replace(/^v/, '');
+    console.log('[CHANGELOG PARSER] Procurando versão:', cleanVersion);
     
     // Regex para encontrar a seção da versão
     // Formato: ## [1.0.4] - 2025-01-27
@@ -23,7 +27,14 @@ export function parseChangelogVersion(changelogContent, version) {
     );
 
     const match = changelogContent.match(versionRegex);
-    if (!match) return null;
+    if (!match) {
+        console.warn('[CHANGELOG PARSER] Versão não encontrada no changelog. Versões disponíveis:', 
+            changelogContent.match(/##\s*\[([\d.]+)\]/g)?.map(m => m.match(/\[([\d.]+)\]/)?.[1]) || []
+        );
+        return null;
+    }
+    
+    console.log('[CHANGELOG PARSER] Versão encontrada no changelog!');
 
     const startIndex = match.index + match[0].length;
     

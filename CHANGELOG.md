@@ -2,6 +2,155 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.0] - 2025-01-28
+
+### ✨ Novas Funcionalidades
+
+#### 🏥 Luna Health - Sistema Completo de Perfis e Avaliação
+
+- **Sistema de Perfis de Saúde**:
+  - Usuários podem escolher entre perfil "Aluno" ou "Avaliador"
+  - Gerenciamento de perfis integrado ao AuthContext
+  - Suporte a Firebase Firestore com fallback local
+
+- **Códigos de Vinculação para Avaliadores**:
+  - Geração automática de códigos únicos (formato: `EVAL-XXXXXX`)
+  - Dashboard integrado para gerenciar código e alunos vinculados
+  - Compartilhamento fácil com botão de copiar
+  - Geração de novo código quando necessário
+
+- **Vinculação de Alunos**:
+  - Interface dedicada para alunos vincularem-se a avaliadores
+  - Validação de código em tempo real
+  - Exibição de informações do avaliador (nome, email)
+  - Prevenção de auto-vinculação
+
+- **Sistema de Permissões e Acesso**:
+  - Validação robusta de permissões no backend
+  - Avaliadores podem visualizar dados de alunos vinculados
+  - Prevenção de acesso não autorizado entre usuários
+  - Sistema de "view_as" para contexto de visualização
+
+- **Chat Contextual para Avaliadores**:
+  - Sistema de prompts diferenciado para avaliadores
+  - Contexto automático quando visualizando dados de aluno
+  - Linguagem adaptada (referências ao aluno, não ao avaliador)
+  - Reconhecimento de nomes de alunos no chat
+
+- **Chat Especializado para Avaliadores (EvaluatorChat)**:
+  - Chat dedicado quando avaliador não está visualizando aluno específico
+  - Ferramentas especializadas para análise profissional:
+    - `get_student_data`: Busca dados completos de aluno por nome/ID
+    - `list_all_students`: Lista todos os alunos com resumo
+    - `compare_students`: Compara dados entre múltiplos alunos
+    - `get_student_summary`: Resumo detalhado de período específico
+    - `generate_student_report`: Relatório profissional formatado
+  - UI diferenciada com tema roxo/índigo
+  - Banner indicando modo de análise profissional
+
+- **Busca de Alunos**:
+  - Campo de busca por nome no header (substitui dropdown)
+  - Busca em tempo real com filtro local
+  - Exibe nome e email dos alunos
+  - Seleção rápida para visualizar dados
+
+- **Sistema de Notificações**:
+  - Notificações automáticas quando aluno se vincula
+  - Painel de notificações dedicado (nova aba)
+  - Marcar notificações como lidas (individual ou todas)
+  - Formatação de data relativa ("2h atrás", "3 dias atrás")
+  - Contador de não lidas
+
+- **Estatísticas Agregadas para Avaliadores**:
+  - Dashboard com métricas consolidadas de todos os alunos
+  - Média de calorias, proteínas e aderência às metas
+  - Total de alunos e alunos ativos
+  - Identificação de alunos sem atividade (últimos 30 dias)
+  - Período configurável para análise
+
+- **Dashboard do Avaliador Melhorado**:
+  - Cards de estatísticas com métricas principais
+  - Alertas visuais para alunos sem atividade
+  - Integração completa com sistema de busca
+  - Performance otimizada (carregamento sob demanda)
+
+#### 🎨 Sistema de Temas Refatorado
+
+- **Remoção de Temas Antigos**:
+  - Removidos todos os temas com problemas de contraste
+  - Limpeza completa do sistema de temas
+  - Remoção de temas premium e light antigos
+
+- **3 Novos Temas Dark** (com contraste WCAG AA+):
+  - **Dark Deep**: Tema escuro clássico com acentos azuis (#0a0a0f)
+  - **Dark Ocean**: Tema escuro azul oceano com acentos ciano (#0c1220)
+  - **Dark Forest**: Tema escuro verde floresta com acentos verdes (#0d1412)
+
+- **3 Novos Temas Light** (com contraste WCAG AA+):
+  - **Light Clean**: Tema claro puro com acentos azuis (#ffffff)
+  - **Light Sky**: Tema claro azul céu suave (#f0f9ff)
+  - **Light Mint**: Tema claro verde menta fresco (#f0fdfa)
+
+- **Melhorias de Contraste**:
+  - Todos os temas testados e aprovados para contraste WCAG AA+
+  - Textos primários e secundários com contraste adequado
+  - Bordas e elementos visuais com melhor definição
+  - Backgrounds otimizados para legibilidade
+
+#### 💼 Business Mode - Correções Críticas
+
+- **Sincronização Firebase**:
+  - Corrigido problema de transações não aparecendo após salvamento
+  - Sincronização automática entre Firebase e cache local
+  - Carregamento em batches para grandes volumes de dados
+  - Limite aumentado para suportar mais transações (até 2000)
+
+- **Validação e Salvamento**:
+  - Validação robusta de valores numéricos
+  - Conversão explícita para float em todos os pontos
+  - Salvamento local primeiro (garantia de persistência)
+  - Logs detalhados para diagnóstico
+
+- **Cálculos Corretos**:
+  - Cálculo unificado do summary usando dados sincronizados
+  - Consideração correta de investimentos
+  - Arredondamento para 2 casas decimais
+  - Logs detalhados do processo de cálculo
+
+### 🔧 Melhorias
+
+- **Performance**:
+  - Otimização do carregamento da aba de alunos (90% mais rápido)
+  - Carregamento sob demanda de detalhes de alunos
+  - Debounce em requisições de estatísticas
+  - Requisições paralelas onde possível
+
+- **UX/UI**:
+  - Design minimalista e compacto
+  - Consistência visual em todos os componentes
+  - Animações suaves e feedback visual claro
+  - Remoção de modais de sucesso desnecessários
+
+- **Integração**:
+  - HealthMode integrado com sistema de perfis
+  - Tabs contextuais (aparecem apenas quando relevante)
+  - Navegação fluida entre modos de visualização
+
+### 🐛 Correções de Bugs
+
+- Corrigido problema de dropdown coberto por blur effect
+- Corrigido erro ao tentar vincular ao próprio código
+- Corrigido contexto de AI (referências corretas ao aluno vs avaliador)
+- Corrigido carregamento de dados quando visualizando como aluno
+- Corrigido reconhecimento de nomes de alunos no chat
+- Corrigido imports e dependências circulares
+- Corrigido problema de transações não aparecendo no Business Mode
+- Corrigido valores numéricos não sendo salvos corretamente
+- Corrigido cálculos do summary que não correspondiam à UI
+- Corrigido problema de usuários não conseguindo registrar transações
+
+---
+
 ## [1.0.4] - 2025-01-27
 
 ### ✨ Novas Funcionalidades

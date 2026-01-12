@@ -236,37 +236,24 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
             case 'appearance':
                 const themes = [
                     // Dark themes
-                    { id: 'dark', label: 'Dark Deep', icon: Moon, color: 'bg-[#0d1117] border-[#30363d]', category: 'dark', iconColor: 'text-white' },
-                    { id: 'glass', label: 'Glassmorphism', icon: Monitor, color: 'bg-[#111827]/50 backdrop-blur-md border-white/20', category: 'dark', iconColor: 'text-white' },
-                    { id: 'neon', label: 'Luna Neon', icon: Sun, color: 'bg-black border-[#f472b666] shadow-[0_0_15px_rgba(244,114,182,0.1)]', category: 'dark', iconColor: 'text-pink-400' },
-                    { id: 'midnight', label: 'Midnight', icon: Moon, color: 'bg-[#0f172a] border-[#475569]', category: 'dark', iconColor: 'text-blue-400' },
+                    { id: 'dark', label: 'Dark Deep', icon: Moon, color: 'bg-[#0a0a0f] border-[#2d2d3a]', category: 'dark', iconColor: 'text-white' },
+                    { id: 'dark-ocean', label: 'Dark Ocean', icon: Droplets, color: 'bg-[#0c1220] border-[#2d3a52]', category: 'dark', iconColor: 'text-cyan-300' },
+                    { id: 'dark-forest', label: 'Dark Forest', icon: Leaf, color: 'bg-[#0d1412] border-[#2d3a35]', category: 'dark', iconColor: 'text-green-300' },
                     // Light themes
-                    { id: 'light', label: 'Light', icon: Sun, color: 'bg-white border-gray-200', category: 'light', iconColor: 'text-gray-700' },
-                    { id: 'light-blue', label: 'Sky Blue', icon: Cloud, color: 'bg-[#f0f9ff] border-[#bae6fd]', category: 'light', iconColor: 'text-blue-600' },
-                    { id: 'light-green', label: 'Mint', icon: Leaf, color: 'bg-[#f0fdf4] border-[#bbf7d0]', category: 'light', iconColor: 'text-green-600' },
-                    { id: 'light-pink', label: 'Rose', icon: Heart, color: 'bg-[#fff1f2] border-[#fecdd3]', category: 'light', iconColor: 'text-pink-600' },
-                    { id: 'warm-light', label: 'Cream', icon: Coffee, color: 'bg-[#fefcfb] border-[#e7d5c4]', category: 'light', iconColor: 'text-amber-700' },
-                    { id: 'nord-light', label: 'Nord Arctic', icon: Droplets, color: 'bg-[#eceff4] border-[#d8dee9]', category: 'light', iconColor: 'text-slate-700' },
-                    { id: 'paper', label: 'Paper', icon: BookOpen, color: 'bg-[#fafafa] border-gray-300', category: 'light', iconColor: 'text-gray-700' },
-                    // Premium themes
-                    { id: 'premium-glass', label: 'Premium Glass', icon: Layers, color: 'bg-gradient-to-br from-blue-900/50 via-purple-900/50 to-indigo-900/50 backdrop-blur-xl border-white/30', category: 'premium', iconColor: 'text-blue-300', isPremium: true },
-                    { id: 'premium-dark', label: 'Premium Dark', icon: Star, color: 'bg-gradient-to-br from-purple-950/80 via-indigo-950/80 to-purple-950/80 border-purple-500/40 shadow-[0_0_30px_rgba(167,139,250,0.3)]', category: 'premium', iconColor: 'text-purple-300', isPremium: true },
-                    { id: 'premium-purple', label: 'Royal Purple', icon: Crown, color: 'bg-gradient-to-br from-violet-950/90 via-purple-950/90 to-fuchsia-950/90 border-violet-400/50 shadow-[0_0_35px_rgba(168,85,247,0.4)]', category: 'premium', iconColor: 'text-violet-300', isPremium: true },
-                    { id: 'premium-gold', label: 'Luxury Gold', icon: Gem, color: 'bg-gradient-to-br from-amber-950/90 via-yellow-950/90 to-orange-950/90 border-amber-400/50 shadow-[0_0_35px_rgba(245,158,11,0.4)]', category: 'premium', iconColor: 'text-amber-300', isPremium: true },
-                    { id: 'premium-light', label: 'Premium Light', icon: Sparkle, color: 'bg-gradient-to-br from-white via-blue-50/90 to-indigo-50/90 border-indigo-300/40 backdrop-blur-sm shadow-lg', category: 'premium', iconColor: 'text-indigo-600', isPremium: true },
-                    { id: 'premium-cyan', label: 'Electric Cyan', icon: Zap, color: 'bg-gradient-to-br from-cyan-950/90 via-blue-950/90 to-cyan-950/90 border-cyan-400/50 shadow-[0_0_35px_rgba(6,182,212,0.4)]', category: 'premium', iconColor: 'text-cyan-300', isPremium: true },
+                    { id: 'light', label: 'Light Clean', icon: Sun, color: 'bg-white border-gray-200', category: 'light', iconColor: 'text-gray-700' },
+                    { id: 'light-sky', label: 'Light Sky', icon: Cloud, color: 'bg-[#f0f9ff] border-[#7dd3fc]', category: 'light', iconColor: 'text-blue-600' },
+                    { id: 'light-mint', label: 'Light Mint', icon: Leaf, color: 'bg-[#f0fdfa] border-[#5eead4]', category: 'light', iconColor: 'text-teal-600' },
                 ];
 
                 const darkThemes = themes.filter(t => t.category === 'dark');
                 const lightThemes = themes.filter(t => t.category === 'light');
-                const premiumThemes = themes.filter(t => t.category === 'premium');
 
                 return (
                     <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                         <div>
                             <h3 className="text-lg font-medium text-white mb-2">Temas Escuros</h3>
                             <p className="text-sm text-gray-400 mb-6">Perfeitos para uso noturno e ambientes com pouca luz</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-2">
                                 {darkThemes.map(t => (
                                     <div
                                         key={t.id}
@@ -279,7 +266,7 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
                                             </div>
                                         )}
                                         <t.icon size={24} className={t.iconColor} />
-                                        <span className={`text-xs font-bold uppercase tracking-wider ${t.category === 'dark' ? 'text-white' : 'text-gray-800'}`}>{t.label}</span>
+                                        <span className="text-xs font-bold uppercase tracking-wider text-white">{t.label}</span>
                                     </div>
                                 ))}
                             </div>
@@ -288,7 +275,7 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
                         <div>
                             <h3 className="text-lg font-medium text-white mb-2">Temas Claros</h3>
                             <p className="text-sm text-gray-400 mb-6">Ideais para uso diurno e ambientes bem iluminados</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-2">
                                 {lightThemes.map(t => (
                                     <div
                                         key={t.id}
@@ -301,37 +288,7 @@ export const SettingsPage = ({ onBack, initialTab = 'general', theme, onThemeCha
                                             </div>
                                         )}
                                         <t.icon size={24} className={t.iconColor} />
-                                        <span className={`text-xs font-bold uppercase tracking-wider ${t.category === 'dark' ? 'text-white' : 'text-gray-800'}`}>{t.label}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="flex items-center gap-2 mb-2">
-                                <h3 className="text-lg font-medium text-white">Temas Premium</h3>
-                                <Crown size={16} className="text-amber-400" />
-                            </div>
-                            <p className="text-sm text-gray-400 mb-6">Glassmorphism avançado, gradientes sofisticados e visual premium</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-2">
-                                {premiumThemes.map(t => (
-                                    <div
-                                        key={t.id}
-                                        onClick={() => onThemeChange(t.id)}
-                                        className={`p-5 rounded-2xl border-2 transition-all cursor-pointer ${t.color} flex flex-col items-center gap-3 hover:scale-105 relative overflow-hidden ${theme === t.id ? 'ring-2 ring-amber-400/60 border-amber-400/70 opacity-100 scale-105 shadow-2xl' : 'opacity-80 hover:opacity-100'}`}
-                                    >
-                                        {theme === t.id && (
-                                            <div className="absolute top-3 right-3 p-1.5 bg-amber-400/90 rounded-full shadow-lg backdrop-blur-sm">
-                                                <Check size={12} className="text-black font-bold" />
-                                            </div>
-                                        )}
-                                        {t.isPremium && (
-                                            <div className="absolute top-2 left-2">
-                                                <Crown size={14} className="text-amber-400/80" />
-                                            </div>
-                                        )}
-                                        <t.icon size={28} className={t.iconColor} />
-                                        <span className={`text-xs font-bold uppercase tracking-wider ${t.category === 'premium' ? 'text-white drop-shadow-lg' : 'text-gray-800'}`}>{t.label}</span>
+                                        <span className="text-xs font-bold uppercase tracking-wider text-gray-800">{t.label}</span>
                                     </div>
                                 ))}
                             </div>
