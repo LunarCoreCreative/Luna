@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
+console.log('[MAIN] Iniciando aplicação...');
+console.log('[MAIN] React version:', React.version);
+
 // Verifica se React está disponível antes de renderizar
 if (typeof React === 'undefined' || !React.forwardRef) {
     console.error('[MAIN] React não está disponível corretamente');
@@ -14,6 +17,8 @@ if (typeof React === 'undefined' || !React.forwardRef) {
     `;
     throw new Error('React não está disponível');
 }
+
+console.log('[MAIN] React carregado com sucesso');
 
 // Tratamento de erro para debug
 try {

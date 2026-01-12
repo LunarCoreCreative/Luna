@@ -145,8 +145,9 @@ class SuggestGoalsRequest(BaseModel):
     height: float  # Altura em cm
     age: int  # Idade em anos
     gender: str  # "male" ou "female"
-    goal: str  # "lose" (emagrecer), "maintain" (manter), "gain" (ganhar massa)
+    goal: str  # "lose" (emagrecer), "maintain" (manter), "gain" (ganhar massa), "recomposition" (recomposição corporal)
     activity_level: Optional[str] = "moderate"  # "sedentary", "light", "moderate", "active", "very_active"
+    target_weight: Optional[float] = None  # Peso alvo em kg (para cálculos mais precisos)
 
 class ProfileCreateRequest(BaseModel):
     type: str  # "student" ou "evaluator"
@@ -422,68 +423,118 @@ def calculate_tdee(bmr: float, activity_level: str) -> float:
     multiplier = multipliers.get(activity_level.lower(), 1.55)  # Padrão: moderado
     return bmr * multiplier
 
-def adjust_calories_for_goal(tdee: float, goal: str) -> float:
+def adjust_calories_for_goal(tdee: float, goal: str, current_weight: float = None, target_weight: float = None) -> float:
     """
     Ajusta calorias baseado no objetivo do usuário.
     
     Args:
         tdee: Taxa de Dispêndio Energético Total
-        goal: Objetivo ("lose", "maintain", "gain")
+        goal: Objetivo ("lose", "maintain", "gain", "recomposition")
+        current_weight: Peso atual (opcional, para detectar recomposição)
+        target_weight: Peso alvo (opcional, para detectar recomposição)
     
     Returns:
-        Calorias sugeridas por dia
+        Calorias sugeridas por dia (nunca retorna 0)
     """
-    if goal.lower() == "lose":
+    goal_lower = goal.lower()
+    
+    # Detectar recomposição implícita: objetivo "gain" mas peso alvo = peso atual
+    if goal_lower == "gain" and current_weight and target_weight:
+        if abs(target_weight - current_weight) < 1:  # Diferença < 1kg
+            # Recomposição corporal - manter calorias, ajustar macros para alta proteína
+            logger.info(f"[adjust_calories] Detectado recomposição implícita (peso alvo ≈ peso atual)")
+            goal_lower = "recomposition"
+    
+    if goal_lower == "lose":
         # Déficit de 500 calorias por dia (perda de ~0.5kg por semana)
-        return max(tdee - 500, tdee * 0.8)  # Mínimo 80% do TDEE
-    elif goal.lower() == "gain":
-        # Superávit de 500 calorias por dia (ganho de ~0.5kg por semana)
-        return tdee + 500
+        # Mínimo: 80% do TDEE ou 1200 kcal (mulheres) / 1500 kcal (homens) - usando 1200 como base
+        return max(tdee - 500, tdee * 0.8, 1200)
+    elif goal_lower == "gain":
+        # Superávit de 300-500 calorias por dia para ganho limpo
+        return tdee + 300
+    elif goal_lower == "recomposition":
+        # Recomposição corporal: manter calorias neutras
+        # A diferença está nos macros (alta proteína)
+        return tdee
     else:  # maintain
         return tdee
 
-def calculate_macros(calories: float, goal: str) -> dict:
+def calculate_macros(calories: float, goal: str, weight: float = None) -> dict:
     """
     Calcula distribuição de macros baseado nas calorias e objetivo.
     
     Args:
         calories: Calorias diárias
-        goal: Objetivo ("lose", "maintain", "gain")
+        goal: Objetivo ("lose", "maintain", "gain", "recomposition")
+        weight: Peso do usuário em kg (para cálculo de proteína por kg)
     
     Returns:
         Dict com protein, carbs, fats em gramas
     """
-    # Proteína: 1.6-2.2g por kg de peso (usar 2g para ganho, 1.8g para manter, 2.2g para perda)
-    # Para simplificar, vamos usar porcentagens fixas baseadas no objetivo
+    goal_lower = goal.lower()
     
-    if goal.lower() == "lose":
-        # Maior proteína para preservar massa muscular
-        protein_pct = 0.30  # 30% de proteína
-        carbs_pct = 0.35    # 35% de carboidratos
-        fats_pct = 0.35     # 35% de gorduras
-    elif goal.lower() == "gain":
-        # Mais carboidratos para ganho de massa
-        protein_pct = 0.25  # 25% de proteína
-        carbs_pct = 0.45    # 45% de carboidratos
-        fats_pct = 0.30     # 30% de gorduras
-    else:  # maintain
-        # Distribuição balanceada
-        protein_pct = 0.25  # 25% de proteína
-        carbs_pct = 0.40    # 40% de carboidratos
-        fats_pct = 0.35     # 35% de gorduras
+    # Se temos o peso, calculamos proteína por kg de peso corporal
+    # Isso é mais preciso que porcentagem de calorias
+    protein_per_kg = {
+        "lose": 2.2,        # Alta proteína para preservar músculo em déficit
+        "maintain": 1.8,    # Moderada para manutenção
+        "gain": 2.0,        # Alta para construção muscular
+        "recomposition": 2.4  # Máxima para recomposição (trocar gordura por músculo)
+    }
     
-    # Calcular macros em gramas
-    # 1g proteína = 4 calorias
-    # 1g carboidrato = 4 calorias
-    # 1g gordura = 9 calorias
+    if weight and weight > 0:
+        # Calcular proteína baseada no peso
+        protein_grams = weight * protein_per_kg.get(goal_lower, 1.8)
+        protein_calories_used = protein_grams * 4
+        
+        # Distribuir o restante entre carbs e gorduras
+        remaining_calories = calories - protein_calories_used
+        
+        if goal_lower == "lose":
+            # Menos carbs, mais gorduras (saciedade)
+            carbs_pct = 0.45
+            fats_pct = 0.55
+        elif goal_lower == "gain":
+            # Mais carbs para energia e ganho
+            carbs_pct = 0.60
+            fats_pct = 0.40
+        elif goal_lower == "recomposition":
+            # Moderado em ambos
+            carbs_pct = 0.50
+            fats_pct = 0.50
+        else:  # maintain
+            carbs_pct = 0.55
+            fats_pct = 0.45
+        
+        carbs_grams = (remaining_calories * carbs_pct) / 4
+        fats_grams = (remaining_calories * fats_pct) / 9
+    else:
+        # Fallback: usar porcentagens fixas se não temos o peso
+        if goal_lower == "lose":
+            protein_pct = 0.30
+            carbs_pct = 0.35
+            fats_pct = 0.35
+        elif goal_lower == "gain":
+            protein_pct = 0.25
+            carbs_pct = 0.45
+            fats_pct = 0.30
+        elif goal_lower == "recomposition":
+            protein_pct = 0.35  # Alta proteína para recomposição
+            carbs_pct = 0.35
+            fats_pct = 0.30
+        else:  # maintain
+            protein_pct = 0.25
+            carbs_pct = 0.40
+            fats_pct = 0.35
+        
+        protein_grams = (calories * protein_pct) / 4
+        carbs_grams = (calories * carbs_pct) / 4
+        fats_grams = (calories * fats_pct) / 9
     
-    protein_calories = calories * protein_pct
-    carbs_calories = calories * carbs_pct
-    fats_calories = calories * fats_pct
-    
-    protein_grams = protein_calories / 4
-    carbs_grams = carbs_calories / 4
-    fats_grams = fats_calories / 9
+    # Garantir valores mínimos
+    protein_grams = max(protein_grams, 50)  # Mínimo 50g de proteína
+    carbs_grams = max(carbs_grams, 50)      # Mínimo 50g de carbs
+    fats_grams = max(fats_grams, 30)        # Mínimo 30g de gordura
     
     return {
         "protein": round(protein_grams, 1),
@@ -536,10 +587,10 @@ async def suggest_goals(request: SuggestGoalsRequest):
     if request.gender.lower() not in ["male", "female", "m", "f"]:
         raise HTTPException(status_code=400, detail="Gênero deve ser 'male' ou 'female'")
     
-    if request.goal.lower() not in ["lose", "maintain", "gain"]:
+    if request.goal.lower() not in ["lose", "maintain", "gain", "recomposition"]:
         raise HTTPException(
             status_code=400, 
-            detail="Objetivo deve ser 'lose' (emagrecer), 'maintain' (manter) ou 'gain' (ganhar massa)"
+            detail="Objetivo deve ser 'lose' (emagrecer), 'maintain' (manter), 'gain' (ganhar massa) ou 'recomposition' (recomposição corporal)"
         )
     
     # Normalizar gênero
@@ -558,10 +609,16 @@ async def suggest_goals(request: SuggestGoalsRequest):
         tdee = calculate_tdee(bmr, request.activity_level or "moderate")
         
         # Ajustar calorias baseado no objetivo
-        suggested_calories = adjust_calories_for_goal(tdee, request.goal)
+        # Passa peso atual e alvo para detectar recomposição implícita
+        suggested_calories = adjust_calories_for_goal(
+            tdee, 
+            request.goal,
+            current_weight=request.weight,
+            target_weight=request.target_weight
+        )
         
-        # Calcular macros
-        macros = calculate_macros(suggested_calories, request.goal)
+        # Calcular macros (passa peso para cálculo de proteína por kg)
+        macros = calculate_macros(suggested_calories, request.goal, weight=request.weight)
         
         suggested_goals = {
             "daily_calories": round(suggested_calories, 0),

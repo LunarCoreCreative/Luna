@@ -128,7 +128,9 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                     age: parseInt(suggestionData.age),
                     gender: suggestionData.gender,
                     goal: suggestionData.goal,
-                    activity_level: suggestionData.activity_level
+                    activity_level: suggestionData.activity_level,
+                    // Passa peso alvo se existir para detectar recomposição implícita
+                    target_weight: goals.target_weight ? parseFloat(goals.target_weight) : null
                 })
             });
             
@@ -302,10 +304,16 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                                     color: 'var(--text-primary)'
                                 }}
                             >
-                                <option value="lose">Emagrecer</option>
+                                <option value="lose">Emagrecer (perder peso)</option>
                                 <option value="maintain">Manter peso</option>
-                                <option value="gain">Ganhar massa</option>
+                                <option value="gain">Ganhar massa (aumentar peso)</option>
+                                <option value="recomposition">Recomposição corporal (trocar gordura por músculo)</option>
                             </select>
+                            {suggestionData.goal === "recomposition" && (
+                                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                                    💡 Ideal para quem treina e quer manter o peso, mas trocar gordura por músculo.
+                                </p>
+                            )}
                         </div>
                         <div>
                             <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
