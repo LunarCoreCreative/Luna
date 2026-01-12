@@ -28,6 +28,10 @@ export default defineConfig({
                 }
             }
         },
+        {
+            name: 'copy-changelog-plugin'
+            // Plugin removido - deixa Vite gerenciar ordem automaticamente
+        }
     ],
     base: './',
     build: {
@@ -35,47 +39,14 @@ export default defineConfig({
         emptyOutDir: true,
         rollupOptions: {
             output: {
-                manualChunks: (id) => {
-                    // Vendor chunks - separados para melhor cache
-                    if (id.includes('node_modules')) {
-                        // CRÍTICO: React e React-DOM devem estar no MESMO chunk que o código principal
-                        // para garantir que sejam carregados juntos e na ordem correta
-                        // NÃO separar React em chunk separado para evitar problemas de ordem de execução
-                        if (id.includes('react/') || id.includes('react-dom/') || 
-                            id.includes('react/index') || id.includes('react-dom/index')) {
-                            // Retorna null para incluir no chunk principal
-                            return null;
-                        }
-                        // Outras dependências do React podem estar juntas
-                        if (id.includes('lucide-react') ||
-                            id.includes('react-markdown') ||
-                            id.includes('remark-gfm') ||
-                            id.includes('react-syntax-highlighter')) {
-                            return 'react-vendor';
-                        }
-                        if (id.includes('firebase')) {
-                            return 'firebase-vendor';
-                        }
-                        // Outros vendors
-                        return 'vendor';
-                    }
-                    // Feature chunks - apenas componentes pesados
-                    if (id.includes('/components/ide/')) {
-                        return 'ide';
-                    }
-                    if (id.includes('/components/Canvas')) {
-                        return 'canvas';
-                    }
+                // Deixa o Vite/Rollup gerenciar os chunks automaticamente
+                // Evita problemas de ordem de carregamento com React
+                manualChunks: {
+                    // Apenas Firebase separado por ser grande
+                    'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore']
                 },
-                // Garante que os chunks sejam carregados na ordem correta
                 entryFileNames: 'assets/[name]-[hash].js',
-                chunkFileNames: (chunkInfo) => {
-                    // React-core deve ter prioridade no nome para garantir ordem
-                    if (chunkInfo.name === 'react-core') {
-                        return 'assets/react-core-[hash].js';
-                    }
-                    return 'assets/[name]-[hash].js';
-                },
+                chunkFileNames: 'assets/[name]-[hash].js',
                 assetFileNames: 'assets/[name]-[hash].[ext]'
             }
         },
