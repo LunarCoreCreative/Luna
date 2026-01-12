@@ -1,4 +1,4 @@
-﻿name: Build and Release
+name: Build and Release
 
 on:
   push:
@@ -35,10 +35,15 @@ jobs:
         if: success()
         uses: actions/setup-github-cli@v1
       
+      - name: Setup GitHub CLI
+        if: success()
+        uses: actions/setup-github-cli@v1
+      
       - name: Publish Release if Draft
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         shell: pwsh
         run: |
           $VERSION = node -p "require('./package.json').version"
