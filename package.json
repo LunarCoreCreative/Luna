@@ -1,7 +1,7 @@
 {
   "name": "luna-ui",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Luna AI Assistant",
   "author": "Lunar Core Creative",
   "type": "module",
@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "server": "python -m server.main",
     "electron": "electron .",
-    "electron:dev": "concurrently \"python -m server.main\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "npm run electron:dev",
     "dist": "vite build && electron-builder"
   },

@@ -239,6 +239,23 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
 ---
 
+## [1.1.2] - 2024-12-19
+
+### 🐛 Correções de Bugs
+
+- **React forwardRef Error (Produção)**: Corrigido erro "Cannot read properties of undefined (reading 'forwardRef')" no build de produção
+- **Configuração do Vite**: React, React-DOM e bibliotecas React-dependentes (lucide-react, react-markdown, etc.) agora estão no mesmo chunk, garantindo ordem de carregamento correta
+- **Modo Dev**: Corrigido problema de servidor Python duplicado que causava conflito de porta 8001
+- **Importações React**: Otimizadas importações do React no main.jsx
+
+### 🔧 Melhorias
+
+- Melhor separação de chunks no build de produção
+- Configuração do Vite otimizada para evitar problemas de resolução de módulos
+- Scripts de desenvolvimento simplificados
+
+---
+
 ## [1.0.2] - Versão Anterior
 
 [Notas das versões anteriores serão adicionadas conforme necessário]
