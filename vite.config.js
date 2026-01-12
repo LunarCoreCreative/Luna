@@ -5,7 +5,10 @@ import { resolve } from 'path'
 
 export default defineConfig({
     plugins: [
-        react(),
+        react({
+            // Garante que o React seja sempre importado corretamente
+            jsxRuntime: 'automatic'
+        }),
         {
             name: 'copy-changelog',
             writeBundle() {
@@ -35,16 +38,17 @@ export default defineConfig({
                 manualChunks: (id) => {
                     // Vendor chunks - separados para melhor cache
                     if (id.includes('node_modules')) {
-                        // React e React-DOM devem estar juntos e carregar primeiro
-                        if (id.includes('react') || id.includes('react-dom')) {
+                        // CRÍTICO: React e React-DOM devem estar juntos e carregar primeiro
+                        // Separar React do resto para garantir carregamento prioritário
+                        if (id.includes('react/') || id.includes('react-dom/')) {
+                            return 'react-core';
+                        }
+                        // Outras dependências do React podem estar juntas
+                        if (id.includes('lucide-react') ||
+                            id.includes('react-markdown') ||
+                            id.includes('remark-gfm') ||
+                            id.includes('react-syntax-highlighter')) {
                             return 'react-vendor';
-                        }
-                        // Bibliotecas que dependem do React - separadas mas garantindo que React carregue antes
-                        if (id.includes('lucide-react')) {
-                            return 'ui-vendor';
-                        }
-                        if (id.includes('react-markdown') || id.includes('remark-gfm') || id.includes('react-syntax-highlighter')) {
-                            return 'markdown-vendor';
                         }
                         if (id.includes('firebase')) {
                             return 'firebase-vendor';
@@ -59,7 +63,17 @@ export default defineConfig({
                     if (id.includes('/components/Canvas')) {
                         return 'canvas';
                     }
-                }
+                },
+                // Garante que os chunks sejam carregados na ordem correta
+                entryFileNames: 'assets/[name]-[hash].js',
+                chunkFileNames: (chunkInfo) => {
+                    // React-core deve ter prioridade no nome para garantir ordem
+                    if (chunkInfo.name === 'react-core') {
+                        return 'assets/react-core-[hash].js';
+                    }
+                    return 'assets/[name]-[hash].js';
+                },
+                assetFileNames: 'assets/[name]-[hash].[ext]'
             }
         },
         // Otimizações de build
@@ -68,11 +82,23 @@ export default defineConfig({
             compress: {
                 drop_console: false, // Mantém console.log para debug
                 drop_debugger: true,
-                pure_funcs: ['console.debug', 'console.trace']
+                pure_funcs: ['console.debug', 'console.trace'],
+                // Não quebra referências do React
+                keep_classnames: true,
+                keep_fnames: true
+            },
+            format: {
+                // Mantém comentários importantes
+                comments: /^!|@preserve|@license|@cc_on/
             }
         },
         // Chunk size warnings
-        chunkSizeWarningLimit: 1000
+        chunkSizeWarningLimit: 1000,
+        // Configuração específica para build de produção
+        commonjsOptions: {
+            // Garante que o React seja tratado corretamente
+            transformMixedEsModules: true
+        }
     },
     // Otimizações de desenvolvimento
     optimizeDeps: {

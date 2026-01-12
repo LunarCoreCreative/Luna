@@ -1,4 +1,4 @@
-import { useState, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useImperativeHandle } from 'react';
 import {
     Upload,
     Brain,
@@ -9,7 +9,7 @@ import {
     FileText
 } from "lucide-react";
 
-export const ChatInput = forwardRef(({
+export const ChatInput = React.forwardRef(({
     onSend,
     onStop,
     isStreaming,
