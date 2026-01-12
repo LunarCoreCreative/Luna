@@ -67,6 +67,25 @@ function startLocalWebServer() {
     });
 }
 
+// Função para verificar se o servidor já está rodando na porta
+function checkServerRunning(port, callback) {
+    const http = require('http');
+    const req = http.get(`http://localhost:${port}/health`, { timeout: 1000 }, (res) => {
+        // Se recebeu resposta, o servidor está rodando
+        callback(true);
+    });
+    
+    req.on('error', () => {
+        // Se deu erro, o servidor não está rodando
+        callback(false);
+    });
+    
+    req.on('timeout', () => {
+        req.destroy();
+        callback(false);
+    });
+}
+
 // Função para liberar a porta 8001 se estiver ocupada
 function killProcessOnPort(port, callback) {
     if (process.platform === 'win32') {
@@ -139,29 +158,39 @@ function startPythonServer() {
         return;
     }
 
-    console.log('[ELECTRON] Dev Mode: Verificando porta 8001...');
+    console.log('[ELECTRON] Dev Mode: Verificando se servidor Python já está rodando...');
     
-    // Libera a porta 8001 antes de iniciar o servidor
-    killProcessOnPort(8001, () => {
-        console.log('[ELECTRON] Dev Mode: Iniciando servidor Python local...');
+    // Primeiro verifica se o servidor já está rodando
+    checkServerRunning(8001, (isRunning) => {
+        if (isRunning) {
+            console.log('[ELECTRON] Servidor Python já está rodando na porta 8001. Pulando inicialização.');
+            return;
+        }
+        
+        console.log('[ELECTRON] Servidor não encontrado. Verificando porta 8001...');
+        
+        // Libera a porta 8001 antes de iniciar o servidor (caso tenha processo órfão)
+        killProcessOnPort(8001, () => {
+            console.log('[ELECTRON] Dev Mode: Iniciando servidor Python local...');
 
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+            const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 
-        pythonProcess = spawn(pythonCmd, ['-m', 'server.main'], {
-            cwd: __dirname,
-            env: { ...process.env, PYTHONUNBUFFERED: '1' }
-        });
+            pythonProcess = spawn(pythonCmd, ['-m', 'server.main'], {
+                cwd: __dirname,
+                env: { ...process.env, PYTHONUNBUFFERED: '1' }
+            });
 
-        pythonProcess.stdout.on('data', (data) => {
-            console.log(`[PYTHON] ${data}`);
-        });
+            pythonProcess.stdout.on('data', (data) => {
+                console.log(`[PYTHON] ${data}`);
+            });
 
-        pythonProcess.stderr.on('data', (data) => {
-            console.error(`[PYTHON-ERR] ${data}`);
-        });
+            pythonProcess.stderr.on('data', (data) => {
+                console.error(`[PYTHON-ERR] ${data}`);
+            });
 
-        pythonProcess.on('close', (code) => {
-            console.log(`[ELECTRON] Servidor Python encerrado com código ${code}`);
+            pythonProcess.on('close', (code) => {
+                console.log(`[ELECTRON] Servidor Python encerrado com código ${code}`);
+            });
         });
     });
 }
