@@ -28,56 +28,6 @@ export default defineConfig({
                 }
             }
         },
-        {
-            name: 'fix-react-load-order',
-            transformIndexHtml(html) {
-                // Garante que react-core seja carregado ANTES de vendor
-                const reactCoreRegex = /<link[^>]*react-core[^>]*>/i;
-                const vendorRegex = /<link[^>]*vendor[^>]*>/i;
-                
-                const reactCoreMatch = html.match(reactCoreRegex);
-                const vendorMatch = html.match(vendorRegex);
-                
-                if (reactCoreMatch && vendorMatch) {
-                    // Remove ambos
-                    html = html.replace(reactCoreRegex, '');
-                    html = html.replace(vendorRegex, '');
-                    
-                    // Encontra onde inserir (após o script tag fechado)
-                    const scriptMatch = html.match(/<script[^>]*><\/script>/);
-                    if (scriptMatch) {
-                        const insertPos = scriptMatch.index + scriptMatch[0].length;
-                        // Insere react-core PRIMEIRO, depois vendor
-                        html = html.slice(0, insertPos) + 
-                               '\n    ' + reactCoreMatch[0] + 
-                               '\n    ' + vendorMatch[0] +
-                               html.slice(insertPos);
-                    } else {
-                        // Procura por script auto-fechado
-                        const scriptSelfCloseMatch = html.match(/<script[^>]*\/>/);
-                        if (scriptSelfCloseMatch) {
-                            const insertPos = scriptSelfCloseMatch.index + scriptSelfCloseMatch[0].length;
-                            html = html.slice(0, insertPos) + 
-                                   '\n    ' + reactCoreMatch[0] + 
-                                   '\n    ' + vendorMatch[0] +
-                                   html.slice(insertPos);
-                        } else {
-                            // Fallback: insere após o title
-                            const titleMatch = html.match(/<title>.*?<\/title>/i);
-                            if (titleMatch) {
-                                const insertPos = titleMatch.index + titleMatch[0].length;
-                                html = html.slice(0, insertPos) + 
-                                       '\n    ' + reactCoreMatch[0] + 
-                                       '\n    ' + vendorMatch[0] +
-                                       html.slice(insertPos);
-                            }
-                        }
-                    }
-                }
-                
-                return html;
-            }
-        }
     ],
     base: './',
     build: {
@@ -88,12 +38,13 @@ export default defineConfig({
                 manualChunks: (id) => {
                     // Vendor chunks - separados para melhor cache
                     if (id.includes('node_modules')) {
-                        // CRÍTICO: React e React-DOM devem estar juntos e carregar primeiro
-                        // Separar React do resto para garantir carregamento prioritário
-                        // IMPORTANTE: React não deve depender de nenhum outro vendor
+                        // CRÍTICO: React e React-DOM devem estar no MESMO chunk que o código principal
+                        // para garantir que sejam carregados juntos e na ordem correta
+                        // NÃO separar React em chunk separado para evitar problemas de ordem de execução
                         if (id.includes('react/') || id.includes('react-dom/') || 
                             id.includes('react/index') || id.includes('react-dom/index')) {
-                            return 'react-core';
+                            // Retorna null para incluir no chunk principal
+                            return null;
                         }
                         // Outras dependências do React podem estar juntas
                         if (id.includes('lucide-react') ||
@@ -105,7 +56,7 @@ export default defineConfig({
                         if (id.includes('firebase')) {
                             return 'firebase-vendor';
                         }
-                        // Outros vendors - NÃO devem incluir React
+                        // Outros vendors
                         return 'vendor';
                     }
                     // Feature chunks - apenas componentes pesados
