@@ -31,27 +31,37 @@ export default defineConfig({
         {
             name: 'fix-react-load-order',
             transformIndexHtml(html) {
-                // Garante que react-core seja carregado antes de vendor
+                // Garante que react-core seja carregado ANTES de vendor
                 const reactCoreRegex = /<link[^>]*react-core[^>]*>/i;
                 const vendorRegex = /<link[^>]*vendor[^>]*>/i;
-                const scriptRegex = /<script[^>]*index[^>]*>/i;
                 
                 const reactCoreMatch = html.match(reactCoreRegex);
                 const vendorMatch = html.match(vendorRegex);
-                const scriptMatch = html.match(scriptRegex);
                 
                 if (reactCoreMatch && vendorMatch) {
                     // Remove ambos
                     html = html.replace(reactCoreRegex, '');
                     html = html.replace(vendorRegex, '');
                     
-                    // Insere react-core ANTES do vendor
-                    const headEnd = html.indexOf('</head>');
-                    if (headEnd > -1) {
-                        html = html.slice(0, headEnd) + 
-                               reactCoreMatch[0] + '\n    ' +
-                               vendorMatch[0] + '\n    ' +
-                               html.slice(headEnd);
+                    // Encontra onde inserir (após o script tag, antes dos outros modulepreload)
+                    const scriptMatch = html.match(/<script[^>]*>/);
+                    if (scriptMatch) {
+                        const insertPos = scriptMatch.index + scriptMatch[0].length;
+                        // Insere react-core PRIMEIRO, depois vendor
+                        html = html.slice(0, insertPos) + 
+                               '\n    ' + reactCoreMatch[0] + 
+                               '\n    ' + vendorMatch[0] +
+                               html.slice(insertPos);
+                    } else {
+                        // Fallback: insere no início do head
+                        const headMatch = html.match(/<head[^>]*>/);
+                        if (headMatch) {
+                            const insertPos = headMatch.index + headMatch[0].length;
+                            html = html.slice(0, insertPos) + 
+                                   '\n    ' + reactCoreMatch[0] + 
+                                   '\n    ' + vendorMatch[0] +
+                                   html.slice(insertPos);
+                        }
                     }
                 }
                 
