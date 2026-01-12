@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -30,15 +32,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run dist -- --publish always
-      
-      - name: Publish Release if Draft
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        shell: pwsh
-        run: |
-          $VERSION = node -p "require('./package.json').version"
-          gh auth setup-git
-          gh auth setup-git
-          gh release edit v$VERSION --draft=false || echo "Release already published or not found"
