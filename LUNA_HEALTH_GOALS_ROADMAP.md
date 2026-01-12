@@ -1,242 +1,410 @@
 # 🎯 Luna Health - Roadmap: Sistema de Objetivos Inteligente
 
-## 📋 Problema Identificado
+## 📋 Visão Geral
 
-O sistema atual de objetivos é simplista e não cobre cenários reais:
-
-### Cenário Problemático:
-- Usuária: 84kg, objetivo "Ganhar Massa", peso alvo: 84kg
-- **Resultado atual**: 0 calorias (porque target_weight == current_weight)
-- **Problema**: O sistema não entende "recomposição corporal"
-
-### Limitações Atuais:
-1. Apenas 3 objetivos: Emagrecer, Manter peso, Ganhar massa
-2. Cálculo baseado apenas em déficit/superávit calórico
-3. Não considera composição corporal (gordura vs músculo)
-4. Não diferencia tipos de ganho de massa (magra vs peso total)
+O Luna Health será integrado com o sistema de treinos da academia, oferecendo objetivos nutricionais que vão além do básico (emagrecer/manter/ganhar), incluindo metas de **alta performance**, **hipertrofia**, **definição muscular** e outros objetivos específicos para atletas e praticantes de musculação.
 
 ---
 
-## 🎯 Fase 1 - Novos Tipos de Objetivos
+## 🏋️ Categorias de Objetivos
 
-### Objetivos Expandidos
+### Categoria 1: Objetivos Básicos (Público Geral)
 
-| Objetivo | Descrição | Estratégia Calórica |
-|----------|-----------|---------------------|
-| **Emagrecer** | Perder peso total | Déficit de 300-500 kcal |
-| **Manter peso** | Peso estável | TDEE neutro |
-| **Ganhar massa magra** | Aumentar músculo, peso pode subir | Superávit de 200-300 kcal |
-| **Recomposição corporal** | Perder gordura + ganhar músculo (peso similar) | TDEE neutro + alta proteína |
-| **Ganhar peso** | Aumento de peso geral | Superávit de 500 kcal |
-| **Secar (cutting)** | Definição muscular, perda de gordura | Déficit moderado + alta proteína |
-| **Bulking limpo** | Ganho de massa com mínima gordura | Superávit leve + alta proteína |
+| ID | Objetivo | Descrição | Calorias | Proteína |
+|----|----------|-----------|----------|----------|
+| `lose` | **Emagrecer** | Perder peso de forma saudável | TDEE - 500 | 2.0g/kg |
+| `maintain` | **Manter peso** | Estabilizar peso atual | TDEE | 1.6g/kg |
+| `gain` | **Ganhar peso** | Aumento de peso geral | TDEE + 500 | 1.8g/kg |
 
-### Tarefas - Backend
+### Categoria 2: Objetivos de Composição Corporal (Praticantes de Musculação)
 
-- [ ] **T1.1 - Expandir enum de objetivos**
-  - Arquivo: `server/health/routes.py`
-  - Adicionar novos tipos: `recomposition`, `lean_gain`, `cutting`, `clean_bulk`
-  - Atualizar `adjust_calories_for_goal()` e `calculate_macros()`
+| ID | Objetivo | Descrição | Calorias | Proteína |
+|----|----------|-----------|----------|----------|
+| `recomposition` | **Recomposição Corporal** | Trocar gordura por músculo, peso similar | TDEE | 2.4g/kg |
+| `hypertrophy` | **Hipertrofia** | Foco em ganho de massa muscular máximo | TDEE + 300-500 | 2.2g/kg |
+| `lean_gain` | **Lean Bulk** | Ganho de massa com mínima gordura | TDEE + 200 | 2.2g/kg |
+| `cutting` | **Cutting / Secar** | Definição muscular, perder gordura preservando músculo | TDEE - 400 | 2.5g/kg |
+| `definition` | **Definição** | Manter massa, reduzir % gordura | TDEE - 200 | 2.2g/kg |
 
-- [ ] **T1.2 - Lógica de recomposição corporal**
-  - Quando objetivo = "recomposition":
-    - Calorias = TDEE (neutro)
-    - Proteína = 2.2g/kg (máximo para preservar/ganhar músculo)
-    - Carbs = moderado (35-40%)
-    - Gorduras = completar resto
+### Categoria 3: Objetivos de Alta Performance (Atletas)
 
-- [ ] **T1.3 - Validar cenário peso_alvo == peso_atual**
-  - Se `goal == "gain"` e `target_weight == current_weight`:
-    - Assumir objetivo é "recomposition"
-    - Mostrar aviso/sugestão para o usuário
-  - Nunca retornar 0 calorias
+| ID | Objetivo | Descrição | Calorias | Proteína |
+|----|----------|-----------|----------|----------|
+| `performance` | **Alta Performance** | Maximizar energia e recuperação para treinos intensos | TDEE + 300 | 2.0g/kg |
+| `endurance` | **Resistência / Endurance** | Foco em cardio, maratonas, ciclismo | TDEE + 500 (carbs altos) | 1.6g/kg |
+| `strength` | **Força Máxima** | Powerlifting, levantamento de peso | TDEE + 400 | 2.0g/kg |
+| `athletic` | **Condicionamento Atlético** | Esportes em geral, agilidade, explosão | TDEE + 200 | 1.8g/kg |
+| `competition_prep` | **Preparação para Competição** | Fase final antes de competição (bodybuilding) | TDEE - 600 | 2.8g/kg |
+| `off_season` | **Off-Season** | Período de recuperação e construção pós-competição | TDEE + 600 | 2.0g/kg |
 
-### Tarefas - Frontend
+### Categoria 4: Objetivos de Saúde (Especiais)
 
-- [ ] **T1.4 - Atualizar dropdown de objetivos**
-  - Arquivo: `src/components/health/GoalsTab.jsx`
-  - Adicionar novas opções com descrições claras
-  
-- [ ] **T1.5 - Tooltips explicativos**
-  - Cada objetivo tem uma descrição curta
-  - Ex: "Recomposição: Ideal para quem quer manter o peso mas trocar gordura por músculo"
+| ID | Objetivo | Descrição | Calorias | Proteína |
+|----|----------|-----------|----------|----------|
+| `health_improve` | **Melhorar Saúde** | Foco em qualidade nutricional, não peso | TDEE | 1.4g/kg |
+| `energy_boost` | **Aumentar Energia** | Combater fadiga, melhorar disposição | TDEE + 100 (carbs) | 1.6g/kg |
+| `recovery` | **Recuperação** | Pós-lesão, pós-cirurgia, recuperação muscular | TDEE + 200 | 2.0g/kg |
+| `longevity` | **Longevidade** | Alimentação anti-inflamatória, saúde a longo prazo | TDEE - 100 | 1.2g/kg |
 
 ---
 
-## 📊 Fase 2 - Cálculos Mais Inteligentes
+## 🔧 Configurações por Objetivo
 
-### Melhorias nos Cálculos
+### Distribuição de Macros por Objetivo
 
-- [ ] **T2.1 - Usar peso no cálculo de proteína**
-  - Atualmente: porcentagem fixa das calorias
-  - Novo: `proteína = peso_atual * fator_proteico`
-  - Fatores:
-    - Emagrecer: 2.0-2.2g/kg
-    - Manter: 1.6-1.8g/kg  
-    - Recomposição: 2.2-2.4g/kg
-    - Ganho de massa: 1.8-2.0g/kg
-
-- [ ] **T2.2 - Considerar % de gordura corporal (opcional)**
-  - Adicionar campo opcional: `body_fat_percentage`
-  - Usar para cálculos mais precisos (massa magra)
-  - Se não informado, usar estimativas por sexo/idade
-
-- [ ] **T2.3 - Taxa de mudança de peso**
-  - Adicionar campo: `weekly_goal` (kg/semana desejado)
-  - Calcular déficit/superávit baseado nisso
-  - Ex: -0.5kg/semana = -500 kcal/dia
-
-- [ ] **T2.4 - Validações e limites de segurança**
-  - Mínimo de calorias: 
-    - Homens: 1500 kcal
-    - Mulheres: 1200 kcal
-  - Alerta se déficit > 1000 kcal
-  - Alerta se proteína < 0.8g/kg
-
----
-
-## 🧠 Fase 3 - Inteligência do Agente
-
-### Melhorias no Health Agent
-
-- [ ] **T3.1 - Perguntas de onboarding mais detalhadas**
-  - "Qual seu objetivo principal?"
-  - "Você treina musculação regularmente?"
-  - "Prefere perder peso devagar ou mais rápido?"
-  - "Tem alguma restrição alimentar?"
-
-- [ ] **T3.2 - Sugestão automática de objetivo**
-  - Baseado nas respostas do usuário:
-    - Treina + quer manter peso = Recomposição
-    - Não treina + quer perder peso = Emagrecer
-    - Treina + quer ganhar peso = Ganho de massa magra
-
-- [ ] **T3.3 - Alertas inteligentes**
-  - Se peso_alvo == peso_atual e objetivo == ganhar:
-    - "Você quer manter o peso mas ganhar músculo? Isso se chama recomposição corporal!"
-  - Se déficit muito agressivo:
-    - "Esse déficit pode ser muito agressivo. Quer ajustar?"
-
-- [ ] **T3.4 - Explicações educativas**
-  - Ao sugerir metas, explicar o "porquê":
-    - "Sugiro 2000 kcal porque você quer emagrecer 0.5kg por semana"
-    - "Proteína alta (150g) porque você treina e quer preservar músculo"
-
----
-
-## 🎨 Fase 4 - UX e Visualização
-
-### Melhorias na Interface
-
-- [ ] **T4.1 - Wizard de configuração de metas**
-  - Passo 1: Dados básicos (peso, altura, idade, sexo)
-  - Passo 2: Objetivo (com explicações visuais)
-  - Passo 3: Nível de atividade (com exemplos)
-  - Passo 4: Preferências (velocidade de mudança)
-  - Passo 5: Revisão e confirmação
-
-- [ ] **T4.2 - Cards visuais de objetivo**
-  - Cada objetivo tem um card com:
-    - Ícone representativo
-    - Descrição curta
-    - "Ideal para quem..."
-    - Exemplo de resultado esperado
-
-- [ ] **T4.3 - Gráfico de projeção**
-  - Mostrar projeção de peso ao longo do tempo
-  - "Se você seguir este plano, em 3 meses estará com X kg"
-
-- [ ] **T4.4 - Indicadores de progresso por objetivo**
-  - Emagrecer: Foco em deficit calórico
-  - Recomposição: Foco em proteína + treino
-  - Ganho de massa: Foco em superávit + proteína
-
----
-
-## 📱 Fase 5 - Integração com Treino (Futuro)
-
-### Conexão com Atividade Física
-
-- [ ] **T5.1 - Campo de frequência de treino**
-  - Quantos dias treina por semana
-  - Tipo de treino (musculação, cardio, misto)
-
-- [ ] **T5.2 - Ajuste de calorias por dia de treino**
-  - Dias de treino: +200-300 kcal (carbs)
-  - Dias de descanso: manter base
-  - Cycling de carboidratos automático
-
-- [ ] **T5.3 - Sugestão de timing de refeições**
-  - Pré-treino: carbs + proteína
-  - Pós-treino: proteína + carbs rápidos
-  - Antes de dormir: proteína lenta (caseína)
-
----
-
-## 🔧 Implementação Imediata (Hotfix)
-
-### Correção do Bug "0 calorias"
-
-**Prioridade**: CRÍTICA
-
-```python
-# Em adjust_calories_for_goal():
-def adjust_calories_for_goal(tdee: float, goal: str, current_weight: float = None, target_weight: float = None) -> float:
-    """
-    Ajusta calorias baseado no objetivo.
-    
-    NOVO: Se goal == "gain" e target_weight == current_weight,
-    trata como recomposição (TDEE neutro + alta proteína)
-    """
-    goal_lower = goal.lower()
-    
-    # Detectar recomposição implícita
-    if goal_lower == "gain" and current_weight and target_weight:
-        if abs(target_weight - current_weight) < 1:  # Diferença < 1kg
-            # Recomposição corporal - manter calorias, ajustar macros
-            return tdee
-    
-    if goal_lower == "lose":
-        return max(tdee - 500, tdee * 0.8, 1200)  # Mínimo 1200 kcal
-    elif goal_lower == "gain":
-        return tdee + 300  # Superávit moderado para ganho limpo
-    elif goal_lower == "recomposition":
-        return tdee  # Neutro
-    else:  # maintain
-        return tdee
+```
+┌─────────────────────┬──────────┬──────────┬──────────┐
+│ Objetivo            │ Proteína │ Carbs    │ Gorduras │
+├─────────────────────┼──────────┼──────────┼──────────┤
+│ Emagrecer           │ 30%      │ 35%      │ 35%      │
+│ Manter peso         │ 25%      │ 45%      │ 30%      │
+│ Ganhar peso         │ 20%      │ 50%      │ 30%      │
+├─────────────────────┼──────────┼──────────┼──────────┤
+│ Recomposição        │ 35%      │ 35%      │ 30%      │
+│ Hipertrofia         │ 30%      │ 45%      │ 25%      │
+│ Lean Bulk           │ 30%      │ 40%      │ 30%      │
+│ Cutting             │ 40%      │ 30%      │ 30%      │
+│ Definição           │ 35%      │ 35%      │ 30%      │
+├─────────────────────┼──────────┼──────────┼──────────┤
+│ Alta Performance    │ 25%      │ 50%      │ 25%      │
+│ Endurance           │ 15%      │ 60%      │ 25%      │
+│ Força Máxima        │ 25%      │ 45%      │ 30%      │
+│ Condicionamento     │ 25%      │ 50%      │ 25%      │
+│ Prep. Competição    │ 45%      │ 25%      │ 30%      │
+│ Off-Season          │ 25%      │ 50%      │ 25%      │
+├─────────────────────┼──────────┼──────────┼──────────┤
+│ Melhorar Saúde      │ 25%      │ 40%      │ 35%      │
+│ Aumentar Energia    │ 20%      │ 55%      │ 25%      │
+│ Recuperação         │ 30%      │ 45%      │ 25%      │
+│ Longevidade         │ 20%      │ 40%      │ 40%      │
+└─────────────────────┴──────────┴──────────┴──────────┘
 ```
 
-### Correção Imediata - Frontend
+### Proteína por kg de Peso Corporal
+
+| Objetivo | g/kg | Justificativa |
+|----------|------|---------------|
+| Emagrecer | 2.0-2.2 | Preservar massa muscular em déficit |
+| Manter | 1.6-1.8 | Manutenção básica |
+| Ganhar peso | 1.8-2.0 | Suporte ao crescimento |
+| Recomposição | 2.2-2.4 | Máximo para troca de composição |
+| **Hipertrofia** | **2.0-2.2** | Síntese proteica ótima |
+| Lean Bulk | 2.0-2.2 | Ganho muscular limpo |
+| **Cutting** | **2.4-2.6** | Preservação máxima em déficit |
+| Definição | 2.2-2.4 | Manter músculo, perder gordura |
+| **Alta Performance** | **1.8-2.0** | Recuperação + energia |
+| Endurance | 1.4-1.6 | Foco em carbs para energia |
+| Força Máxima | 2.0-2.2 | Força e recuperação |
+| **Prep. Competição** | **2.6-3.0** | Preservação extrema |
+| Off-Season | 1.8-2.0 | Crescimento relaxado |
+
+---
+
+## 🏢 Integração com Sistema de Treinos da Academia
+
+### Fase 1: Sincronização de Dados
+
+- [ ] **T-INT-1.1 - API de integração com sistema da academia**
+  - Endpoint para receber dados de treino do usuário
+  - Formato: `{ user_id, workout_type, intensity, duration, calories_burned }`
+
+- [ ] **T-INT-1.2 - Ajuste automático de calorias**
+  - Dias de treino intenso: +200-400 kcal
+  - Dias de cardio longo: +300-600 kcal (principalmente carbs)
+  - Dias de descanso: calorias base
+
+- [ ] **T-INT-1.3 - Detecção automática de objetivo**
+  - Baseado no programa de treino da academia:
+    - Treino de hipertrofia detectado → sugerir objetivo "Hipertrofia"
+    - Treino de resistência detectado → sugerir objetivo "Endurance"
+    - Treino misto → sugerir objetivo "Alta Performance"
+
+### Fase 2: Timing Nutricional
+
+- [ ] **T-INT-2.1 - Sugestão de refeições pré/pós-treino**
+  - Sincronizar com horário de treino da academia
+  - Pré-treino (1-2h antes): carbs + proteína moderada
+  - Pós-treino (até 2h depois): proteína + carbs rápidos
+
+- [ ] **T-INT-2.2 - Periodização nutricional**
+  - Semanas de volume alto: +10% calorias
+  - Semanas de deload: calorias base
+  - Fase de competição: ajuste progressivo
+
+### Fase 3: Relatórios Integrados
+
+- [ ] **T-INT-3.1 - Dashboard unificado**
+  - Mostrar treino + nutrição lado a lado
+  - Correlação: "Seu desempenho melhora quando você come X calorias"
+
+- [ ] **T-INT-3.2 - Alertas inteligentes**
+  - "Você treinou pesado ontem mas não bateu a meta de proteína"
+  - "Amanhã é dia de perna, considere aumentar os carbs hoje"
+
+---
+
+## 🎯 Implementação dos Novos Objetivos
+
+### Backend - Atualizar `server/health/routes.py`
+
+```python
+# Todos os objetivos disponíveis
+AVAILABLE_GOALS = {
+    # Básicos
+    "lose": {
+        "name": "Emagrecer",
+        "category": "basic",
+        "calorie_adjustment": -500,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.35,
+        "description": "Perder peso de forma saudável e sustentável"
+    },
+    "maintain": {
+        "name": "Manter peso",
+        "category": "basic",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.30,
+        "description": "Estabilizar peso atual"
+    },
+    "gain": {
+        "name": "Ganhar peso",
+        "category": "basic",
+        "calorie_adjustment": 500,
+        "protein_per_kg": 1.8,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.30,
+        "description": "Aumento de peso geral"
+    },
+    
+    # Composição Corporal
+    "recomposition": {
+        "name": "Recomposição Corporal",
+        "category": "body_composition",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 2.4,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.30,
+        "description": "Trocar gordura por músculo mantendo peso similar"
+    },
+    "hypertrophy": {
+        "name": "Hipertrofia",
+        "category": "body_composition",
+        "calorie_adjustment": 400,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.25,
+        "description": "Foco máximo em ganho de massa muscular"
+    },
+    "lean_gain": {
+        "name": "Lean Bulk",
+        "category": "body_composition",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.30,
+        "description": "Ganho de massa com mínimo acúmulo de gordura"
+    },
+    "cutting": {
+        "name": "Cutting / Secar",
+        "category": "body_composition",
+        "calorie_adjustment": -400,
+        "protein_per_kg": 2.5,
+        "carbs_pct": 0.30,
+        "fats_pct": 0.30,
+        "description": "Definição muscular, perder gordura preservando músculo"
+    },
+    "definition": {
+        "name": "Definição",
+        "category": "body_composition",
+        "calorie_adjustment": -200,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.30,
+        "description": "Manter massa, reduzir percentual de gordura"
+    },
+    
+    # Alta Performance
+    "performance": {
+        "name": "Alta Performance",
+        "category": "performance",
+        "calorie_adjustment": 300,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Maximizar energia e recuperação para treinos intensos"
+    },
+    "endurance": {
+        "name": "Resistência / Endurance",
+        "category": "performance",
+        "calorie_adjustment": 500,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.60,
+        "fats_pct": 0.25,
+        "description": "Foco em cardio, maratonas, ciclismo - carbs altos"
+    },
+    "strength": {
+        "name": "Força Máxima",
+        "category": "performance",
+        "calorie_adjustment": 400,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.30,
+        "description": "Powerlifting, levantamento de peso"
+    },
+    "athletic": {
+        "name": "Condicionamento Atlético",
+        "category": "performance",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 1.8,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Esportes em geral, agilidade, explosão"
+    },
+    "competition_prep": {
+        "name": "Preparação para Competição",
+        "category": "performance",
+        "calorie_adjustment": -600,
+        "protein_per_kg": 2.8,
+        "carbs_pct": 0.25,
+        "fats_pct": 0.30,
+        "description": "Fase final antes de competição de bodybuilding"
+    },
+    "off_season": {
+        "name": "Off-Season",
+        "category": "performance",
+        "calorie_adjustment": 600,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Período de recuperação e construção pós-competição"
+    },
+    
+    # Saúde
+    "health_improve": {
+        "name": "Melhorar Saúde",
+        "category": "health",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 1.4,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.35,
+        "description": "Foco em qualidade nutricional, não peso"
+    },
+    "energy_boost": {
+        "name": "Aumentar Energia",
+        "category": "health",
+        "calorie_adjustment": 100,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.55,
+        "fats_pct": 0.25,
+        "description": "Combater fadiga, melhorar disposição"
+    },
+    "recovery": {
+        "name": "Recuperação",
+        "category": "health",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.25,
+        "description": "Pós-lesão, pós-cirurgia, recuperação muscular"
+    },
+    "longevity": {
+        "name": "Longevidade",
+        "category": "health",
+        "calorie_adjustment": -100,
+        "protein_per_kg": 1.2,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.40,
+        "description": "Alimentação anti-inflamatória, saúde a longo prazo"
+    }
+}
+```
+
+### Frontend - Atualizar `GoalsTab.jsx`
 
 ```javascript
-// Em GoalsTab.jsx - Expandir opções de objetivo
-const objectives = [
-    { value: "lose", label: "Emagrecer", description: "Perder peso com déficit calórico" },
-    { value: "maintain", label: "Manter peso", description: "Manter peso atual estável" },
-    { value: "gain", label: "Ganhar massa", description: "Aumentar peso e músculo" },
-    { value: "recomposition", label: "Recomposição corporal", description: "Trocar gordura por músculo (peso similar)" },
+const GOAL_CATEGORIES = {
+    basic: {
+        label: "Objetivos Básicos",
+        description: "Para quem está começando ou tem metas simples",
+        icon: "🎯"
+    },
+    body_composition: {
+        label: "Composição Corporal",
+        description: "Para praticantes de musculação",
+        icon: "💪"
+    },
+    performance: {
+        label: "Alta Performance",
+        description: "Para atletas e treinos intensos",
+        icon: "🏆"
+    },
+    health: {
+        label: "Saúde & Bem-estar",
+        description: "Foco em qualidade de vida",
+        icon: "❤️"
+    }
+};
+
+const GOALS = [
+    // Básicos
+    { id: "lose", label: "Emagrecer", category: "basic", icon: "📉", description: "Perder peso de forma saudável" },
+    { id: "maintain", label: "Manter peso", category: "basic", icon: "⚖️", description: "Estabilizar peso atual" },
+    { id: "gain", label: "Ganhar peso", category: "basic", icon: "📈", description: "Aumento de peso geral" },
+    
+    // Composição Corporal
+    { id: "recomposition", label: "Recomposição", category: "body_composition", icon: "🔄", description: "Trocar gordura por músculo" },
+    { id: "hypertrophy", label: "Hipertrofia", category: "body_composition", icon: "💪", description: "Máximo ganho muscular" },
+    { id: "lean_gain", label: "Lean Bulk", category: "body_composition", icon: "🌱", description: "Ganho limpo de massa" },
+    { id: "cutting", label: "Cutting", category: "body_composition", icon: "🔪", description: "Secar preservando músculo" },
+    { id: "definition", label: "Definição", category: "body_composition", icon: "✨", description: "Reduzir % de gordura" },
+    
+    // Performance
+    { id: "performance", label: "Alta Performance", category: "performance", icon: "🚀", description: "Energia e recuperação máximas" },
+    { id: "endurance", label: "Endurance", category: "performance", icon: "🏃", description: "Resistência e cardio" },
+    { id: "strength", label: "Força Máxima", category: "performance", icon: "🏋️", description: "Powerlifting, peso pesado" },
+    { id: "athletic", label: "Condicionamento", category: "performance", icon: "⚡", description: "Esportes, agilidade" },
+    { id: "competition_prep", label: "Prep. Competição", category: "performance", icon: "🏆", description: "Fase final de contest" },
+    { id: "off_season", label: "Off-Season", category: "performance", icon: "🌴", description: "Recuperação pós-competição" },
+    
+    // Saúde
+    { id: "health_improve", label: "Melhorar Saúde", category: "health", icon: "❤️", description: "Qualidade nutricional" },
+    { id: "energy_boost", label: "Mais Energia", category: "health", icon: "⚡", description: "Combater fadiga" },
+    { id: "recovery", label: "Recuperação", category: "health", icon: "🩹", description: "Pós-lesão ou cirurgia" },
+    { id: "longevity", label: "Longevidade", category: "health", icon: "🧬", description: "Saúde a longo prazo" },
 ];
 ```
 
 ---
 
-## 📅 Cronograma Sugerido
+## 📅 Cronograma de Implementação
 
-### Sprint 1 (1 semana) - Hotfix + Base
-- T1.1, T1.2, T1.3 (Backend)
-- T1.4, T1.5 (Frontend)
-- Correção do bug "0 calorias"
+### Sprint 1 (Atual - 1 semana) ✅
+- [x] Adicionar objetivo "Recomposição Corporal"
+- [x] Corrigir bug de "0 calorias"
+- [x] Cálculo de proteína por kg de peso
 
-### Sprint 2 (1 semana) - Cálculos
-- T2.1, T2.2, T2.3, T2.4
+### Sprint 2 (Próxima - 1 semana)
+- [ ] Adicionar todos os objetivos de Composição Corporal
+- [ ] Atualizar UI para seleção por categorias
+- [ ] Adicionar descrições e dicas por objetivo
 
-### Sprint 3 (2 semanas) - Agente + UX
-- T3.1, T3.2, T3.3, T3.4
-- T4.1, T4.2
+### Sprint 3 (2 semanas)
+- [ ] Adicionar objetivos de Alta Performance
+- [ ] Adicionar objetivos de Saúde
+- [ ] Criar endpoint `/health/goals/list` para listar objetivos disponíveis
 
-### Sprint 4+ (Futuro)
-- T4.3, T4.4
-- T5.x (Integração com treino)
+### Sprint 4 (2 semanas)
+- [ ] Integração inicial com sistema de treinos da academia
+- [ ] API de sincronização de treinos
+- [ ] Ajuste automático de calorias por dia de treino
+
+### Sprint 5+ (Futuro)
+- [ ] Timing nutricional (pré/pós-treino)
+- [ ] Periodização nutricional
+- [ ] Dashboard integrado treino + nutrição
 
 ---
 
@@ -248,22 +416,63 @@ const objectives = [
 - Homens: `(10 × peso) + (6.25 × altura) - (5 × idade) + 5`
 - Mulheres: `(10 × peso) + (6.25 × altura) - (5 × idade) - 161`
 
-**Proteína por kg de peso:**
-| Objetivo | g/kg |
-|----------|------|
-| Sedentário | 0.8-1.0 |
-| Emagrecer | 2.0-2.2 |
-| Manter (ativo) | 1.6-1.8 |
-| Recomposição | 2.2-2.4 |
-| Ganho de massa | 1.8-2.0 |
+**Multiplicadores de Atividade (TDEE):**
+| Nível | Multiplicador | Descrição |
+|-------|---------------|-----------|
+| Sedentário | 1.2 | Pouca ou nenhuma atividade |
+| Leve | 1.375 | 1-3 dias/semana |
+| Moderado | 1.55 | 3-5 dias/semana |
+| Ativo | 1.725 | 6-7 dias/semana |
+| Muito ativo | 1.9 | Atleta, 2x/dia |
 
-**Déficit/Superávit calórico:**
-- 500 kcal/dia = ~0.5 kg/semana
-- 1000 kcal/dia = ~1 kg/semana (agressivo)
-- Recomendado: 300-500 kcal para perda sustentável
+### Limites de Segurança
+
+| Parâmetro | Mínimo | Máximo | Alerta |
+|-----------|--------|--------|--------|
+| Calorias (♂) | 1500 | 5000 | < 1200 |
+| Calorias (♀) | 1200 | 4000 | < 1000 |
+| Proteína | 0.8g/kg | 3.5g/kg | > 3.0g/kg |
+| Gordura | 20% cal | 45% cal | < 15% |
+| Déficit | - | 1000 kcal | > 750 kcal |
 
 ---
 
-**Criado em**: 2025-01-12
-**Autor**: Luna AI Assistant
-**Versão**: 1.0
+## 🔗 Notas sobre Integração com Academia
+
+### Dados Necessários do Sistema de Treinos
+
+```json
+{
+    "user_id": "firebase_uid",
+    "workout": {
+        "date": "2025-01-12",
+        "type": "strength",           // strength, cardio, hiit, mixed
+        "muscle_groups": ["chest", "triceps"],
+        "intensity": "high",          // low, medium, high, max
+        "duration_minutes": 75,
+        "calories_burned": 450,       // se disponível
+        "program": "hypertrophy_12wk" // programa atual
+    }
+}
+```
+
+### Webhook de Atualização
+
+Quando o usuário completar um treino na academia, o sistema enviará um webhook para o Luna Health:
+
+```
+POST /health/sync/workout
+{
+    "user_id": "...",
+    "workout_completed": { ... }
+}
+```
+
+O Luna Health responderá ajustando as metas do dia se necessário.
+
+---
+
+**Criado em**: 2025-01-12  
+**Atualizado em**: 2025-01-12  
+**Autor**: Luna AI Assistant  
+**Versão**: 2.0 (Integração Academia)
