@@ -2,7 +2,9 @@
 
 ## 📋 Visão Geral
 
-O Luna Health será integrado com o sistema de treinos da academia, oferecendo objetivos nutricionais que vão além do básico (emagrecer/manter/ganhar), incluindo metas de **alta performance**, **hipertrofia**, **definição muscular** e outros objetivos específicos para atletas e praticantes de musculação.
+O Luna Health oferece objetivos nutricionais que vão além do básico (emagrecer/manter/ganhar), incluindo metas de **alta performance**, **hipertrofia**, **definição muscular** e outros objetivos específicos para atletas e praticantes de musculação.
+
+> **Nota**: A integração com sistema de treinos de academia será desenvolvida em módulo separado (Luna Gym) no futuro.
 
 ---
 
@@ -100,46 +102,13 @@ O Luna Health será integrado com o sistema de treinos da academia, oferecendo o
 
 ---
 
-## 🏢 Integração com Sistema de Treinos da Academia
+## 🏢 Integração com Sistema de Treinos (Futuro - Luna Gym)
 
-### Fase 1: Sincronização de Dados
-
-- [ ] **T-INT-1.1 - API de integração com sistema da academia**
-  - Endpoint para receber dados de treino do usuário
-  - Formato: `{ user_id, workout_type, intensity, duration, calories_burned }`
-
-- [ ] **T-INT-1.2 - Ajuste automático de calorias**
-  - Dias de treino intenso: +200-400 kcal
-  - Dias de cardio longo: +300-600 kcal (principalmente carbs)
-  - Dias de descanso: calorias base
-
-- [ ] **T-INT-1.3 - Detecção automática de objetivo**
-  - Baseado no programa de treino da academia:
-    - Treino de hipertrofia detectado → sugerir objetivo "Hipertrofia"
-    - Treino de resistência detectado → sugerir objetivo "Endurance"
-    - Treino misto → sugerir objetivo "Alta Performance"
-
-### Fase 2: Timing Nutricional
-
-- [ ] **T-INT-2.1 - Sugestão de refeições pré/pós-treino**
-  - Sincronizar com horário de treino da academia
-  - Pré-treino (1-2h antes): carbs + proteína moderada
-  - Pós-treino (até 2h depois): proteína + carbs rápidos
-
-- [ ] **T-INT-2.2 - Periodização nutricional**
-  - Semanas de volume alto: +10% calorias
-  - Semanas de deload: calorias base
-  - Fase de competição: ajuste progressivo
-
-### Fase 3: Relatórios Integrados
-
-- [ ] **T-INT-3.1 - Dashboard unificado**
-  - Mostrar treino + nutrição lado a lado
-  - Correlação: "Seu desempenho melhora quando você come X calorias"
-
-- [ ] **T-INT-3.2 - Alertas inteligentes**
-  - "Você treinou pesado ontem mas não bateu a meta de proteína"
-  - "Amanhã é dia de perna, considere aumentar os carbs hoje"
+> ⏳ **Esta seção será desenvolvida em módulo separado (Luna Gym)**
+> 
+> A integração com sistema de treinos de academia será feita quando o módulo Luna Gym for criado.
+> Por hora, o Luna Health funciona de forma independente, e o usuário pode informar manualmente
+> via chat: "treinei hoje, treino pesado de 1h30" e a Luna pode dar sugestões baseadas nisso.
 
 ---
 
@@ -381,30 +350,25 @@ const GOALS = [
 
 ## 📅 Cronograma de Implementação
 
-### Sprint 1 (Atual - 1 semana) ✅
+### Sprint 1 (Concluída) ✅
 - [x] Adicionar objetivo "Recomposição Corporal"
 - [x] Corrigir bug de "0 calorias"
 - [x] Cálculo de proteína por kg de peso
 
 ### Sprint 2 (Próxima - 1 semana)
-- [ ] Adicionar todos os objetivos de Composição Corporal
+- [ ] Adicionar objetivos de Composição Corporal (Hipertrofia, Cutting, Lean Bulk, Definição)
 - [ ] Atualizar UI para seleção por categorias
 - [ ] Adicionar descrições e dicas por objetivo
 
-### Sprint 3 (2 semanas)
-- [ ] Adicionar objetivos de Alta Performance
-- [ ] Adicionar objetivos de Saúde
+### Sprint 3 (1-2 semanas)
+- [ ] Adicionar objetivos de Alta Performance (Endurance, Força, Condicionamento)
+- [ ] Adicionar objetivos de Saúde (Energia, Recuperação, Longevidade)
 - [ ] Criar endpoint `/health/goals/list` para listar objetivos disponíveis
 
-### Sprint 4 (2 semanas)
-- [ ] Integração inicial com sistema de treinos da academia
-- [ ] API de sincronização de treinos
+### Futuro (Luna Gym)
+- [ ] Módulo separado para gerenciamento de treinos
+- [ ] Integração Luna Health ↔ Luna Gym
 - [ ] Ajuste automático de calorias por dia de treino
-
-### Sprint 5+ (Futuro)
-- [ ] Timing nutricional (pré/pós-treino)
-- [ ] Periodização nutricional
-- [ ] Dashboard integrado treino + nutrição
 
 ---
 
@@ -437,42 +401,23 @@ const GOALS = [
 
 ---
 
-## 🔗 Notas sobre Integração com Academia
+## 💬 Integração Manual via Chat (MVP)
 
-### Dados Necessários do Sistema de Treinos
+Enquanto o Luna Gym não existe, o usuário pode informar treinos manualmente via chat:
 
-```json
-{
-    "user_id": "firebase_uid",
-    "workout": {
-        "date": "2025-01-12",
-        "type": "strength",           // strength, cardio, hiit, mixed
-        "muscle_groups": ["chest", "triceps"],
-        "intensity": "high",          // low, medium, high, max
-        "duration_minutes": 75,
-        "calories_burned": 450,       // se disponível
-        "program": "hypertrophy_12wk" // programa atual
-    }
-}
-```
+**Exemplos de interação:**
+- "Treinei peito e tríceps hoje, 1h30 intenso"
+- "Fiz cardio 45 minutos"
+- "Hoje é dia de descanso"
 
-### Webhook de Atualização
-
-Quando o usuário completar um treino na academia, o sistema enviará um webhook para o Luna Health:
-
-```
-POST /health/sync/workout
-{
-    "user_id": "...",
-    "workout_completed": { ... }
-}
-```
-
-O Luna Health responderá ajustando as metas do dia se necessário.
+A Luna pode responder com sugestões baseadas nisso:
+- "Ótimo treino! Lembre de consumir proteína nas próximas 2h para recuperação."
+- "Dia de treino pesado! Considere adicionar 200-300 kcal extras hoje."
+- "Dia de descanso é importante. Mantenha a proteína alta para recuperação."
 
 ---
 
 **Criado em**: 2025-01-12  
 **Atualizado em**: 2025-01-12  
 **Autor**: Luna AI Assistant  
-**Versão**: 2.0 (Integração Academia)
+**Versão**: 2.1 (Objetivos Independentes)
