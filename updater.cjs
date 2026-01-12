@@ -12,15 +12,38 @@ let mainWindow = null;
 autoUpdater.autoDownload = false; // Let user decide
 autoUpdater.autoInstallOnAppQuit = true;
 
+// Set update channel (stable)
+autoUpdater.channel = 'latest';
+
+// Enable logging for debugging
+autoUpdater.logger = {
+    info: (message) => console.log('[UPDATER]', message),
+    warn: (message) => console.warn('[UPDATER]', message),
+    error: (message) => console.error('[UPDATER]', message),
+};
+
 function setupAutoUpdater(window) {
     mainWindow = window;
 
+    // Read package.json to get current version
+    let currentVersion = '1.0.0';
+    try {
+        const packageJson = require('./package.json');
+        currentVersion = packageJson.version || '1.0.0';
+    } catch (e) {
+        console.warn('[UPDATER] Could not read package.json version');
+    }
+
     console.log('[UPDATER] Initializing auto-updater...');
+    console.log('[UPDATER] Current version:', currentVersion);
+    console.log('[UPDATER] Provider:', autoUpdater.provider?.constructor?.name || 'default');
 
     // Check for updates on startup (after window is ready)
     setTimeout(() => {
+        console.log('[UPDATER] Checking for updates...');
         autoUpdater.checkForUpdates().catch(err => {
-            console.log('[UPDATER] Check failed:', err.message);
+            console.error('[UPDATER] Check failed:', err.message);
+            console.error('[UPDATER] Error details:', err);
         });
     }, 3000);
 
