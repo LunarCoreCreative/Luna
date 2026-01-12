@@ -43,8 +43,8 @@ export default defineConfig({
                     html = html.replace(reactCoreRegex, '');
                     html = html.replace(vendorRegex, '');
                     
-                    // Encontra onde inserir (após o script tag, antes dos outros modulepreload)
-                    const scriptMatch = html.match(/<script[^>]*>/);
+                    // Encontra onde inserir (após o script tag fechado)
+                    const scriptMatch = html.match(/<script[^>]*><\/script>/);
                     if (scriptMatch) {
                         const insertPos = scriptMatch.index + scriptMatch[0].length;
                         // Insere react-core PRIMEIRO, depois vendor
@@ -53,14 +53,24 @@ export default defineConfig({
                                '\n    ' + vendorMatch[0] +
                                html.slice(insertPos);
                     } else {
-                        // Fallback: insere no início do head
-                        const headMatch = html.match(/<head[^>]*>/);
-                        if (headMatch) {
-                            const insertPos = headMatch.index + headMatch[0].length;
+                        // Procura por script auto-fechado
+                        const scriptSelfCloseMatch = html.match(/<script[^>]*\/>/);
+                        if (scriptSelfCloseMatch) {
+                            const insertPos = scriptSelfCloseMatch.index + scriptSelfCloseMatch[0].length;
                             html = html.slice(0, insertPos) + 
                                    '\n    ' + reactCoreMatch[0] + 
                                    '\n    ' + vendorMatch[0] +
                                    html.slice(insertPos);
+                        } else {
+                            // Fallback: insere após o title
+                            const titleMatch = html.match(/<title>.*?<\/title>/i);
+                            if (titleMatch) {
+                                const insertPos = titleMatch.index + titleMatch[0].length;
+                                html = html.slice(0, insertPos) + 
+                                       '\n    ' + reactCoreMatch[0] + 
+                                       '\n    ' + vendorMatch[0] +
+                                       html.slice(insertPos);
+                            }
                         }
                     }
                 }
