@@ -1,4 +1,4 @@
-﻿name: Build and Release
+name: Build and Release
 
 on:
   push:
@@ -36,7 +36,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
+        shell: pwsh
         run: |
           $VERSION = node -p "require('./package.json').version"
+          gh auth setup-git
           gh auth setup-git
           gh release edit v$VERSION --draft=false || echo "Release already published or not found"
