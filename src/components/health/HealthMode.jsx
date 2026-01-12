@@ -76,7 +76,8 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
         loadHealthProfile,
         loadHistoryData,
         loadWeightsData,
-        refresh
+        refresh,
+        setRefreshTrigger
     } = healthData;
     
     // Função para atualizar todos os dados (usada pelo HealthChat)

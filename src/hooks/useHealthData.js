@@ -287,6 +287,7 @@ export function useHealthData(userId, viewAsStudentId = null) {
         setFoods,
         setHealthProfile,
         setHistoryPeriod,
+        setRefreshTrigger,
         
         // Funções
         loadData,
