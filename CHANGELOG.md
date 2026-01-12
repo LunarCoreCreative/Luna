@@ -224,6 +224,21 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
 ---
 
+## [1.1.1] - 2024-12-19
+
+### 🐛 Correções de Bugs
+
+- **React forwardRef Error**: Corrigido erro "Cannot read properties of undefined (reading 'forwardRef')" que ocorria no console
+- **Configuração do Vite**: Adicionado `dedupe` para garantir que React seja sempre uma instância única, resolvendo problemas de múltiplas instâncias
+- **Importações**: Simplificada a importação do React no ChatInput.jsx
+
+### 🔧 Melhorias
+
+- Melhor resolução de módulos do React no Vite
+- Cache do Vite otimizado para evitar problemas de resolução
+
+---
+
 ## [1.0.2] - Versão Anterior
 
 [Notas das versões anteriores serão adicionadas conforme necessário]

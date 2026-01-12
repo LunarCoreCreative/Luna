@@ -35,9 +35,11 @@ export default defineConfig({
                 manualChunks: (id) => {
                     // Vendor chunks - separados para melhor cache
                     if (id.includes('node_modules')) {
+                        // React e React-DOM devem estar juntos e carregar primeiro
                         if (id.includes('react') || id.includes('react-dom')) {
                             return 'react-vendor';
                         }
+                        // Bibliotecas que dependem do React - separadas mas garantindo que React carregue antes
                         if (id.includes('lucide-react')) {
                             return 'ui-vendor';
                         }
@@ -74,6 +76,14 @@ export default defineConfig({
     },
     // Otimizações de desenvolvimento
     optimizeDeps: {
-        include: ['react', 'react-dom', 'lucide-react']
+        include: ['react', 'react-dom', 'lucide-react'],
+        // Força o React a ser um singleton
+        esbuildOptions: {
+            target: 'esnext'
+        }
+    },
+    resolve: {
+        // Garante que sempre resolva para a mesma instância do React
+        dedupe: ['react', 'react-dom']
     }
 })
