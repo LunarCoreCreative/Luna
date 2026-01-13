@@ -351,6 +351,7 @@ function App() {
     const messagesEndRef = useRef(null);
     const homeInputRef = useRef(null);
     const chatInputRef = useRef(null);
+    const bootHasRunRef = useRef(false);
 
     // Solicitar permissão de notificação no montar
     useEffect(() => {
@@ -464,17 +465,92 @@ function App() {
 
     const toggleTheme = () => setTheme(prev => prev === "dark" ? "light" : "dark");
 
-    // Boot Sequence
+    // Boot Sequence - Executa apenas uma vez
     useEffect(() => {
+        // Garante que o boot execute apenas uma vez
+        if (bootHasRunRef.current) {
+            return;
+        }
+        bootHasRunRef.current = true;
+        
         let retries = 0;
-        const maxRetries = 30; // Limita a 60 segundos (30 * 2s)
+        const maxRetries = 3; // Apenas 3 tentativas rápidas
+        const maxBootTime = 8000; // 8 segundos máximo para boot completo
+        const requestTimeout = 3000; // 3 segundos por requisição
+        let bootStartTime = Date.now();
+        let isBootComplete = false;
+        let currentTimeout = null;
+        let currentAbortController = null;
+        
+        // Função para finalizar boot em modo offline
+        const finishBootOffline = () => {
+            if (isBootComplete) return;
+            isBootComplete = true;
+            
+            // Limpa qualquer timeout ou abort controller pendente
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+                currentTimeout = null;
+            }
+            if (currentAbortController) {
+                currentAbortController.abort();
+                currentAbortController = null;
+            }
+            
+            console.warn('[BOOT] Carregando app em modo offline...');
+            setBootStatus("Carregando em modo offline...");
+            setLoadingState({ message: "Modo offline", subMessage: "Algumas funcionalidades podem estar limitadas", type: "loading" });
+            
+            // Tenta carregar chats mesmo assim (pode falhar, mas não trava)
+            chat.loadChats().catch(err => {
+                console.warn('[BOOT] Não foi possível carregar chats:', err);
+            }).finally(() => {
+                console.log('[BOOT] Finalizando boot após timeout...');
+                setTimeout(() => {
+                    setLoadingState(null);
+                    setAppState("READY");
+                    console.log('[BOOT] App pronto (modo offline)!');
+                }, 500);
+            });
+        };
+        
+        // Timeout máximo para boot - força o app a carregar mesmo sem servidor
+        const maxBootTimeout = setTimeout(() => {
+            console.warn('[BOOT] Timeout máximo atingido, forçando modo offline');
+            finishBootOffline();
+        }, maxBootTime);
+        
         const checkHealth = async () => {
+            // Verifica se já passou do tempo máximo
+            if (Date.now() - bootStartTime > maxBootTime) {
+                clearTimeout(maxBootTimeout);
+                finishBootOffline();
+                return;
+            }
+            
+            // Se já completou, para
+            if (isBootComplete) return;
+            
+            // Se já atingiu o máximo de tentativas, para
+            if (retries >= maxRetries) {
+                clearTimeout(maxBootTimeout);
+                finishBootOffline();
+                return;
+            }
+            
             try {
-                console.log(`[BOOT] Tentando conectar a ${MEMORY_SERVER}/health (tentativa ${retries + 1})`);
+                retries++;
+                console.log(`[BOOT] Tentativa ${retries}/${maxRetries} - Conectando a ${MEMORY_SERVER}/health`);
                 
-                // Timeout manual para compatibilidade
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                // Cria novo abort controller para esta tentativa
+                currentAbortController = new AbortController();
+                const controller = currentAbortController;
+                
+                // Timeout para a requisição
+                currentTimeout = setTimeout(() => {
+                    console.warn(`[BOOT] Timeout na requisição /health após ${requestTimeout/1000}s`);
+                    controller.abort();
+                }, requestTimeout);
                 
                 const r = await fetch(`${MEMORY_SERVER}/health`, {
                     method: 'GET',
@@ -484,7 +560,12 @@ function App() {
                     signal: controller.signal
                 });
                 
-                clearTimeout(timeoutId);
+                // Limpa timeout e controller após sucesso
+                if (currentTimeout) {
+                    clearTimeout(currentTimeout);
+                    currentTimeout = null;
+                }
+                currentAbortController = null;
                 
                 if (!r.ok) {
                     throw new Error(`HTTP ${r.status}: ${r.statusText}`);
@@ -494,50 +575,85 @@ function App() {
                 console.log('[BOOT] Resposta do servidor:', d);
                 
                 if (d.status === "ready") {
+                    clearTimeout(maxBootTimeout);
+                    isBootComplete = true;
                     setBootStatus("Carregando memórias...");
                     setLoadingState({ message: "Carregando memórias", subMessage: "Preparando sua experiência", type: "loading" });
-                    await chat.loadChats();
+                    
+                    // Adiciona timeout para loadChats para não travar
+                    try {
+                        console.log('[BOOT] Iniciando carregamento de chats...');
+                        const loadChatsPromise = chat.loadChats();
+                        const loadChatsTimeout = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Timeout ao carregar chats')), 5000)
+                        );
+                        await Promise.race([loadChatsPromise, loadChatsTimeout]);
+                        console.log('[BOOT] Chats carregados com sucesso');
+                    } catch (loadError) {
+                        console.warn('[BOOT] Erro ou timeout ao carregar chats:', loadError);
+                        // Continua mesmo se falhar
+                    }
+                    
+                    console.log('[BOOT] Finalizando boot...');
                     setLoadingState({ message: "Tudo pronto!", subMessage: "Bem-vindo de volta", type: "success" });
                     setTimeout(() => {
                         setLoadingState(null);
                         setAppState("READY");
+                        console.log('[BOOT] App pronto!');
                     }, 500);
                 } else {
-                    retries++;
-                    setBootStatus(`Aquecendo motores neurais... (${retries})`);
+                    // Status não está "ready", tenta novamente
+                    setBootStatus(`Aquecendo motores neurais... (${retries}/${maxRetries})`);
                     setLoadingState({ message: "Aquecendo motores neurais", subMessage: `Tentativa ${retries}/${maxRetries}`, type: "processing" });
                     if (retries < maxRetries) {
-                        setTimeout(checkHealth, 1000);
+                        currentTimeout = setTimeout(checkHealth, 500);
                     } else {
-                        setBootStatus(`Servidor não está pronto. Tentando novamente...`);
-                        setLoadingState({ message: "Servidor não está pronto", subMessage: "Tentando novamente...", type: "loading" });
-                        retries = 0;
-                        setTimeout(checkHealth, 2000);
+                        clearTimeout(maxBootTimeout);
+                        finishBootOffline();
                     }
                 }
             } catch (e) {
-                retries++;
-                console.error(`[BOOT] Erro na conexão (tentativa ${retries}):`, e);
+                // Limpa timeout e controller após erro
+                if (currentTimeout) {
+                    clearTimeout(currentTimeout);
+                    currentTimeout = null;
+                }
+                currentAbortController = null;
+                
+                const errorMsg = e.name === 'AbortError' ? 'Timeout' : e.message;
+                console.error(`[BOOT] Erro na conexão (tentativa ${retries}/${maxRetries}):`, errorMsg);
                 setBootStatus(`Tentando conexão com servidor... (${retries}/${maxRetries})`);
                 setLoadingState({ message: "Tentando conexão", subMessage: `Tentativa ${retries}/${maxRetries}`, type: "loading" });
                 
-                // Após muitas tentativas, mostra erro mas continua tentando
+                // Após muitas tentativas, força o carregamento
                 if (retries >= maxRetries) {
-                    setBootStatus(`Não foi possível conectar ao servidor em ${MEMORY_SERVER}. Verifique se o servidor Python está rodando.`);
-                    setLoadingState({ message: "Servidor não encontrado", subMessage: "Verifique se o servidor está rodando", type: "loading" });
-                    retries = 0; // Reinicia contador
+                    clearTimeout(maxBootTimeout);
+                    finishBootOffline();
+                    return; // Para de tentar
                 }
                 
-                setTimeout(checkHealth, 2000);
+                // Aguarda um pouco antes de tentar novamente
+                currentTimeout = setTimeout(checkHealth, 500);
             }
         };
+        
+        // Inicia a verificação
         checkHealth();
-    }, []);
+        
+        // Cleanup
+        return () => {
+            clearTimeout(maxBootTimeout);
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+            }
+            if (currentAbortController) {
+                currentAbortController.abort();
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Executa apenas uma vez na montagem
 
-    // Trigger initial overlay if enabled
-    useEffect(() => {
-        chat.loadChats();
-    }, []);
+    // Removido: loadChats já é chamado durante o boot sequence
 
     // Verificar versão e mostrar changelog após atualização
     useEffect(() => {

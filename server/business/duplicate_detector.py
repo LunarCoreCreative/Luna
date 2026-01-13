@@ -98,7 +98,8 @@ def check_duplicate(user_id: str, tx: Dict, exclude_id: Optional[str] = None, ch
     # 2. Verifica no Firebase se solicitado
     if check_firebase and FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            firebase_txs = get_user_transactions(user_id, limit=2000)
+            # Limite reduzido para evitar quota exceeded
+            firebase_txs = get_user_transactions(user_id, limit=500)
             duplicate = find_duplicate_in_list(firebase_txs, tx, exclude_id=exclude_id)
             
             if duplicate:
@@ -131,7 +132,8 @@ def find_all_duplicates(user_id: str, check_firebase: bool = True) -> List[Dict]
     
     if check_firebase and FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            firebase_txs = get_user_transactions(user_id, limit=2000)
+            # Limite reduzido para evitar quota exceeded
+            firebase_txs = get_user_transactions(user_id, limit=500)
             # Mescla, mantendo apenas uma cópia de cada ID
             firebase_by_id = {tx.get("id"): tx for tx in firebase_txs}
             local_by_id = {tx.get("id"): tx for tx in all_txs}

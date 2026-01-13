@@ -198,7 +198,8 @@ def reconcile_transactions(user_id: str, force: bool = False) -> SyncResult:
         if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
             def load_firebase():
                 try:
-                    txs = get_user_transactions(user_id, limit=2000)
+                    # Limite reduzido para evitar quota exceeded
+                    txs = get_user_transactions(user_id, limit=500)
                     return True, txs
                 except Exception as e:
                     return False, str(e)
@@ -359,7 +360,8 @@ def verify_integrity(user_id: str) -> Dict:
         firebase_txs = []
         if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
             try:
-                firebase_txs = get_user_transactions(user_id, limit=2000)
+                # Limite reduzido para evitar quota exceeded
+                firebase_txs = get_user_transactions(user_id, limit=500)
                 result["firebase_count"] = len(firebase_txs)
                 firebase_by_id = {tx.get("id"): tx for tx in firebase_txs if tx.get("id")}
                 

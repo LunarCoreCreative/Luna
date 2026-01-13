@@ -79,8 +79,8 @@ def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
     # Se user_id parece ser um Firebase UID (longo) e Firebase está disponível
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            # Carrega TODAS as transações do Firebase (limite alto para garantir)
-            transactions = get_user_transactions(user_id, limit=2000)
+            # Carrega transações do Firebase (limite reduzido para evitar quota exceeded)
+            transactions = get_user_transactions(user_id, limit=500)
             
             # Se encontrou transações no Firebase, sincroniza o cache local
             if transactions:

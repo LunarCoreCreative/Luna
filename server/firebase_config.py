@@ -6,11 +6,41 @@ Configuração do Firebase Admin SDK para autenticação e Firestore.
 
 import os
 import logging
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 # Configurar logging
 logger = logging.getLogger(__name__)
+
+# Importar exceções do Google API Core para tratamento de quota
+try:
+    from google.api_core import exceptions as google_exceptions
+    GOOGLE_EXCEPTIONS_AVAILABLE = True
+except ImportError:
+    GOOGLE_EXCEPTIONS_AVAILABLE = False
+    google_exceptions = None
+
+def is_quota_exceeded_error(e: Exception) -> bool:
+    """
+    Verifica se um erro é relacionado a quota excedida do Firebase.
+    
+    Args:
+        e: Exceção a verificar
+    
+    Returns:
+        True se for erro de quota excedida
+    """
+    if not GOOGLE_EXCEPTIONS_AVAILABLE or not google_exceptions:
+        # Fallback: verificar string do erro
+        error_str = str(e)
+        return 'Quota exceeded' in error_str or '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str
+    
+    return isinstance(e, google_exceptions.ResourceExhausted) or \
+           (hasattr(e, 'code') and e.code == 429) or \
+           'Quota exceeded' in str(e) or \
+           '429' in str(e) or \
+           'RESOURCE_EXHAUSTED' in str(e)
 
 # =============================================================================
 # INICIALIZAÇÃO DO FIREBASE
@@ -419,13 +449,14 @@ def save_transaction_to_firebase(uid: str, tx_data: Dict) -> bool:
         return False
 
 
-def get_user_transactions(uid: str, limit: int = 100) -> list:
+def get_user_transactions(uid: str, limit: int = 100, max_retries: int = 3) -> list:
     """
-    Lista as transações de um usuário.
+    Lista as transações de um usuário com tratamento de quota excedida.
     
     Args:
         uid: Firebase UID do usuário
         limit: Limite de transações a retornar
+        max_retries: Número máximo de tentativas com backoff exponencial
     
     Returns:
         Lista de transações ordenadas por data (mais recente primeiro)
@@ -435,66 +466,95 @@ def get_user_transactions(uid: str, limit: int = 100) -> list:
         print(f"[FIREBASE-BIZ] ⚠️ Firestore não disponível")
         return []
     
-    try:
-        tx_ref = db.collection("users").document(uid).collection("transactions")
-        
-        # Verifica se a coleção existe e tem documentos
-        collection_ref = tx_ref
-        count_query = collection_ref.count()
+    # Reduzir limite se muito alto para evitar quota exceeded
+    if limit > 1000:
+        print(f"[FIREBASE-BIZ] ⚠️ Limite muito alto ({limit}), reduzindo para 500 para evitar quota exceeded")
+        limit = 500
+    
+    for attempt in range(max_retries):
         try:
-            count_result = count_query.get()
-            total_count = list(count_result)[0][0].value if count_result else 0
-            print(f"[FIREBASE-BIZ] 📊 Total de transações na coleção: {total_count}")
-        except Exception as count_err:
-            print(f"[FIREBASE-BIZ] ⚠️ Não foi possível contar transações: {count_err}")
-        
-        # Se o limite for muito alto, carrega em batches
-        if limit > 500:
-            transactions = []
-            query = tx_ref.order_by("date", direction="DESCENDING")
+            tx_ref = db.collection("users").document(uid).collection("transactions")
             
-            # Firestore tem limite de 500 por query, então fazemos múltiplas queries se necessário
-            last_doc = None
-            batch_size = 500
+            # Pular contagem se já tentou antes (economiza quota)
+            if attempt == 0:
+                try:
+                    collection_ref = tx_ref
+                    count_query = collection_ref.count()
+                    count_result = count_query.get()
+                    total_count = list(count_result)[0][0].value if count_result else 0
+                    print(f"[FIREBASE-BIZ] 📊 Total de transações na coleção: {total_count}")
+                except Exception as count_err:
+                    # Ignorar erro de contagem, não é crítico
+                    pass
             
-            while len(transactions) < limit:
-                current_query = query.limit(batch_size)
-                if last_doc:
-                    current_query = current_query.start_after(last_doc)
+            # Se o limite for muito alto, carrega em batches menores
+            if limit > 500:
+                transactions = []
+                query = tx_ref.order_by("date", direction="DESCENDING")
                 
-                batch = list(current_query.stream())
-                if not batch:
-                    break
+                # Reduzir batch_size para evitar quota exceeded
+                batch_size = min(300, limit)  # Batches menores
+                last_doc = None
                 
-                for doc in batch:
+                while len(transactions) < limit:
+                    current_query = query.limit(batch_size)
+                    if last_doc:
+                        current_query = current_query.start_after(last_doc)
+                    
+                    # Adicionar pequeno delay entre batches para evitar quota
+                    if last_doc:
+                        time.sleep(0.1)  # 100ms entre batches
+                    
+                    batch = list(current_query.stream())
+                    if not batch:
+                        break
+                    
+                    for doc in batch:
+                        tx = doc.to_dict()
+                        tx["id"] = doc.id
+                        transactions.append(tx)
+                    
+                    if len(batch) < batch_size:
+                        break
+                    
+                    last_doc = batch[-1]
+                    
+                    if len(transactions) >= limit:
+                        break
+            else:
+                # Query simples para limites menores
+                query = tx_ref.order_by("date", direction="DESCENDING").limit(limit)
+                transactions = []
+                for doc in query.stream():
                     tx = doc.to_dict()
                     tx["id"] = doc.id
                     transactions.append(tx)
+            
+            print(f"[FIREBASE-BIZ] ✅ Carregadas {len(transactions)} transações para {uid} (limite solicitado: {limit})")
+            return transactions
+            
+        except Exception as e:
+            # Verificar se é erro de quota excedida
+            if is_quota_exceeded_error(e):
+                wait_time = (2 ** attempt) * 2  # Backoff exponencial: 2s, 4s, 8s
+                print(f"[FIREBASE-BIZ] ⚠️ Quota excedida (tentativa {attempt + 1}/{max_retries}). Aguardando {wait_time}s...")
                 
-                if len(batch) < batch_size:
-                    break
-                
-                last_doc = batch[-1]
-                
-                if len(transactions) >= limit:
-                    break
-        else:
-            # Query simples para limites menores
-            query = tx_ref.order_by("date", direction="DESCENDING").limit(limit)
-            transactions = []
-            for doc in query.stream():
-                tx = doc.to_dict()
-                tx["id"] = doc.id
-                transactions.append(tx)
-        
-        print(f"[FIREBASE-BIZ] ✅ Carregadas {len(transactions)} transações para {uid} (limite solicitado: {limit})")
-        return transactions
-        
-    except Exception as e:
-        print(f"[FIREBASE-BIZ] ❌ Erro ao listar transações: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    # Reduzir limite na próxima tentativa
+                    limit = min(limit, 200)
+                    continue
+                else:
+                    print(f"[FIREBASE-BIZ] ❌ Quota excedida após {max_retries} tentativas. Retornando lista vazia.")
+                    return []
+            else:
+                # Outro tipo de erro
+                print(f"[FIREBASE-BIZ] ❌ Erro ao listar transações: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
+    
+    return []
 
 
 def delete_transaction_from_firebase(uid: str, tx_id: str) -> bool:
@@ -558,7 +618,8 @@ def get_business_summary_from_firebase(uid: str) -> Dict:
     Returns:
         Dict com balance, income, expenses, invested, net_worth, transaction_count
     """
-    transactions = get_user_transactions(uid, limit=2000)  # Get all for summary
+    # Reduzir limite para evitar quota exceeded (500 é suficiente para summary)
+    transactions = get_user_transactions(uid, limit=500)  # Get recent transactions for summary
     
     income = 0.0
     expenses = 0.0
