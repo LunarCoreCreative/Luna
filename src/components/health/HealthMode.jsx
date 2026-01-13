@@ -78,7 +78,8 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
         loadHistoryData,
         loadWeightsData,
         refresh,
-        setRefreshTrigger
+        setRefreshTrigger,
+        refreshTrigger
     } = healthData;
     
     // Função para atualizar todos os dados (usada pelo HealthChat)
@@ -785,7 +786,7 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                         showAlert("Erro ao conectar com o servidor", "error");
                                     }
                                 }}
-                                onUpdate={0}
+                                onUpdate={refreshTrigger}
                                 onOpenChat={handleOpenChat}
                                 onUseFromPlan={(preset) => {
                                     // Preenche o formulário com dados do preset e abre o modal de adicionar
