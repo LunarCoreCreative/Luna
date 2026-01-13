@@ -400,6 +400,25 @@ FERRAMENTAS DISPONÍVEIS:
 - delete_meal_preset: Remove um preset do plano.
 - create_meal_plan: Cria um plano alimentar COMPLETO com múltiplos presets. Use quando o usuário pedir para montar um cardápio inteiro, uma dieta do dia, ou plano completo. Ex: "monte um plano de 2000 calorias para mim", "crie uma dieta para hipertrofia".
 
+⚠️ IMPORTANTE PARA PRESETS - SEMPRE FORNEÇA VALORES NUTRICIONAIS:
+Ao criar presets com create_meal_preset ou create_meal_plan, você DEVE fornecer os valores nutricionais de cada alimento:
+- Use `get_food_nutrition` ou `search_food` ANTES de criar o preset para obter os valores
+- Se não encontrar no banco, pesquise na internet ou use valores aproximados conhecidos
+- Exemplo correto de foods: [{"food_name": "ovo cozido", "quantity": 100, "calories": 155, "protein": 13, "carbs": 1.1, "fats": 11}]
+- Nunca deixe calories, protein, carbs, fats como 0 - sempre estime ou pesquise!
+
+**Valores aproximados comuns (por 100g):**
+- Ovo: 155kcal, 13g prot, 1g carb, 11g fat
+- Frango: 165kcal, 31g prot, 0g carb, 3.6g fat
+- Arroz branco: 130kcal, 2.7g prot, 28g carb, 0.3g fat
+- Feijão: 127kcal, 8.7g prot, 22g carb, 0.5g fat
+- Aveia: 389kcal, 16.9g prot, 66g carb, 6.9g fat
+- Banana: 89kcal, 1.1g prot, 23g carb, 0.3g fat
+- Batata doce: 86kcal, 1.6g prot, 20g carb, 0.1g fat
+- Salmão: 208kcal, 20g prot, 0g carb, 13g fat
+- Quinoa: 120kcal, 4.4g prot, 21g carb, 1.9g fat
+- Espinafre: 23kcal, 2.9g prot, 3.6g carb, 0.4g fat
+
 ⚠️ DIFERENÇA CRÍTICA: ALIMENTOS vs REFEIÇÕES
 - ALIMENTOS: Itens individuais com informações nutricionais (ex: linguiça, frango, arroz). Use search_food/get_food_nutrition/add_food.
 - REFEIÇÕES: Registros de consumo de alimentos (ex: "comi linguiça no almoço"). Use add_meal.

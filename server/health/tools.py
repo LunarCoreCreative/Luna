@@ -1714,21 +1714,45 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                     "fats": food.get("fats", 0)
                 }
                 
-                # Se não tem calorias, tenta buscar do banco
+                # Se não tem calorias, tenta buscar do banco ou pesquisar online
                 if not food_item["calories"]:
                     try:
-                        from .foods import load_database
+                        from .foods import load_database, search_foods
                         database = load_database()
                         food_key = food_item["food_name"].lower().strip()
+                        
+                        # Tenta match exato primeiro
                         if food_key in database:
                             db_food = database[food_key]
-                            ratio = food_item["quantity"] / 100  # Banco tem valores por 100g
+                            ratio = food_item["quantity"] / 100
                             food_item["calories"] = round(db_food.get("calories", 0) * ratio, 1)
                             food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
                             food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
                             food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
-                    except:
-                        pass
+                        else:
+                            # Tenta buscar por similaridade
+                            search_results = search_foods(food_key, limit=1)
+                            if search_results and len(search_results) > 0:
+                                db_food = search_results[0]
+                                ratio = food_item["quantity"] / 100
+                                food_item["calories"] = round(db_food.get("calories", 0) * ratio, 1)
+                                food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
+                                food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
+                                food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
+                            else:
+                                # Tenta buscar online usando try_find_or_add_food
+                                try:
+                                    nutrition = await try_find_or_add_food(food_key, search_online=True)
+                                    if nutrition:
+                                        ratio = food_item["quantity"] / 100
+                                        food_item["calories"] = round(nutrition.get("calories", 0) * ratio, 1)
+                                        food_item["protein"] = round(nutrition.get("protein", 0) * ratio, 1)
+                                        food_item["carbs"] = round(nutrition.get("carbs", 0) * ratio, 1)
+                                        food_item["fats"] = round(nutrition.get("fats", 0) * ratio, 1)
+                                except:
+                                    pass
+                    except Exception as e:
+                        print(f"[HEALTH-TOOLS] Erro ao buscar nutrição de '{food_item['food_name']}': {e}")
                 
                 enriched_foods.append(food_item)
             
@@ -1909,7 +1933,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                 for preset_data in presets_data:
                     foods = preset_data.get("foods", [])
                     
-                    # Enriquecer alimentos com dados do banco
+                    # Enriquecer alimentos com dados do banco ou pesquisa online
                     enriched_foods = []
                     for food in foods:
                         food_item = {
@@ -1924,9 +1948,11 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                         
                         if not food_item["calories"]:
                             try:
-                                from .foods import load_database
+                                from .foods import load_database, search_foods
                                 database = load_database()
                                 food_key = food_item["food_name"].lower().strip()
+                                
+                                # Match exato
                                 if food_key in database:
                                     db_food = database[food_key]
                                     ratio = food_item["quantity"] / 100
@@ -1934,8 +1960,30 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                                     food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
                                     food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
                                     food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
-                            except:
-                                pass
+                                else:
+                                    # Busca por similaridade
+                                    search_results = search_foods(food_key, limit=1)
+                                    if search_results and len(search_results) > 0:
+                                        db_food = search_results[0]
+                                        ratio = food_item["quantity"] / 100
+                                        food_item["calories"] = round(db_food.get("calories", 0) * ratio, 1)
+                                        food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
+                                        food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
+                                        food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
+                                    else:
+                                        # Pesquisa online
+                                        try:
+                                            nutrition = await try_find_or_add_food(food_key, search_online=True)
+                                            if nutrition:
+                                                ratio = food_item["quantity"] / 100
+                                                food_item["calories"] = round(nutrition.get("calories", 0) * ratio, 1)
+                                                food_item["protein"] = round(nutrition.get("protein", 0) * ratio, 1)
+                                                food_item["carbs"] = round(nutrition.get("carbs", 0) * ratio, 1)
+                                                food_item["fats"] = round(nutrition.get("fats", 0) * ratio, 1)
+                                        except:
+                                            pass
+                            except Exception as e:
+                                print(f"[HEALTH-TOOLS] Erro ao buscar nutrição: {e}")
                         
                         enriched_foods.append(food_item)
                     
