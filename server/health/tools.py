@@ -746,8 +746,16 @@ def _generate_recommendations(summaries: List[Dict], goals: Dict, adherence_rate
 # TOOL EXECUTION
 # =============================================================================
 
-async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> Dict:
-    """Execute a health tool and return the result."""
+async def execute_health_tool(name: str, args: Dict, user_id: str = "local", evaluator_id: str = None) -> Dict:
+    """
+    Execute a health tool and return the result.
+    
+    Args:
+        name: Nome da tool
+        args: Argumentos da tool
+        user_id: ID do usuário alvo (pode ser o aluno se avaliador está visualizando)
+        evaluator_id: ID do avaliador (se estiver visualizando como aluno)
+    """
     
     try:
         if name == "add_meal":
@@ -1757,15 +1765,33 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                 enriched_foods.append(food_item)
             
             try:
-                new_preset = create_preset(
-                    user_id=user_id,
-                    name=preset_name,
-                    meal_type=meal_type,
-                    foods=enriched_foods,
-                    suggested_time=suggested_time,
-                    notes=notes,
-                    created_for=for_student_id
-                )
+                # Se avaliador está criando para o aluno (evaluator_id presente):
+                # - user_id já é o ID do aluno (target)
+                # - Precisamos salvar no perfil do aluno mas marcar como criado pelo avaliador
+                if evaluator_id:
+                    # Avaliador criando para aluno: salva no perfil do aluno
+                    new_preset = create_preset(
+                        user_id=user_id,  # ID do aluno (onde será salvo)
+                        name=preset_name,
+                        meal_type=meal_type,
+                        foods=enriched_foods,
+                        suggested_time=suggested_time,
+                        notes=notes,
+                        created_for=user_id,  # Para o aluno
+                        evaluator_id=evaluator_id  # Quem criou
+                    )
+                    target_msg = " para o aluno"
+                else:
+                    new_preset = create_preset(
+                        user_id=user_id,
+                        name=preset_name,
+                        meal_type=meal_type,
+                        foods=enriched_foods,
+                        suggested_time=suggested_time,
+                        notes=notes,
+                        created_for=for_student_id
+                    )
+                    target_msg = ""
                 
                 meal_type_label = MEAL_TYPES.get(meal_type, {}).get("name", meal_type)
                 meal_type_icon = MEAL_TYPES.get(meal_type, {}).get("icon", "🍽️")
@@ -1773,7 +1799,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                 return {
                     "success": True,
                     "preset": new_preset,
-                    "message": f"{meal_type_icon} Preset '{preset_name}' ({meal_type_label}) criado com sucesso!\n"
+                    "message": f"{meal_type_icon} Preset '{preset_name}' ({meal_type_label}) criado com sucesso{target_msg}!\n"
                               f"   • Calorias: {new_preset.get('total_calories', 0)} kcal\n"
                               f"   • Proteínas: {new_preset.get('total_protein', 0)}g\n"
                               f"   • Carboidratos: {new_preset.get('total_carbs', 0)}g\n"
@@ -1987,15 +2013,28 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                         
                         enriched_foods.append(food_item)
                     
-                    new_preset = create_preset(
-                        user_id=user_id,
-                        name=preset_data.get("name", "Refeição"),
-                        meal_type=preset_data.get("meal_type", "snack"),
-                        foods=enriched_foods,
-                        suggested_time=preset_data.get("suggested_time"),
-                        notes=preset_data.get("notes"),
-                        created_for=for_student_id
-                    )
+                    # Se avaliador está criando para o aluno
+                    if evaluator_id:
+                        new_preset = create_preset(
+                            user_id=user_id,  # ID do aluno (onde será salvo)
+                            name=preset_data.get("name", "Refeição"),
+                            meal_type=preset_data.get("meal_type", "snack"),
+                            foods=enriched_foods,
+                            suggested_time=preset_data.get("suggested_time"),
+                            notes=preset_data.get("notes"),
+                            created_for=user_id,  # Para o aluno
+                            evaluator_id=evaluator_id  # Quem criou
+                        )
+                    else:
+                        new_preset = create_preset(
+                            user_id=user_id,
+                            name=preset_data.get("name", "Refeição"),
+                            meal_type=preset_data.get("meal_type", "snack"),
+                            foods=enriched_foods,
+                            suggested_time=preset_data.get("suggested_time"),
+                            notes=preset_data.get("notes"),
+                            created_for=for_student_id
+                        )
                     
                     created_presets.append(new_preset)
                     total_calories += new_preset.get("total_calories", 0)
@@ -2003,6 +2042,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                     total_carbs += new_preset.get("total_carbs", 0)
                     total_fats += new_preset.get("total_fats", 0)
                 
+                target_msg = " para o aluno" if evaluator_id else ""
                 return {
                     "success": True,
                     "presets": created_presets,
@@ -2013,7 +2053,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                         "carbs": round(total_carbs, 1),
                         "fats": round(total_fats, 1)
                     },
-                    "message": f"🍽️ Plano alimentar criado com {len(created_presets)} refeições!\n"
+                    "message": f"🍽️ Plano alimentar criado com {len(created_presets)} refeições{target_msg}!\n"
                               f"   Totais do dia:\n"
                               f"   • Calorias: {total_calories:.0f} kcal\n"
                               f"   • Proteínas: {total_protein:.1f}g\n"

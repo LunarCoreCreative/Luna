@@ -225,19 +225,21 @@ def create_preset(
     foods: List[Dict],
     suggested_time: Optional[str] = None,
     notes: Optional[str] = None,
-    created_for: Optional[str] = None
+    created_for: Optional[str] = None,
+    evaluator_id: Optional[str] = None
 ) -> Dict:
     """
     Cria um novo preset de refeição.
     
     Args:
-        user_id: ID do usuário que está criando
+        user_id: ID do usuário onde será salvo o preset
         name: Nome do preset
         meal_type: Tipo de refeição (breakfast, lunch, etc.)
         foods: Lista de alimentos com macros
         suggested_time: Horário sugerido (ex: "07:00")
         notes: Observações
         created_for: ID do aluno (se avaliador criando para aluno)
+        evaluator_id: ID do avaliador que criou (se aplicável)
     
     Returns:
         Preset criado
@@ -251,11 +253,15 @@ def create_preset(
     total_carbs = sum(f.get("carbs", 0) or 0 for f in foods)
     total_fats = sum(f.get("fats", 0) or 0 for f in foods)
     
+    # Determina se foi criado por avaliador
+    is_from_evaluator = evaluator_id is not None or (created_for is not None and created_for != user_id)
+    
     preset = {
         "id": preset_id,
         "user_id": user_id,
         "created_for": created_for or user_id,  # Para quem é o preset
-        "created_by_evaluator": created_for is not None and created_for != user_id,
+        "created_by_evaluator": is_from_evaluator,
+        "evaluator_id": evaluator_id,  # ID do avaliador que criou
         
         "name": name,
         "meal_type": meal_type,
@@ -274,8 +280,8 @@ def create_preset(
         "updated_at": now
     }
     
-    # Salva no Firebase e local
-    target_user = user_id  # Presets são salvos na coleção de quem criou
+    # Salva no Firebase e local - salva na coleção do user_id (aluno)
+    target_user = user_id
     
     if FIREBASE_AVAILABLE and target_user and target_user != "local":
         _save_firebase_preset(target_user, preset)
@@ -285,7 +291,8 @@ def create_preset(
     presets.append(preset)
     _save_local_presets(target_user, presets)
     
-    logger.info(f"[MEAL_PRESETS] Preset '{name}' criado por {user_id} para {created_for or user_id}")
+    creator = evaluator_id or user_id
+    logger.info(f"[MEAL_PRESETS] Preset '{name}' criado por {creator} para {created_for or user_id}, salvo em {target_user}")
     
     return preset
 

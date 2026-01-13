@@ -411,9 +411,11 @@ você DEVE retornar os dados do aluno {student_name}, NÃO os dados do avaliador
                     
                     # Execute health tool (now async)
                     # Use target_user_id (view_as_student_id if provided, otherwise request.user_id)
+                    # Pass evaluator_id when viewing as student (for preset creation)
+                    evaluator_id = actual_user_id if request.view_as_student_id else None
                     try:
-                        safe_print(f"[DEBUG-HEALTH] 🚀 Executing {name} with user_id={target_user_id}")
-                        result = await execute_health_tool(name, args, user_id=target_user_id)
+                        safe_print(f"[DEBUG-HEALTH] 🚀 Executing {name} with user_id={target_user_id}, evaluator_id={evaluator_id}")
+                        result = await execute_health_tool(name, args, user_id=target_user_id, evaluator_id=evaluator_id)
                         safe_print(f"[DEBUG-HEALTH] ✅ Result success: {result.get('success', False)}")
                         if not result.get('success'):
                             safe_print(f"[DEBUG-HEALTH] ⚠️ Error: {result.get('error', 'unknown')}")
