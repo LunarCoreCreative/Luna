@@ -26,6 +26,14 @@ from .profiles import (
     get_health_profile,
     get_evaluator_students
 )
+from .meal_presets import (
+    get_presets,
+    create_preset,
+    update_preset,
+    delete_preset,
+    get_preset_by_id,
+    MEAL_TYPES
+)
 
 # =============================================================================
 # TOOL DEFINITIONS
@@ -443,6 +451,205 @@ HEALTH_TOOLS_SCHEMA = [
                     }
                 },
                 "required": ["student_name_or_id"]
+            }
+        }
+    },
+    # =========================================================================
+    # MEAL PLAN / PRESETS TOOLS
+    # =========================================================================
+    {
+        "type": "function",
+        "function": {
+            "name": "list_meal_presets",
+            "description": "Lista todos os presets de refeições do plano alimentar do usuário. Use quando o usuário perguntar sobre seu plano alimentar, refeições programadas, ou quiser ver os presets disponíveis. Retorna presets do próprio usuário e do avaliador (se houver).",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_meal_preset",
+            "description": "Cria um novo preset de refeição no plano alimentar. Use quando o usuário pedir para criar uma refeição planejada, adicionar algo ao plano alimentar, ou quando o avaliador quiser criar um preset para um aluno. Exemplo: 'cria um preset de café da manhã com ovos e aveia' ou 'adiciona um lanche pré-treino no meu plano'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nome descritivo do preset (ex: 'Café da manhã com ovos e aveia', 'Lanche pré-treino energético')"
+                    },
+                    "meal_type": {
+                        "type": "string",
+                        "enum": ["breakfast", "morning_snack", "lunch", "afternoon_snack", "pre_workout", "post_workout", "dinner", "supper", "snack"],
+                        "description": "Tipo de refeição: breakfast (café da manhã), morning_snack (lanche da manhã), lunch (almoço), afternoon_snack (lanche da tarde), pre_workout (pré-treino), post_workout (pós-treino), dinner (jantar), supper (ceia), snack (lanche genérico)"
+                    },
+                    "foods": {
+                        "type": "array",
+                        "description": "Lista de alimentos do preset. Cada item deve ter food_name, quantity (em gramas), e opcionalmente calories, protein, carbs, fats",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "food_name": {"type": "string", "description": "Nome do alimento"},
+                                "quantity": {"type": "number", "description": "Quantidade em gramas"},
+                                "calories": {"type": "number", "description": "Calorias (opcional)"},
+                                "protein": {"type": "number", "description": "Proteínas em gramas (opcional)"},
+                                "carbs": {"type": "number", "description": "Carboidratos em gramas (opcional)"},
+                                "fats": {"type": "number", "description": "Gorduras em gramas (opcional)"}
+                            }
+                        }
+                    },
+                    "suggested_time": {
+                        "type": "string",
+                        "description": "Horário sugerido para a refeição (ex: '07:00', '12:30', '18:00'). Opcional."
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Observações adicionais sobre o preset (ex: 'Pode substituir aveia por tapioca'). Opcional."
+                    },
+                    "for_student_id": {
+                        "type": "string",
+                        "description": "ID do aluno para quem o avaliador está criando o preset. Opcional, usado apenas por avaliadores."
+                    }
+                },
+                "required": ["name", "meal_type", "foods"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "use_meal_preset",
+            "description": "Registra uma refeição baseada em um preset do plano alimentar. Use quando o usuário disser que comeu algo do plano alimentar ou quiser usar um preset. Exemplo: 'usei o preset de café da manhã', 'comi meu lanche do plano'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "preset_id": {
+                        "type": "string",
+                        "description": "ID do preset a usar (obtido via list_meal_presets)"
+                    },
+                    "preset_name": {
+                        "type": "string",
+                        "description": "Nome do preset (alternativa ao ID - o sistema buscará pelo nome)"
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Data da refeição no formato YYYY-MM-DD (opcional, padrão é hoje)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_meal_preset",
+            "description": "Edita um preset de refeição existente. Use quando o usuário quiser modificar um preset do plano alimentar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "preset_id": {
+                        "type": "string",
+                        "description": "ID do preset a editar"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Novo nome do preset (opcional)"
+                    },
+                    "meal_type": {
+                        "type": "string",
+                        "enum": ["breakfast", "morning_snack", "lunch", "afternoon_snack", "pre_workout", "post_workout", "dinner", "supper", "snack"],
+                        "description": "Novo tipo de refeição (opcional)"
+                    },
+                    "foods": {
+                        "type": "array",
+                        "description": "Nova lista de alimentos (opcional, substitui a lista atual)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "food_name": {"type": "string"},
+                                "quantity": {"type": "number"},
+                                "calories": {"type": "number"},
+                                "protein": {"type": "number"},
+                                "carbs": {"type": "number"},
+                                "fats": {"type": "number"}
+                            }
+                        }
+                    },
+                    "suggested_time": {
+                        "type": "string",
+                        "description": "Novo horário sugerido (opcional)"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Novas observações (opcional)"
+                    }
+                },
+                "required": ["preset_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_meal_preset",
+            "description": "Remove um preset de refeição do plano alimentar. Use quando o usuário quiser excluir um preset.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "preset_id": {
+                        "type": "string",
+                        "description": "ID do preset a remover"
+                    }
+                },
+                "required": ["preset_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_meal_plan",
+            "description": "Cria um plano alimentar completo com múltiplos presets para o dia. Use quando o usuário pedir para criar um plano alimentar completo, uma dieta do dia, ou quando o avaliador quiser montar um cardápio. Exemplo: 'monte um plano alimentar para mim', 'crie uma dieta de 2000 calorias'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "presets": {
+                        "type": "array",
+                        "description": "Lista de presets a criar. Cada preset deve ter name, meal_type, foods, e opcionalmente suggested_time e notes.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nome do preset"},
+                                "meal_type": {"type": "string", "description": "Tipo de refeição"},
+                                "foods": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "food_name": {"type": "string"},
+                                            "quantity": {"type": "number"},
+                                            "calories": {"type": "number"},
+                                            "protein": {"type": "number"},
+                                            "carbs": {"type": "number"},
+                                            "fats": {"type": "number"}
+                                        }
+                                    }
+                                },
+                                "suggested_time": {"type": "string"},
+                                "notes": {"type": "string"}
+                            }
+                        }
+                    },
+                    "for_student_id": {
+                        "type": "string",
+                        "description": "ID do aluno (para avaliadores). Opcional."
+                    }
+                },
+                "required": ["presets"]
             }
         }
     }
@@ -1424,6 +1631,351 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> 
                 return {
                     "success": False,
                     "error": f"❌ Erro ao gerar relatório: {str(e)}"
+                }
+        
+        # =============================================================================
+        # MEAL PLAN / PRESETS TOOLS
+        # =============================================================================
+        
+        elif name == "list_meal_presets":
+            try:
+                presets = get_presets(user_id, include_evaluator=True)
+                
+                if not presets:
+                    return {
+                        "success": True,
+                        "presets": [],
+                        "count": 0,
+                        "message": "📋 Você ainda não tem presets no plano alimentar. Que tal criar seu primeiro preset?"
+                    }
+                
+                # Separa por origem
+                own_presets = [p for p in presets if not p.get("created_by_evaluator")]
+                evaluator_presets = [p for p in presets if p.get("created_by_evaluator")]
+                
+                message = f"📋 Plano Alimentar: {len(presets)} preset(s) disponível(is)"
+                if evaluator_presets:
+                    message += f"\n  • {len(evaluator_presets)} do avaliador"
+                if own_presets:
+                    message += f"\n  • {len(own_presets)} criado(s) por você"
+                
+                return {
+                    "success": True,
+                    "presets": presets,
+                    "own_presets": own_presets,
+                    "evaluator_presets": evaluator_presets,
+                    "count": len(presets),
+                    "message": message
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao listar presets: {str(e)}"
+                }
+        
+        elif name == "create_meal_preset":
+            preset_name = args.get("name", "")
+            meal_type = args.get("meal_type", "snack")
+            foods = args.get("foods", [])
+            suggested_time = args.get("suggested_time")
+            notes = args.get("notes")
+            for_student_id = args.get("for_student_id")
+            
+            if not preset_name:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça um nome para o preset."
+                }
+            
+            if not foods:
+                return {
+                    "success": False,
+                    "error": "Por favor, adicione pelo menos um alimento ao preset."
+                }
+            
+            # Validar meal_type
+            valid_meal_types = list(MEAL_TYPES.keys())
+            if meal_type not in valid_meal_types:
+                return {
+                    "success": False,
+                    "error": f"Tipo de refeição inválido. Tipos válidos: {', '.join(valid_meal_types)}"
+                }
+            
+            # Buscar informações nutricionais dos alimentos se não fornecidas
+            enriched_foods = []
+            for food in foods:
+                food_item = {
+                    "food_name": food.get("food_name", "Alimento"),
+                    "quantity": food.get("quantity", 100),
+                    "unit": food.get("unit", "g"),
+                    "calories": food.get("calories", 0),
+                    "protein": food.get("protein", 0),
+                    "carbs": food.get("carbs", 0),
+                    "fats": food.get("fats", 0)
+                }
+                
+                # Se não tem calorias, tenta buscar do banco
+                if not food_item["calories"]:
+                    try:
+                        from .foods import load_database
+                        database = load_database()
+                        food_key = food_item["food_name"].lower().strip()
+                        if food_key in database:
+                            db_food = database[food_key]
+                            ratio = food_item["quantity"] / 100  # Banco tem valores por 100g
+                            food_item["calories"] = round(db_food.get("calories", 0) * ratio, 1)
+                            food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
+                            food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
+                            food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
+                    except:
+                        pass
+                
+                enriched_foods.append(food_item)
+            
+            try:
+                new_preset = create_preset(
+                    user_id=user_id,
+                    name=preset_name,
+                    meal_type=meal_type,
+                    foods=enriched_foods,
+                    suggested_time=suggested_time,
+                    notes=notes,
+                    created_for=for_student_id
+                )
+                
+                meal_type_label = MEAL_TYPES.get(meal_type, {}).get("name", meal_type)
+                meal_type_icon = MEAL_TYPES.get(meal_type, {}).get("icon", "🍽️")
+                
+                return {
+                    "success": True,
+                    "preset": new_preset,
+                    "message": f"{meal_type_icon} Preset '{preset_name}' ({meal_type_label}) criado com sucesso!\n"
+                              f"   • Calorias: {new_preset.get('total_calories', 0)} kcal\n"
+                              f"   • Proteínas: {new_preset.get('total_protein', 0)}g\n"
+                              f"   • Carboidratos: {new_preset.get('total_carbs', 0)}g\n"
+                              f"   • Gorduras: {new_preset.get('total_fats', 0)}g"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao criar preset: {str(e)}"
+                }
+        
+        elif name == "use_meal_preset":
+            preset_id = args.get("preset_id")
+            preset_name_search = args.get("preset_name")
+            date = args.get("date")
+            
+            # Buscar preset por ID ou nome
+            preset = None
+            if preset_id:
+                preset = get_preset_by_id(user_id, preset_id)
+            elif preset_name_search:
+                # Buscar por nome
+                presets = get_presets(user_id, include_evaluator=True)
+                search_lower = preset_name_search.lower().strip()
+                for p in presets:
+                    if search_lower in p.get("name", "").lower():
+                        preset = p
+                        break
+            
+            if not preset:
+                return {
+                    "success": False,
+                    "error": "❌ Preset não encontrado. Use 'list_meal_presets' para ver os presets disponíveis."
+                }
+            
+            # Registrar refeição baseada no preset
+            try:
+                meal = storage_add_meal(
+                    user_id=user_id,
+                    name=preset.get("name"),
+                    meal_type=preset.get("meal_type", "snack"),
+                    calories=preset.get("total_calories"),
+                    protein=preset.get("total_protein"),
+                    carbs=preset.get("total_carbs"),
+                    fats=preset.get("total_fats"),
+                    notes=f"📋 Do plano: {preset.get('name')}",
+                    date=date
+                )
+                
+                meal_type_icon = MEAL_TYPES.get(preset.get("meal_type"), {}).get("icon", "🍽️")
+                
+                return {
+                    "success": True,
+                    "meal": meal,
+                    "preset_used": preset,
+                    "message": f"{meal_type_icon} Refeição '{preset.get('name')}' registrada a partir do plano alimentar!\n"
+                              f"   • {preset.get('total_calories', 0)} kcal | P: {preset.get('total_protein', 0)}g | C: {preset.get('total_carbs', 0)}g | G: {preset.get('total_fats', 0)}g"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao registrar refeição: {str(e)}"
+                }
+        
+        elif name == "edit_meal_preset":
+            preset_id = args.get("preset_id")
+            
+            if not preset_id:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça o ID do preset a editar."
+                }
+            
+            updates = {}
+            if args.get("name"):
+                updates["name"] = args["name"]
+            if args.get("meal_type"):
+                updates["meal_type"] = args["meal_type"]
+            if args.get("foods"):
+                updates["foods"] = args["foods"]
+            if args.get("suggested_time") is not None:
+                updates["suggested_time"] = args["suggested_time"]
+            if args.get("notes") is not None:
+                updates["notes"] = args["notes"]
+            
+            if not updates:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça pelo menos um campo para atualizar."
+                }
+            
+            try:
+                updated = update_preset(user_id, preset_id, updates)
+                
+                if updated:
+                    return {
+                        "success": True,
+                        "preset": updated,
+                        "message": f"✅ Preset '{updated.get('name')}' atualizado com sucesso!"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "❌ Preset não encontrado ou você não tem permissão para editá-lo."
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao editar preset: {str(e)}"
+                }
+        
+        elif name == "delete_meal_preset":
+            preset_id = args.get("preset_id")
+            
+            if not preset_id:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça o ID do preset a remover."
+                }
+            
+            try:
+                deleted = delete_preset(user_id, preset_id)
+                
+                if deleted:
+                    return {
+                        "success": True,
+                        "message": "✅ Preset removido com sucesso do plano alimentar!"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "❌ Preset não encontrado ou você não tem permissão para removê-lo."
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao remover preset: {str(e)}"
+                }
+        
+        elif name == "create_meal_plan":
+            presets_data = args.get("presets", [])
+            for_student_id = args.get("for_student_id")
+            
+            if not presets_data:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça pelo menos um preset para criar o plano alimentar."
+                }
+            
+            try:
+                created_presets = []
+                total_calories = 0
+                total_protein = 0
+                total_carbs = 0
+                total_fats = 0
+                
+                for preset_data in presets_data:
+                    foods = preset_data.get("foods", [])
+                    
+                    # Enriquecer alimentos com dados do banco
+                    enriched_foods = []
+                    for food in foods:
+                        food_item = {
+                            "food_name": food.get("food_name", "Alimento"),
+                            "quantity": food.get("quantity", 100),
+                            "unit": food.get("unit", "g"),
+                            "calories": food.get("calories", 0),
+                            "protein": food.get("protein", 0),
+                            "carbs": food.get("carbs", 0),
+                            "fats": food.get("fats", 0)
+                        }
+                        
+                        if not food_item["calories"]:
+                            try:
+                                from .foods import load_database
+                                database = load_database()
+                                food_key = food_item["food_name"].lower().strip()
+                                if food_key in database:
+                                    db_food = database[food_key]
+                                    ratio = food_item["quantity"] / 100
+                                    food_item["calories"] = round(db_food.get("calories", 0) * ratio, 1)
+                                    food_item["protein"] = round(db_food.get("protein", 0) * ratio, 1)
+                                    food_item["carbs"] = round(db_food.get("carbs", 0) * ratio, 1)
+                                    food_item["fats"] = round(db_food.get("fats", 0) * ratio, 1)
+                            except:
+                                pass
+                        
+                        enriched_foods.append(food_item)
+                    
+                    new_preset = create_preset(
+                        user_id=user_id,
+                        name=preset_data.get("name", "Refeição"),
+                        meal_type=preset_data.get("meal_type", "snack"),
+                        foods=enriched_foods,
+                        suggested_time=preset_data.get("suggested_time"),
+                        notes=preset_data.get("notes"),
+                        created_for=for_student_id
+                    )
+                    
+                    created_presets.append(new_preset)
+                    total_calories += new_preset.get("total_calories", 0)
+                    total_protein += new_preset.get("total_protein", 0)
+                    total_carbs += new_preset.get("total_carbs", 0)
+                    total_fats += new_preset.get("total_fats", 0)
+                
+                return {
+                    "success": True,
+                    "presets": created_presets,
+                    "count": len(created_presets),
+                    "totals": {
+                        "calories": round(total_calories, 1),
+                        "protein": round(total_protein, 1),
+                        "carbs": round(total_carbs, 1),
+                        "fats": round(total_fats, 1)
+                    },
+                    "message": f"🍽️ Plano alimentar criado com {len(created_presets)} refeições!\n"
+                              f"   Totais do dia:\n"
+                              f"   • Calorias: {total_calories:.0f} kcal\n"
+                              f"   • Proteínas: {total_protein:.1f}g\n"
+                              f"   • Carboidratos: {total_carbs:.1f}g\n"
+                              f"   • Gorduras: {total_fats:.1f}g"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao criar plano alimentar: {str(e)}"
                 }
         
         else:
