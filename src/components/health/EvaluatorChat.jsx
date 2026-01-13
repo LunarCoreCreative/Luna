@@ -210,13 +210,17 @@ export function EvaluatorChat({ isOpen, onClose, userId: propUserId, onUpdate, i
 
                         let filteredContent = data.content;
 
-                        let cleaned = filteredContent.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\|.*?\|>/g, '');
+                        // Limpar tags de tool calls
+                        filteredContent = filteredContent.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
+                        filteredContent = filteredContent.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
+                        filteredContent = filteredContent.replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "");
+                        filteredContent = filteredContent.replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "");
+                        filteredContent = filteredContent.replace(/<\|.*?\|>/g, '');
+                        
+                        // Limpar nomes de tools entre colchetes [tool_name]
+                        filteredContent = filteredContent.replace(/\[(?:list_all_students|get_student_data|compare_students|get_student_summary|generate_student_report|add_meal|get_nutrition_summary|update_goals|create_meal_preset|edit_meal_preset|delete_meal_preset|list_meal_presets|list_meal_types|create_meal_plan|get_food_nutrition|search_food)\]/gi, "");
 
-                        if (filteredContent) {
+                        if (filteredContent.trim()) {
                             fullText += filteredContent;
                         }
                     }
@@ -229,7 +233,9 @@ export function EvaluatorChat({ isOpen, onClose, userId: propUserId, onUpdate, i
                             .replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "")
                             .replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "")
                             .replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "")
-                            .replace(/<\|.*?\|>/g, '');
+                            .replace(/<\|.*?\|>/g, '')
+                            // Limpar nomes de tools entre colchetes [tool_name]
+                            .replace(/\[(?:list_all_students|get_student_data|compare_students|get_student_summary|generate_student_report|add_meal|get_nutrition_summary|update_goals|create_meal_preset|edit_meal_preset|delete_meal_preset|list_meal_presets|list_meal_types|create_meal_plan|get_food_nutrition|search_food)\]/gi, "");
 
                         if (finalText.trim()) {
                             const finalMsg = {
