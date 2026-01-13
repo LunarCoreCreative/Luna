@@ -32,6 +32,7 @@ import { NotificationPanel } from "./NotificationPanel";
 import { MealsTab } from "./tabs/MealsTab";
 import { SummaryTab } from "./tabs/SummaryTab";
 import { FoodsTab } from "./tabs/FoodsTab";
+import { MealPlanTab } from "./tabs/MealPlanTab";
 
 // ============================================================================
 // HEALTH MODE - Luna Health (Nutrição)
@@ -526,22 +527,22 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                                             )}
                                                         </button>
                                                         <button
-                                                            onClick={() => setActiveTab("meals")}
+                                                            onClick={() => setActiveTab("meal_plan")}
                                                             className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
                                                             style={{
-                                                                color: activeTab === "meals" ? '#4ade80' : 'var(--text-secondary)'
+                                                                color: activeTab === "meal_plan" ? '#4ade80' : 'var(--text-secondary)'
                                                             }}
                                                         >
                                                             <span className="relative z-10 flex items-center gap-2">
-                                                                Refeições
+                                                                🍽️ Plano Alimentar
                                                             </span>
-                                                            {activeTab === "meals" && (
+                                                            {activeTab === "meal_plan" && (
                                                                 <>
                                                                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-green-400 to-emerald-500 rounded-t-full shadow-lg shadow-green-500/30" />
                                                                     <div className="absolute inset-0 bg-green-500/5 rounded-t-xl" />
                                                                 </>
                                                             )}
-                                                            {activeTab !== "meals" && (
+                                                            {activeTab !== "meal_plan" && (
                                                                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
                                                             )}
                                                         </button>
@@ -748,20 +749,47 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                     setFormData(prev => ({ ...prev, date: new Date().toISOString().split('T')[0] }));
                                 }}
                                 onEditMeal={(meal) => {
-                                    setActiveTab("meals");
+                                    setActiveTab("meal_plan");
                                 }}
                                 onDeleteMeal={(meal) => {
                                         handleHealthUpdate();
                                 }}
                                 onUpdate={0}
                                 onOpenChat={handleOpenChat}
+                                onUseFromPlan={(preset) => {
+                                    // Preenche o formulário com dados do preset e abre o modal de adicionar
+                                    setFormData({
+                                        name: preset.name,
+                                        meal_type: preset.meal_type,
+                                        calories: preset.total_calories || "",
+                                        protein: preset.total_protein || "",
+                                        carbs: preset.total_carbs || "",
+                                        fats: preset.total_fats || "",
+                                        notes: `📋 Do plano: ${preset.name}`,
+                                        date: new Date().toISOString().split('T')[0]
+                                    });
+                                    setShowAddMeal(true);
+                                }}
                             />
-                        ) : activeTab === "meals" ? (
-                                <MealsTab
-                                    meals={meals}
+                        ) : activeTab === "meal_plan" ? (
+                                <MealPlanTab
                                     userId={userId}
+                                    viewAsStudentId={viewAsStudentId}
                                     onRefresh={handleHealthUpdate}
-                                    onEdit={() => setShowAddMeal(true)}
+                                    onUseMeal={(preset) => {
+                                        // Preenche o formulário com dados do preset
+                                        setFormData({
+                                            name: preset.name,
+                                            meal_type: preset.meal_type,
+                                            calories: preset.total_calories || "",
+                                            protein: preset.total_protein || "",
+                                            carbs: preset.total_carbs || "",
+                                            fats: preset.total_fats || "",
+                                            notes: `Do plano: ${preset.name}`,
+                                            date: new Date().toISOString().split('T')[0]
+                                        });
+                                        setShowAddMeal(true);
+                                    }}
                                 />
                         ) : activeTab === "summary" ? (
                                 <SummaryTab summary={summary} />

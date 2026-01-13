@@ -12,7 +12,10 @@ import {
     Loader2,
     Calendar,
     MessageCircle,
-    Sparkles
+    Sparkles,
+    ClipboardList,
+    Play,
+    X
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
 
@@ -31,11 +34,16 @@ const mealTypeLabels = {
     snack: "Lanche"
 };
 
-export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, onEditMeal, onDeleteMeal, onUpdate, onOpenChat }) {
+export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, onEditMeal, onDeleteMeal, onUpdate, onOpenChat, onUseFromPlan }) {
     const [overview, setOverview] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    
+    // Modal para usar preset do plano
+    const [showPlanModal, setShowPlanModal] = useState(false);
+    const [presets, setPresets] = useState([]);
+    const [presetsLoading, setPresetsLoading] = useState(false);
 
     // Carregar dados do dia
     const loadTodayData = async () => {
@@ -71,6 +79,36 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
             loadTodayData();
         }
     }, [onUpdate, userId, selectedDate, viewAsStudentId]);
+
+    // Carregar presets quando abrir modal
+    const loadPresets = async () => {
+        setPresetsLoading(true);
+        try {
+            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/meal-presets?user_id=${userId}${viewAsParam}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                setPresets(data.presets || []);
+            }
+        } catch (err) {
+            console.error("Erro ao carregar presets:", err);
+        } finally {
+            setPresetsLoading(false);
+        }
+    };
+
+    const handleOpenPlanModal = () => {
+        setShowPlanModal(true);
+        loadPresets();
+    };
+
+    const handleUsePreset = (preset) => {
+        if (onUseFromPlan) {
+            onUseFromPlan(preset);
+        }
+        setShowPlanModal(false);
+    };
 
     // Calcular porcentagem para barras de progresso
     const getPercentage = (current, goal) => {
@@ -157,13 +195,26 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
                         </span>
                     )}
                 </div>
-                <button
-                    onClick={onAddMeal}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 text-white rounded-xl transition-all duration-300 shadow-lg shadow-green-500/25 hover:shadow-xl hover:shadow-green-500/30 hover:scale-105 active:scale-95 font-semibold"
-                >
-                    <Plus size={18} />
-                    Adicionar Refeição
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleOpenPlanModal}
+                        className="flex items-center gap-2 px-4 py-2.5 border rounded-xl transition-all duration-300 hover:bg-green-500/10 font-medium"
+                        style={{ 
+                            borderColor: 'rgba(74, 222, 128, 0.3)',
+                            color: 'var(--text-primary)'
+                        }}
+                    >
+                        <ClipboardList size={18} className="text-green-400" />
+                        Usar do Plano
+                    </button>
+                    <button
+                        onClick={onAddMeal}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 text-white rounded-xl transition-all duration-300 shadow-lg shadow-green-500/25 hover:shadow-xl hover:shadow-green-500/30 hover:scale-105 active:scale-95 font-semibold"
+                    >
+                        <Plus size={18} />
+                        Adicionar
+                    </button>
+                </div>
             </div>
 
             {/* Sessão: Resumo do Dia */}
@@ -445,6 +496,90 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
                     </div>
                 )}
             </div>
+
+            {/* Modal: Usar do Plano */}
+            {showPlanModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div 
+                        className="w-full max-w-lg max-h-[70vh] overflow-y-auto rounded-2xl border shadow-2xl"
+                        style={{ 
+                            background: 'var(--bg-primary)',
+                            borderColor: 'var(--border-color)'
+                        }}
+                    >
+                        <div className="sticky top-0 z-10 px-6 py-4 border-b flex items-center justify-between" style={{ background: 'var(--bg-primary)', borderColor: 'var(--border-color)' }}>
+                            <div className="flex items-center gap-3">
+                                <ClipboardList size={24} className="text-green-400" />
+                                <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                    Usar do Plano Alimentar
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setShowPlanModal(false)}
+                                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                                <X size={20} style={{ color: 'var(--text-secondary)' }} />
+                            </button>
+                        </div>
+                        
+                        <div className="p-4 space-y-3">
+                            {presetsLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 size={32} className="animate-spin text-green-400" />
+                                </div>
+                            ) : presets.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <ClipboardList size={40} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
+                                    <p style={{ color: 'var(--text-secondary)' }}>
+                                        Nenhum preset disponível
+                                    </p>
+                                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                                        Crie presets na aba "Plano Alimentar"
+                                    </p>
+                                </div>
+                            ) : (
+                                presets.map(preset => (
+                                    <button
+                                        key={preset.id}
+                                        onClick={() => handleUsePreset(preset)}
+                                        className="w-full p-4 rounded-xl border text-left transition-all hover:border-green-500/50 hover:bg-green-500/10"
+                                        style={{ 
+                                            background: 'var(--bg-tertiary)',
+                                            borderColor: 'var(--border-color)'
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-2xl">
+                                                {preset.meal_type === "breakfast" ? "🍳" :
+                                                 preset.meal_type === "lunch" ? "🥗" :
+                                                 preset.meal_type === "dinner" ? "🍽️" :
+                                                 preset.meal_type === "snack" ? "🥜" :
+                                                 preset.meal_type === "pre_workout" ? "💪" :
+                                                 preset.meal_type === "post_workout" ? "🥤" : "🍴"}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                                                    {preset.name}
+                                                </h4>
+                                                <div className="flex items-center gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                                    <span className="text-green-400">{preset.total_calories} kcal</span>
+                                                    <span>P: {preset.total_protein}g</span>
+                                                    <span>C: {preset.total_carbs}g</span>
+                                                    <span>G: {preset.total_fats}g</span>
+                                                </div>
+                                                {preset.created_by_evaluator && (
+                                                    <span className="text-xs text-blue-400">📋 Do avaliador</span>
+                                                )}
+                                            </div>
+                                            <Play size={20} className="text-green-400 flex-shrink-0" />
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

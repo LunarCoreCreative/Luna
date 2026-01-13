@@ -40,6 +40,15 @@ from .profiles import (
 from .permissions import validate_data_access
 from datetime import datetime, timedelta
 from .foods import search_foods, calculate_nutrition, add_food_manually, get_food_nutrition
+from .meal_presets import (
+    get_presets,
+    create_preset,
+    update_preset,
+    delete_preset,
+    get_preset_by_id,
+    get_meal_types,
+    MEAL_TYPES
+)
 
 # Configurar logger específico para health routes
 logger = logging.getLogger("luna.health.routes")
@@ -935,6 +944,200 @@ async def list_available_goals():
             f"[GET /health/goals/list] Erro: "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# MEAL PRESETS ROUTES (Plano Alimentar)
+# =============================================================================
+
+class FoodItem(BaseModel):
+    food_name: str
+    quantity: float
+    unit: str = "g"
+    calories: Optional[float] = 0
+    protein: Optional[float] = 0
+    carbs: Optional[float] = 0
+    fats: Optional[float] = 0
+
+class MealPresetCreate(BaseModel):
+    name: str
+    meal_type: str  # breakfast, lunch, dinner, snack, etc.
+    foods: List[FoodItem]
+    suggested_time: Optional[str] = None
+    notes: Optional[str] = None
+    created_for: Optional[str] = None  # ID do aluno (se avaliador criando)
+    user_id: Optional[str] = None
+
+class MealPresetUpdate(BaseModel):
+    name: Optional[str] = None
+    meal_type: Optional[str] = None
+    foods: Optional[List[FoodItem]] = None
+    suggested_time: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+    user_id: Optional[str] = None
+
+@router.get("/meal-types")
+async def list_meal_types():
+    """Lista todos os tipos de refeição disponíveis."""
+    return {
+        "success": True,
+        "meal_types": MEAL_TYPES
+    }
+
+@router.get("/meal-presets")
+async def list_meal_presets(user_id: str = "local", view_as: Optional[str] = None):
+    """
+    Lista todos os presets de refeição do usuário.
+    
+    Inclui presets criados pelo próprio usuário e pelo avaliador (se houver).
+    """
+    logger.info(f"[GET /health/meal-presets] user_id={user_id}, view_as={view_as}")
+    
+    try:
+        target_user = resolve_user_id(user_id, view_as)
+        presets = get_presets(target_user, include_evaluator=True)
+        
+        # Separa presets do avaliador e do próprio usuário
+        evaluator_presets = [p for p in presets if p.get("created_by_evaluator")]
+        own_presets = [p for p in presets if not p.get("created_by_evaluator")]
+        
+        return {
+            "success": True,
+            "presets": presets,
+            "evaluator_presets": evaluator_presets,
+            "own_presets": own_presets,
+            "total": len(presets)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[GET /health/meal-presets] Erro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/meal-presets/{preset_id}")
+async def get_meal_preset(preset_id: str, user_id: str = "local"):
+    """Retorna detalhes de um preset específico."""
+    logger.info(f"[GET /health/meal-presets/{preset_id}] user_id={user_id}")
+    
+    try:
+        preset = get_preset_by_id(user_id, preset_id)
+        
+        if not preset:
+            raise HTTPException(status_code=404, detail="Preset não encontrado")
+        
+        return {
+            "success": True,
+            "preset": preset
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[GET /health/meal-presets/{preset_id}] Erro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/meal-presets")
+async def create_meal_preset(preset: MealPresetCreate):
+    """
+    Cria um novo preset de refeição.
+    
+    O avaliador pode criar presets para seus alunos usando created_for.
+    """
+    user_id = preset.user_id or "local"
+    logger.info(f"[POST /health/meal-presets] user_id={user_id}, name={preset.name}, created_for={preset.created_for}")
+    
+    # Validar meal_type
+    if preset.meal_type not in MEAL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de refeição inválido. Tipos válidos: {list(MEAL_TYPES.keys())}"
+        )
+    
+    # Validar permissão se criando para outro usuário
+    if preset.created_for and preset.created_for != user_id:
+        allowed, error_msg = validate_data_access(user_id, preset.created_for, "edit")
+        if not allowed:
+            raise HTTPException(status_code=403, detail=error_msg)
+    
+    try:
+        # Converte foods para dicts
+        foods_data = [f.dict() for f in preset.foods]
+        
+        new_preset = create_preset(
+            user_id=user_id,
+            name=preset.name,
+            meal_type=preset.meal_type,
+            foods=foods_data,
+            suggested_time=preset.suggested_time,
+            notes=preset.notes,
+            created_for=preset.created_for
+        )
+        
+        return {
+            "success": True,
+            "preset": new_preset,
+            "message": "Preset criado com sucesso!"
+        }
+    except Exception as e:
+        logger.error(f"[POST /health/meal-presets] Erro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/meal-presets/{preset_id}")
+async def update_meal_preset(preset_id: str, updates: MealPresetUpdate):
+    """Atualiza um preset existente."""
+    user_id = updates.user_id or "local"
+    logger.info(f"[PUT /health/meal-presets/{preset_id}] user_id={user_id}")
+    
+    # Validar meal_type se fornecido
+    if updates.meal_type and updates.meal_type not in MEAL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de refeição inválido. Tipos válidos: {list(MEAL_TYPES.keys())}"
+        )
+    
+    try:
+        # Converte para dict, removendo campos None
+        updates_dict = {k: v for k, v in updates.dict().items() if v is not None and k != "user_id"}
+        
+        # Converte foods se presente
+        if "foods" in updates_dict and updates_dict["foods"]:
+            updates_dict["foods"] = [f if isinstance(f, dict) else f.dict() for f in updates_dict["foods"]]
+        
+        updated = update_preset(user_id, preset_id, updates_dict)
+        
+        if not updated:
+            raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
+        
+        return {
+            "success": True,
+            "preset": updated,
+            "message": "Preset atualizado com sucesso!"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[PUT /health/meal-presets/{preset_id}] Erro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/meal-presets/{preset_id}")
+async def delete_meal_preset(preset_id: str, user_id: str = "local"):
+    """Deleta um preset."""
+    logger.info(f"[DELETE /health/meal-presets/{preset_id}] user_id={user_id}")
+    
+    try:
+        deleted = delete_preset(user_id, preset_id)
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
+        
+        return {
+            "success": True,
+            "message": "Preset deletado com sucesso!"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[DELETE /health/meal-presets/{preset_id}] Erro: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
