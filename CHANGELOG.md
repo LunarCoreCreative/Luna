@@ -2,6 +2,39 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.6] - 2025-01-29
+
+### 🐛 Correções de Bugs
+
+- **Boot Sequence**:
+  - Corrigido problema de boot sequence executando múltiplas vezes causando travamentos e lentidão
+  - Adicionada ref para garantir execução única do boot
+  - Removida dependência do useEffect que causava reexecuções desnecessárias
+  - App agora carrega corretamente sem travar na inicialização
+
+- **Firebase Quota Exceeded (Erro 429)**:
+  - Implementado tratamento robusto para erros de quota excedida do Firebase
+  - Adicionado sistema de retry com backoff exponencial (2s, 4s, 8s)
+  - Reduzidos limites de transações de 2000 para 500 para evitar sobrecarga
+  - Adicionados delays entre batches de requisições (100ms)
+  - Implementada função helper para detecção de erros de quota
+  - App agora lida graciosamente com limites do Firebase sem travar
+
+### 🔧 Melhorias
+
+- **Performance**:
+  - Otimização de requisições ao Firestore para reduzir carga
+  - Batches menores (300 em vez de 500) para evitar quota exceeded
+  - Contagem de documentos agora opcional para economizar quota
+  - Melhor gerenciamento de timeouts e abort controllers
+
+- **Estabilidade**:
+  - Melhor tratamento de erros em todas as operações do Firebase
+  - Mensagens de erro mais claras e informativas
+  - Fallback automático quando quota é excedida
+
+---
+
 ## [1.1.5] - 2025-01-28
 
 ### 🔧 Melhorias
