@@ -343,12 +343,10 @@ você DEVE retornar os dados do aluno {student_name}, NÃO os dados do avaliador
             if iteration > 0:
                 yield f"data: {json.dumps({'status': f'Processando (etapa {iteration+1})...', 'type': 'info'})}\n\n"
             
-            # Check if we have tool results already
-            has_tool_result = any(m.get("role") == "tool" for m in msgs)
-            
-            # Tool choice strategy
-            current_tools = tools if not has_tool_result else None
-            current_tool_choice = "auto" if not has_tool_result else None
+            # Always provide tools for the model to use
+            # (Removed restriction that disabled tools after first call)
+            current_tools = tools
+            current_tool_choice = "auto"
             
             yield f"data: {json.dumps({'status': 'Pensando...', 'type': 'info'})}\n\n"
             
@@ -402,20 +400,27 @@ você DEVE retornar os dados do aluno {student_name}, NÃO os dados do avaliador
                     args_str = func.get("arguments", "{}")
                     
                     safe_print(f"[DEBUG-HEALTH] 🔧 Tool call: {name}")
+                    safe_print(f"[DEBUG-HEALTH] 📋 Args: {args_str[:500] if args_str else 'empty'}")
                     yield f"data: {json.dumps({'tool_call': {'name': name, 'args': {}}})}\n\n"
                     
                     try:
                         args = json.loads(args_str)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as je:
+                        safe_print(f"[DEBUG-HEALTH] ⚠️ JSON decode error: {je}")
                         args = {}
                     
                     # Execute health tool (now async)
                     # Use target_user_id (view_as_student_id if provided, otherwise request.user_id)
                     try:
+                        safe_print(f"[DEBUG-HEALTH] 🚀 Executing {name} with user_id={target_user_id}")
                         result = await execute_health_tool(name, args, user_id=target_user_id)
-                        safe_print(f"[DEBUG-HEALTH] ✅ Result: {result.get('success', False)}")
+                        safe_print(f"[DEBUG-HEALTH] ✅ Result success: {result.get('success', False)}")
+                        if not result.get('success'):
+                            safe_print(f"[DEBUG-HEALTH] ⚠️ Error: {result.get('error', 'unknown')}")
                     except Exception as e:
-                        safe_print(f"[DEBUG-HEALTH] ❌ Error: {e}")
+                        import traceback
+                        safe_print(f"[DEBUG-HEALTH] ❌ Exception: {e}")
+                        traceback.print_exc()
                         result = {"success": False, "error": str(e)}
                     
                     yield f"data: {json.dumps({'tool_result': result})}\n\n"
