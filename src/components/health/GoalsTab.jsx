@@ -8,7 +8,10 @@ import {
     Minus,
     Loader2,
     AlertCircle,
-    CheckCircle2
+    CheckCircle2,
+    ChevronDown,
+    ChevronUp,
+    Info
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
 
@@ -26,6 +29,9 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
     const [isSaving, setIsSaving] = useState(false);
     const [isSuggesting, setIsSuggesting] = useState(false);
     const [showSuggestionForm, setShowSuggestionForm] = useState(false);
+    const [availableGoals, setAvailableGoals] = useState([]);
+    const [goalCategories, setGoalCategories] = useState([]);
+    const [expandedCategories, setExpandedCategories] = useState({});
     const [suggestionData, setSuggestionData] = useState({
         weight: "",
         height: "",
@@ -37,10 +43,29 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
 
-    // Carregar metas atuais
+    // Carregar metas atuais e objetivos disponíveis
     useEffect(() => {
         loadGoals();
+        loadAvailableGoals();
     }, [userId, viewAsStudentId]);
+
+    const loadAvailableGoals = async () => {
+        try {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/goals/list`);
+            const data = await response.json();
+            
+            if (data.success) {
+                setGoalCategories(data.categories || []);
+                setAvailableGoals(data.all_goals || []);
+                // Expandir primeira categoria por padrão
+                if (data.categories && data.categories.length > 0) {
+                    setExpandedCategories({ [data.categories[0].id]: true });
+                }
+            }
+        } catch (err) {
+            console.error("Erro ao carregar objetivos:", err);
+        }
+    };
 
     const loadGoals = async () => {
         setIsLoading(true);
@@ -129,7 +154,6 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                     gender: suggestionData.gender,
                     goal: suggestionData.goal,
                     activity_level: suggestionData.activity_level,
-                    // Passa peso alvo se existir para detectar recomposição implícita
                     target_weight: goals.target_weight ? parseFloat(goals.target_weight) : null
                 })
             });
@@ -150,7 +174,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                 setSuccess("Metas sugeridas aplicadas! Revise e salve quando estiver pronto. ✨");
                 setTimeout(() => setSuccess(null), 5000);
             } else {
-                setError(data.error || "Erro ao obter sugestões");
+                setError(data.detail || data.error || "Erro ao obter sugestões");
             }
         } catch (err) {
             console.error("Erro ao obter sugestões:", err);
@@ -158,6 +182,21 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
         } finally {
             setIsSuggesting(false);
         }
+    };
+
+    const toggleCategory = (categoryId) => {
+        setExpandedCategories(prev => ({
+            ...prev,
+            [categoryId]: !prev[categoryId]
+        }));
+    };
+
+    const selectGoal = (goalId) => {
+        setSuggestionData(prev => ({ ...prev, goal: goalId }));
+    };
+
+    const getSelectedGoalInfo = () => {
+        return availableGoals.find(g => g.id === suggestionData.goal);
     };
 
     if (isLoading) {
@@ -194,7 +233,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                 >
                     <Sparkles size={18} className="text-green-400" />
                     <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
-                        Usar sugestão da Luna
+                        {showSuggestionForm ? "Fechar" : "Usar sugestão da Luna"}
                     </span>
                 </button>
             </div>
@@ -220,7 +259,9 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                     <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
                         Obter Sugestões Personalizadas
                     </h3>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    
+                    {/* Dados básicos */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                         <div>
                             <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
                                 Peso (kg)
@@ -290,32 +331,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                                 <option value="female">Feminino</option>
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-                                Objetivo
-                            </label>
-                            <select
-                                value={suggestionData.goal}
-                                onChange={(e) => setSuggestionData({ ...suggestionData, goal: e.target.value })}
-                                className="w-full px-3 py-2 rounded-lg border transition-all focus:outline-none focus:border-green-500/50"
-                                style={{
-                                    background: 'var(--bg-tertiary)',
-                                    borderColor: 'var(--border-color)',
-                                    color: 'var(--text-primary)'
-                                }}
-                            >
-                                <option value="lose">Emagrecer (perder peso)</option>
-                                <option value="maintain">Manter peso</option>
-                                <option value="gain">Ganhar massa (aumentar peso)</option>
-                                <option value="recomposition">Recomposição corporal (trocar gordura por músculo)</option>
-                            </select>
-                            {suggestionData.goal === "recomposition" && (
-                                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                                    💡 Ideal para quem treina e quer manter o peso, mas trocar gordura por músculo.
-                                </p>
-                            )}
-                        </div>
-                        <div>
+                        <div className="col-span-2 md:col-span-2">
                             <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
                                 Nível de atividade
                             </label>
@@ -329,14 +345,109 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                                     color: 'var(--text-primary)'
                                 }}
                             >
-                                <option value="sedentary">Sedentário</option>
+                                <option value="sedentary">Sedentário (pouco ou nenhum exercício)</option>
                                 <option value="light">Leve (1-3x/semana)</option>
                                 <option value="moderate">Moderado (3-5x/semana)</option>
                                 <option value="active">Ativo (6-7x/semana)</option>
-                                <option value="very_active">Muito ativo</option>
+                                <option value="very_active">Muito ativo (atleta, 2x/dia)</option>
                             </select>
                         </div>
                     </div>
+
+                    {/* Seleção de Objetivo por Categorias */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
+                            Escolha seu Objetivo
+                        </label>
+                        
+                        <div className="space-y-3">
+                            {goalCategories.map((category) => (
+                                <div 
+                                    key={category.id}
+                                    className="rounded-xl border overflow-hidden"
+                                    style={{ borderColor: 'var(--border-color)' }}
+                                >
+                                    {/* Header da Categoria */}
+                                    <button
+                                        onClick={() => toggleCategory(category.id)}
+                                        className="w-full px-4 py-3 flex items-center justify-between transition-colors hover:bg-white/5"
+                                        style={{ background: 'var(--bg-tertiary)' }}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xl">{category.icon}</span>
+                                            <div className="text-left">
+                                                <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                                                    {category.name}
+                                                </p>
+                                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                                    {category.description}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {expandedCategories[category.id] ? (
+                                            <ChevronUp size={20} style={{ color: 'var(--text-secondary)' }} />
+                                        ) : (
+                                            <ChevronDown size={20} style={{ color: 'var(--text-secondary)' }} />
+                                        )}
+                                    </button>
+
+                                    {/* Goals da Categoria */}
+                                    {expandedCategories[category.id] && (
+                                        <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-2" style={{ background: 'var(--bg-secondary)' }}>
+                                            {category.goals?.map((goal) => (
+                                                <button
+                                                    key={goal.id}
+                                                    onClick={() => selectGoal(goal.id)}
+                                                    className={`p-3 rounded-lg border-2 text-left transition-all hover:scale-[1.02] ${
+                                                        suggestionData.goal === goal.id
+                                                            ? 'border-green-500 bg-green-500/10'
+                                                            : 'border-transparent hover:border-green-500/30'
+                                                    }`}
+                                                    style={{ 
+                                                        background: suggestionData.goal === goal.id ? 'var(--bg-tertiary)' : 'var(--bg-primary)'
+                                                    }}
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <span className="text-2xl">{goal.icon}</span>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                                {goal.name}
+                                                            </p>
+                                                            <p className="text-xs line-clamp-2" style={{ color: 'var(--text-muted)' }}>
+                                                                {goal.description}
+                                                            </p>
+                                                        </div>
+                                                        {suggestionData.goal === goal.id && (
+                                                            <CheckCircle2 size={18} className="text-green-400 flex-shrink-0" />
+                                                        )}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Info do objetivo selecionado */}
+                        {getSelectedGoalInfo() && (
+                            <div className="mt-4 p-4 rounded-xl flex items-start gap-3" style={{ background: 'var(--bg-tertiary)' }}>
+                                <Info size={18} className="text-green-400 flex-shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                                        {getSelectedGoalInfo().icon} {getSelectedGoalInfo().name}
+                                    </p>
+                                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                                        {getSelectedGoalInfo().description}
+                                    </p>
+                                    <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                                        💡 {getSelectedGoalInfo().ideal_for}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className="flex gap-3">
                         <button
                             onClick={handleSuggestGoals}

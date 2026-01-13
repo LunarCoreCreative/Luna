@@ -47,6 +47,272 @@ logger = logging.getLogger("luna.health.routes")
 router = APIRouter(prefix="/health", tags=["health"])
 
 # =============================================================================
+# AVAILABLE GOALS - Todos os objetivos nutricionais disponíveis
+# =============================================================================
+
+AVAILABLE_GOALS = {
+    # ===== BÁSICOS =====
+    "lose": {
+        "id": "lose",
+        "name": "Emagrecer",
+        "category": "basic",
+        "icon": "📉",
+        "calorie_adjustment": -500,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.35,
+        "description": "Perder peso de forma saudável e sustentável",
+        "ideal_for": "Quem quer reduzir peso corporal total"
+    },
+    "maintain": {
+        "id": "maintain",
+        "name": "Manter peso",
+        "category": "basic",
+        "icon": "⚖️",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.30,
+        "description": "Estabilizar peso atual",
+        "ideal_for": "Quem está satisfeito com o peso e quer manter"
+    },
+    "gain": {
+        "id": "gain",
+        "name": "Ganhar peso",
+        "category": "basic",
+        "icon": "📈",
+        "calorie_adjustment": 500,
+        "protein_per_kg": 1.8,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.30,
+        "description": "Aumento de peso geral",
+        "ideal_for": "Quem precisa ganhar peso de forma geral"
+    },
+    
+    # ===== COMPOSIÇÃO CORPORAL =====
+    "recomposition": {
+        "id": "recomposition",
+        "name": "Recomposição Corporal",
+        "category": "body_composition",
+        "icon": "🔄",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 2.4,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.30,
+        "description": "Trocar gordura por músculo mantendo peso similar",
+        "ideal_for": "Quem treina e quer mudar composição corporal sem mudar o peso"
+    },
+    "hypertrophy": {
+        "id": "hypertrophy",
+        "name": "Hipertrofia",
+        "category": "body_composition",
+        "icon": "💪",
+        "calorie_adjustment": 400,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.25,
+        "description": "Foco máximo em ganho de massa muscular",
+        "ideal_for": "Quem treina musculação e quer ganhar volume muscular"
+    },
+    "lean_gain": {
+        "id": "lean_gain",
+        "name": "Lean Bulk",
+        "category": "body_composition",
+        "icon": "🌱",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.30,
+        "description": "Ganho de massa com mínimo acúmulo de gordura",
+        "ideal_for": "Quem quer ganhar músculo de forma limpa e controlada"
+    },
+    "cutting": {
+        "id": "cutting",
+        "name": "Cutting / Secar",
+        "category": "body_composition",
+        "icon": "🔪",
+        "calorie_adjustment": -400,
+        "protein_per_kg": 2.5,
+        "carbs_pct": 0.30,
+        "fats_pct": 0.30,
+        "description": "Definição muscular, perder gordura preservando músculo",
+        "ideal_for": "Quem treina e quer definir a musculatura"
+    },
+    "definition": {
+        "id": "definition",
+        "name": "Definição",
+        "category": "body_composition",
+        "icon": "✨",
+        "calorie_adjustment": -200,
+        "protein_per_kg": 2.2,
+        "carbs_pct": 0.35,
+        "fats_pct": 0.30,
+        "description": "Manter massa, reduzir percentual de gordura",
+        "ideal_for": "Quem quer ficar mais definido sem perder muito peso"
+    },
+    
+    # ===== ALTA PERFORMANCE =====
+    "performance": {
+        "id": "performance",
+        "name": "Alta Performance",
+        "category": "performance",
+        "icon": "🚀",
+        "calorie_adjustment": 300,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Maximizar energia e recuperação para treinos intensos",
+        "ideal_for": "Atletas e praticantes de treinos intensos"
+    },
+    "endurance": {
+        "id": "endurance",
+        "name": "Resistência / Endurance",
+        "category": "performance",
+        "icon": "🏃",
+        "calorie_adjustment": 500,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.60,
+        "fats_pct": 0.25,
+        "description": "Foco em cardio, maratonas, ciclismo - carbs altos",
+        "ideal_for": "Corredores, ciclistas, triatletas"
+    },
+    "strength": {
+        "id": "strength",
+        "name": "Força Máxima",
+        "category": "performance",
+        "icon": "🏋️",
+        "calorie_adjustment": 400,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.30,
+        "description": "Powerlifting, levantamento de peso",
+        "ideal_for": "Praticantes de powerlifting e levantamento olímpico"
+    },
+    "athletic": {
+        "id": "athletic",
+        "name": "Condicionamento Atlético",
+        "category": "performance",
+        "icon": "⚡",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 1.8,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Esportes em geral, agilidade, explosão",
+        "ideal_for": "Praticantes de esportes coletivos e funcionais"
+    },
+    "competition_prep": {
+        "id": "competition_prep",
+        "name": "Preparação para Competição",
+        "category": "performance",
+        "icon": "🏆",
+        "calorie_adjustment": -600,
+        "protein_per_kg": 2.8,
+        "carbs_pct": 0.25,
+        "fats_pct": 0.30,
+        "description": "Fase final antes de competição de bodybuilding",
+        "ideal_for": "Competidores de fisiculturismo em fase de prep"
+    },
+    "off_season": {
+        "id": "off_season",
+        "name": "Off-Season",
+        "category": "performance",
+        "icon": "🌴",
+        "calorie_adjustment": 600,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.50,
+        "fats_pct": 0.25,
+        "description": "Período de recuperação e construção pós-competição",
+        "ideal_for": "Atletas em período de descanso e construção"
+    },
+    
+    # ===== SAÚDE =====
+    "health_improve": {
+        "id": "health_improve",
+        "name": "Melhorar Saúde",
+        "category": "health",
+        "icon": "❤️",
+        "calorie_adjustment": 0,
+        "protein_per_kg": 1.4,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.35,
+        "description": "Foco em qualidade nutricional, não peso",
+        "ideal_for": "Quem quer melhorar a alimentação sem focar em peso"
+    },
+    "energy_boost": {
+        "id": "energy_boost",
+        "name": "Aumentar Energia",
+        "category": "health",
+        "icon": "⚡",
+        "calorie_adjustment": 100,
+        "protein_per_kg": 1.6,
+        "carbs_pct": 0.55,
+        "fats_pct": 0.25,
+        "description": "Combater fadiga, melhorar disposição",
+        "ideal_for": "Quem sente cansaço e falta de energia no dia a dia"
+    },
+    "recovery": {
+        "id": "recovery",
+        "name": "Recuperação",
+        "category": "health",
+        "icon": "🩹",
+        "calorie_adjustment": 200,
+        "protein_per_kg": 2.0,
+        "carbs_pct": 0.45,
+        "fats_pct": 0.25,
+        "description": "Pós-lesão, pós-cirurgia, recuperação muscular",
+        "ideal_for": "Quem está em recuperação de lesão ou cirurgia"
+    },
+    "longevity": {
+        "id": "longevity",
+        "name": "Longevidade",
+        "category": "health",
+        "icon": "🧬",
+        "calorie_adjustment": -100,
+        "protein_per_kg": 1.2,
+        "carbs_pct": 0.40,
+        "fats_pct": 0.40,
+        "description": "Alimentação anti-inflamatória, saúde a longo prazo",
+        "ideal_for": "Quem foca em saúde e qualidade de vida a longo prazo"
+    }
+}
+
+# Categorias de objetivos
+GOAL_CATEGORIES = {
+    "basic": {
+        "id": "basic",
+        "name": "Objetivos Básicos",
+        "description": "Para quem está começando ou tem metas simples",
+        "icon": "🎯",
+        "order": 1
+    },
+    "body_composition": {
+        "id": "body_composition",
+        "name": "Composição Corporal",
+        "description": "Para praticantes de musculação",
+        "icon": "💪",
+        "order": 2
+    },
+    "performance": {
+        "id": "performance",
+        "name": "Alta Performance",
+        "description": "Para atletas e treinos intensos",
+        "icon": "🏆",
+        "order": 3
+    },
+    "health": {
+        "id": "health",
+        "name": "Saúde & Bem-estar",
+        "description": "Foco em qualidade de vida",
+        "icon": "❤️",
+        "order": 4
+    }
+}
+
+def get_goal_config(goal_id: str) -> dict:
+    """Retorna a configuração de um objetivo específico."""
+    return AVAILABLE_GOALS.get(goal_id, AVAILABLE_GOALS["maintain"])
+
+# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
@@ -425,11 +691,11 @@ def calculate_tdee(bmr: float, activity_level: str) -> float:
 
 def adjust_calories_for_goal(tdee: float, goal: str, current_weight: float = None, target_weight: float = None) -> float:
     """
-    Ajusta calorias baseado no objetivo do usuário.
+    Ajusta calorias baseado no objetivo do usuário usando AVAILABLE_GOALS.
     
     Args:
         tdee: Taxa de Dispêndio Energético Total
-        goal: Objetivo ("lose", "maintain", "gain", "recomposition")
+        goal: ID do objetivo (ex: "lose", "hypertrophy", "cutting", etc.)
         current_weight: Peso atual (opcional, para detectar recomposição)
         target_weight: Peso alvo (opcional, para detectar recomposição)
     
@@ -441,31 +707,32 @@ def adjust_calories_for_goal(tdee: float, goal: str, current_weight: float = Non
     # Detectar recomposição implícita: objetivo "gain" mas peso alvo = peso atual
     if goal_lower == "gain" and current_weight and target_weight:
         if abs(target_weight - current_weight) < 1:  # Diferença < 1kg
-            # Recomposição corporal - manter calorias, ajustar macros para alta proteína
             logger.info(f"[adjust_calories] Detectado recomposição implícita (peso alvo ≈ peso atual)")
             goal_lower = "recomposition"
     
-    if goal_lower == "lose":
-        # Déficit de 500 calorias por dia (perda de ~0.5kg por semana)
-        # Mínimo: 80% do TDEE ou 1200 kcal (mulheres) / 1500 kcal (homens) - usando 1200 como base
-        return max(tdee - 500, tdee * 0.8, 1200)
-    elif goal_lower == "gain":
-        # Superávit de 300-500 calorias por dia para ganho limpo
-        return tdee + 300
-    elif goal_lower == "recomposition":
-        # Recomposição corporal: manter calorias neutras
-        # A diferença está nos macros (alta proteína)
-        return tdee
-    else:  # maintain
-        return tdee
+    # Buscar configuração do objetivo no dicionário
+    goal_config = get_goal_config(goal_lower)
+    calorie_adjustment = goal_config.get("calorie_adjustment", 0)
+    
+    # Calcular calorias ajustadas
+    adjusted_calories = tdee + calorie_adjustment
+    
+    # Aplicar limites de segurança
+    # Mínimo: 80% do TDEE ou 1200 kcal
+    if calorie_adjustment < 0:  # Objetivos de déficit
+        adjusted_calories = max(adjusted_calories, tdee * 0.75, 1200)
+    
+    logger.info(f"[adjust_calories] goal={goal_lower}, TDEE={tdee:.0f}, adjustment={calorie_adjustment}, final={adjusted_calories:.0f}")
+    
+    return adjusted_calories
 
 def calculate_macros(calories: float, goal: str, weight: float = None) -> dict:
     """
-    Calcula distribuição de macros baseado nas calorias e objetivo.
+    Calcula distribuição de macros baseado nas calorias e objetivo usando AVAILABLE_GOALS.
     
     Args:
         calories: Calorias diárias
-        goal: Objetivo ("lose", "maintain", "gain", "recomposition")
+        goal: ID do objetivo (ex: "lose", "hypertrophy", "cutting", etc.)
         weight: Peso do usuário em kg (para cálculo de proteína por kg)
     
     Returns:
@@ -473,59 +740,31 @@ def calculate_macros(calories: float, goal: str, weight: float = None) -> dict:
     """
     goal_lower = goal.lower()
     
-    # Se temos o peso, calculamos proteína por kg de peso corporal
-    # Isso é mais preciso que porcentagem de calorias
-    protein_per_kg = {
-        "lose": 2.2,        # Alta proteína para preservar músculo em déficit
-        "maintain": 1.8,    # Moderada para manutenção
-        "gain": 2.0,        # Alta para construção muscular
-        "recomposition": 2.4  # Máxima para recomposição (trocar gordura por músculo)
-    }
+    # Buscar configuração do objetivo no dicionário
+    goal_config = get_goal_config(goal_lower)
+    protein_per_kg = goal_config.get("protein_per_kg", 1.8)
+    carbs_pct = goal_config.get("carbs_pct", 0.40)
+    fats_pct = goal_config.get("fats_pct", 0.30)
     
     if weight and weight > 0:
-        # Calcular proteína baseada no peso
-        protein_grams = weight * protein_per_kg.get(goal_lower, 1.8)
+        # Calcular proteína baseada no peso (mais preciso)
+        protein_grams = weight * protein_per_kg
         protein_calories_used = protein_grams * 4
         
         # Distribuir o restante entre carbs e gorduras
-        remaining_calories = calories - protein_calories_used
+        remaining_calories = max(calories - protein_calories_used, 0)
         
-        if goal_lower == "lose":
-            # Menos carbs, mais gorduras (saciedade)
-            carbs_pct = 0.45
-            fats_pct = 0.55
-        elif goal_lower == "gain":
-            # Mais carbs para energia e ganho
-            carbs_pct = 0.60
-            fats_pct = 0.40
-        elif goal_lower == "recomposition":
-            # Moderado em ambos
-            carbs_pct = 0.50
-            fats_pct = 0.50
-        else:  # maintain
-            carbs_pct = 0.55
-            fats_pct = 0.45
+        # Normalizar percentuais para o restante
+        total_remaining_pct = carbs_pct + fats_pct
+        carbs_normalized = carbs_pct / total_remaining_pct if total_remaining_pct > 0 else 0.5
+        fats_normalized = fats_pct / total_remaining_pct if total_remaining_pct > 0 else 0.5
         
-        carbs_grams = (remaining_calories * carbs_pct) / 4
-        fats_grams = (remaining_calories * fats_pct) / 9
+        carbs_grams = (remaining_calories * carbs_normalized) / 4
+        fats_grams = (remaining_calories * fats_normalized) / 9
     else:
-        # Fallback: usar porcentagens fixas se não temos o peso
-        if goal_lower == "lose":
-            protein_pct = 0.30
-            carbs_pct = 0.35
-            fats_pct = 0.35
-        elif goal_lower == "gain":
-            protein_pct = 0.25
-            carbs_pct = 0.45
-            fats_pct = 0.30
-        elif goal_lower == "recomposition":
-            protein_pct = 0.35  # Alta proteína para recomposição
-            carbs_pct = 0.35
-            fats_pct = 0.30
-        else:  # maintain
-            protein_pct = 0.25
-            carbs_pct = 0.40
-            fats_pct = 0.35
+        # Fallback: usar porcentagens do objetivo
+        protein_pct = 1 - carbs_pct - fats_pct  # O que sobra vai para proteína
+        protein_pct = max(protein_pct, 0.20)    # Mínimo 20% proteína
         
         protein_grams = (calories * protein_pct) / 4
         carbs_grams = (calories * carbs_pct) / 4
@@ -535,6 +774,8 @@ def calculate_macros(calories: float, goal: str, weight: float = None) -> dict:
     protein_grams = max(protein_grams, 50)  # Mínimo 50g de proteína
     carbs_grams = max(carbs_grams, 50)      # Mínimo 50g de carbs
     fats_grams = max(fats_grams, 30)        # Mínimo 30g de gordura
+    
+    logger.info(f"[calculate_macros] goal={goal_lower}, protein={protein_grams:.1f}g, carbs={carbs_grams:.1f}g, fats={fats_grams:.1f}g")
     
     return {
         "protein": round(protein_grams, 1),
@@ -587,10 +828,12 @@ async def suggest_goals(request: SuggestGoalsRequest):
     if request.gender.lower() not in ["male", "female", "m", "f"]:
         raise HTTPException(status_code=400, detail="Gênero deve ser 'male' ou 'female'")
     
-    if request.goal.lower() not in ["lose", "maintain", "gain", "recomposition"]:
+    # Validar objetivo usando AVAILABLE_GOALS
+    if request.goal.lower() not in AVAILABLE_GOALS:
+        valid_goals = ", ".join(AVAILABLE_GOALS.keys())
         raise HTTPException(
             status_code=400, 
-            detail="Objetivo deve ser 'lose' (emagrecer), 'maintain' (manter), 'gain' (ganhar massa) ou 'recomposition' (recomposição corporal)"
+            detail=f"Objetivo inválido. Objetivos disponíveis: {valid_goals}"
         )
     
     # Normalizar gênero
@@ -647,6 +890,49 @@ async def suggest_goals(request: SuggestGoalsRequest):
     except Exception as e:
         logger.error(
             f"[POST /health/suggest_goals] Erro: "
+            f"erro={str(e)}, traceback={traceback.format_exc()}"
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/goals/list")
+async def list_available_goals():
+    """
+    Lista todos os objetivos nutricionais disponíveis, organizados por categoria.
+    
+    Returns:
+        Dict com:
+        - categories: Lista de categorias com seus objetivos
+        - all_goals: Lista plana de todos os objetivos
+    """
+    logger.info("[GET /health/goals/list] Listando objetivos disponíveis")
+    
+    try:
+        # Organizar objetivos por categoria
+        categories_with_goals = []
+        for cat_id, cat_info in sorted(GOAL_CATEGORIES.items(), key=lambda x: x[1].get("order", 99)):
+            category_goals = [
+                goal for goal in AVAILABLE_GOALS.values()
+                if goal.get("category") == cat_id
+            ]
+            if category_goals:
+                categories_with_goals.append({
+                    **cat_info,
+                    "goals": category_goals
+                })
+        
+        # Lista plana de todos os objetivos
+        all_goals = list(AVAILABLE_GOALS.values())
+        
+        return {
+            "success": True,
+            "categories": categories_with_goals,
+            "all_goals": all_goals,
+            "total_goals": len(all_goals)
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"[GET /health/goals/list] Erro: "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
