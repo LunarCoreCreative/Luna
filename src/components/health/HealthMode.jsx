@@ -147,6 +147,9 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
     const handleProfileSelected = (profile) => {
         setHealthProfile(profile);
         setShowProfileSelector(false);
+        // IMPORTANTE: Limpar viewAsStudentId ao trocar de perfil
+        // Isso evita erros quando avaliador troca para modo aluno
+        setViewAsStudentId(null);
         refresh();
         if (profile.type === "evaluator") {
             loadEvaluatorStudents();
@@ -203,6 +206,9 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
     };
 
     const handleOpenProfileSelector = () => {
+        // Limpar viewAsStudentId ao abrir o seletor de perfil
+        // Isso garante que ao trocar de perfil, não teremos referência a dados de outro usuário
+        setViewAsStudentId(null);
         setShowProfileSelector(true);
     };
 
