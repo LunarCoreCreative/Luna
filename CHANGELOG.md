@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
-## [1.1.3] - 2025-01-28
+## [1.1.4] - 2025-01-28
 
 ### ✨ Novas Funcionalidades
 
