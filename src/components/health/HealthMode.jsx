@@ -760,13 +760,19 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                     // Preenche o formulário com dados do preset e abre o modal de adicionar
                                     setFormData({
                                         name: preset.name,
+                                        food_name: preset.name,
                                         meal_type: preset.meal_type,
                                         calories: preset.total_calories || "",
                                         protein: preset.total_protein || "",
                                         carbs: preset.total_carbs || "",
                                         fats: preset.total_fats || "",
+                                        grams: "100",
+                                        portion_type: "porção",
+                                        portion_quantity: "1",
+                                        usePortion: false,
                                         notes: `📋 Do plano: ${preset.name}`,
-                                        date: new Date().toISOString().split('T')[0]
+                                        date: new Date().toISOString().split('T')[0],
+                                        time: ""
                                     });
                                     setShowAddMeal(true);
                                 }}
@@ -780,13 +786,19 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                         // Preenche o formulário com dados do preset
                                         setFormData({
                                             name: preset.name,
+                                            food_name: preset.name,
                                             meal_type: preset.meal_type,
                                             calories: preset.total_calories || "",
                                             protein: preset.total_protein || "",
                                             carbs: preset.total_carbs || "",
                                             fats: preset.total_fats || "",
-                                            notes: `Do plano: ${preset.name}`,
-                                            date: new Date().toISOString().split('T')[0]
+                                            grams: "100",
+                                            portion_type: "porção",
+                                            portion_quantity: "1",
+                                            usePortion: false,
+                                            notes: `📋 Do plano: ${preset.name}`,
+                                            date: new Date().toISOString().split('T')[0],
+                                            time: ""
                                         });
                                         setShowAddMeal(true);
                                     }}
