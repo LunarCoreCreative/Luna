@@ -28,11 +28,30 @@ export const useChat = () => {
         try {
             // Pass user_id if logged in
             const query = user?.uid ? `?user_id=${user.uid}` : "";
-            const r = await fetch(`${MEMORY_SERVER}/chats${query}`);
+            
+            // Adiciona timeout para evitar travamento
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos timeout
+            
+            const r = await fetch(`${MEMORY_SERVER}/chats${query}`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!r.ok) {
+                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+            }
+            
             const d = await r.json();
             if (d.success) setChats(d.chats);
         } catch (e) {
-            console.error("Failed to load chats", e);
+            if (e.name === 'AbortError') {
+                console.warn("[CHAT] Timeout ao carregar chats (8s)");
+            } else {
+                console.error("Failed to load chats", e);
+            }
+            // Não lança erro, apenas loga - permite que o app continue
         }
     }, [user]); // Add user dependency
 

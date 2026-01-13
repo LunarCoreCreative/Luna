@@ -579,8 +579,6 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                                                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
                                                             )}
                                                         </button>
-                                                        {/* Aba de Vinculação removida (StudentLink foi removido) */}
-                                                        {/* Abas de avaliador removidas (dashboard, notifications) */}
                     </div>
 
                     {/* Content */}

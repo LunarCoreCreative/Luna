@@ -71,7 +71,21 @@ export const AuthProvider = ({ children }) => {
         
         try {
             setLoadingHealthProfile(true);
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`);
+            
+            // Adiciona timeout para evitar travamento
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos timeout
+            
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const data = await response.json();
             
             if (data.success && data.profile) {
@@ -80,7 +94,11 @@ export const AuthProvider = ({ children }) => {
                 setHealthProfile(null);
             }
         } catch (error) {
-            console.error("[AUTH] Erro ao carregar perfil de saúde:", error);
+            if (error.name === 'AbortError') {
+                console.warn("[AUTH] Timeout ao carregar perfil de saúde (8s)");
+            } else {
+                console.error("[AUTH] Erro ao carregar perfil de saúde:", error);
+            }
             setHealthProfile(null);
         } finally {
             setLoadingHealthProfile(false);
@@ -126,7 +144,10 @@ export const AuthProvider = ({ children }) => {
                 console.log("[AUTH] Usuário autenticado:", firebaseUser.email);
 
                 // ===== CARREGAR PERFIL DE SAÚDE =====
-                await loadHealthProfile(firebaseUser.uid);
+                // Carrega em background, não bloqueia o boot
+                loadHealthProfile(firebaseUser.uid).catch(err => {
+                    console.warn("[AUTH] Erro ao carregar perfil de saúde (não bloqueante):", err);
+                });
 
                 // ===== LUNA LINK: Conectar ao servidor cloud =====
                 // Só funciona em ambiente Electron (app desktop)

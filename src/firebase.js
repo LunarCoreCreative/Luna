@@ -107,7 +107,16 @@ export const logout = async () => {
 export const getUserProfile = async (uid) => {
     try {
         const docRef = doc(db, "users", uid);
-        const docSnap = await getDoc(docRef);
+        
+        // Adiciona timeout para evitar travamento
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout ao buscar perfil do Firestore')), 10000)
+        );
+        
+        const docSnap = await Promise.race([
+            getDoc(docRef),
+            timeoutPromise
+        ]);
 
         if (docSnap.exists()) {
             return { ...docSnap.data(), id: docSnap.id };
@@ -115,7 +124,11 @@ export const getUserProfile = async (uid) => {
         return null;
     } catch (error) {
         // Se Firestore estiver offline ou sem permissão, continua sem perfil
-        console.warn("[FIREBASE] Perfil não disponível (configure as regras do Firestore):", error.code);
+        if (error.message === 'Timeout ao buscar perfil do Firestore') {
+            console.warn("[FIREBASE] Timeout ao buscar perfil (10s) - continuando sem perfil");
+        } else {
+            console.warn("[FIREBASE] Perfil não disponível (configure as regras do Firestore):", error.code);
+        }
         return null;
     }
 };
