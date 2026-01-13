@@ -274,16 +274,33 @@ async def remove_transaction(tx_id: str, user_id: str = "local"):
 @router.get("/summary")
 @handle_business_errors
 async def get_business_summary(user_id: str = "local", period: Optional[str] = None):
-    """Get financial summary. If period is provided (YYYY-MM), returns summary for that period."""
+    """
+    Get financial summary. 
+    If period is provided (YYYY-MM), returns income/expenses/invested for that period,
+    but balance and net_worth are always the total (not filtered by period).
+    """
     try:
-        if period:
-            from .periods import get_period_summary
-            summary = get_period_summary(user_id, period)
-            clients = load_clients(user_id)
-            summary["clients"] = len(clients)
-            return summary
+        # Always get total summary for balance and net_worth
+        total_summary = get_summary(user_id)
         
-        summary = get_summary(user_id)
+        if period:
+            # Get period-specific values for income/expenses/invested
+            from .periods import get_period_summary
+            period_summary = get_period_summary(user_id, period)
+            
+            # Combine: period-specific income/expenses/invested, but total balance/net_worth
+            summary = {
+                "balance": total_summary["balance"],  # Always total
+                "net_worth": total_summary["net_worth"],  # Always total
+                "income": period_summary["income"],  # Period-specific
+                "expenses": period_summary["expenses"],  # Period-specific
+                "invested": period_summary["invested"],  # Period-specific
+                "transaction_count": period_summary["transaction_count"],
+                "period": period
+            }
+        else:
+            summary = total_summary
+        
         clients = load_clients(user_id)
         summary["clients"] = len(clients)
         return summary

@@ -2,6 +2,18 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.7] - 2025-01-29
+
+### 🐛 Correções de Bugs
+
+- **Business Mode - Saldo Incorreto ao Filtrar por Período**:
+  - Corrigido problema onde o saldo mostrado no resumo estava sendo filtrado por período
+  - Saldo e Net Worth agora sempre mostram o total acumulado (todas as transações)
+  - Income/Expenses/Invested continuam sendo filtrados por período quando selecionado
+  - Saldo agora está consistente entre o resumo e as metas financeiras
+
+---
+
 ## [1.1.6] - 2025-01-29
 
 ### 🐛 Correções de Bugs
