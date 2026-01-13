@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { X, History, Globe, FileText, CheckCircle2 } from "lucide-react";
 import { MessageList } from "../chat/MessageList";
 import { ChatInput } from "../chat/ChatInput";
@@ -6,7 +6,7 @@ import { useChat } from "../../hooks/useChat";
 import { useAttachments } from "../../hooks/useAttachments";
 import { useAuth } from "../../contexts/AuthContext";
 import { API_CONFIG } from "../../config/api";
-import { parseThought } from "../../utils/messageUtils";
+import { parseThought, cleanContent } from "../../utils/messageUtils";
 
 export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
     // Hooks
@@ -153,49 +153,21 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
                     if (data.content) {
                         if (activeToolRef.current) { setActiveTool(null); activeToolRef.current = null; }
 
-                        let filteredContent = data.content;
-
-                        // Robust Regex for Tool Call Tokens (handles spaces AND NEWLINES)
-                        // Using [\s\S]*? approach or just explicit \s including newlines
-                        let cleaned = filteredContent.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "");
-
-                        // Catch tokens interrupted by newlines (e.g. < | tool_call_begin |\n >)
-                        cleaned = cleaned.replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "");
-
-                        // Fallback for residual pipes
-                        cleaned = cleaned.replace(/<\|.*?\|>/g, '');
-
-                        // Clean visual noise of empty tokens
-                        // filteredContent = cleaned; // Use regex cleaned version for Buffer?
-                        // Actually streamBuffer uses cleanContent in MessageList? 
-                        // MessageList streamBuffer was removed. 
-                        // So we just accumulate fullText.
-
-                        // NOTE: We should accumulate the RAW content for fullText (so markdown isn't broken by partial chunks) 
-                        // BUT since we saw persistent leaks, we should validly filter the chunk.
-                        // However, validly filtering chunks is hard if a token is split.
-                        // Since streamBuffer is gone, `fullText` is only used for FINAL persistence.
-                        // We can clean `fullText` at the END.
-
-                        if (filteredContent) {
-                            fullText += filteredContent;
-                            // setStreamBuffer -> REMOVED
+                        if (data.content) {
+                            // Use centralized cleaning function
+                            const cleaned = cleanContent(data.content);
+                            
+                            if (cleaned) {
+                                fullText += cleaned;
+                            }
                         }
                     }
 
                     if (data.done) {
                         streamCompleted = true;
 
-                        // clean final text before saving
-                        // Reuse cleanContent or applying regex here
-                        let finalText = fullText;
-                        finalText = finalText.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "")
-                            .replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "")
-                            .replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "")
-                            .replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "")
-                            .replace(/<\|.*?\|>/g, '');
+                        // Clean final text before saving using centralized function
+                        let finalText = cleanContent(fullText);
 
                         if (finalText.trim()) {
                             const finalMsg = {
@@ -204,12 +176,37 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
                                 thought: data.thought || currentThought,
                                 timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                             };
-                            chat.setMessages(prev => {
-                                const newMsgs = [...prev, finalMsg];
-                                // CRITICAL FIX: Use activeChatId (passed as arg) instead of stale chat.currentChatId
-                                chat.persistChat(newMsgs, activeChatId, "Consultor Business");
-                                return newMsgs;
-                            });
+                            
+                            // CRITICAL: Validate activeChatId before persisting
+                            if (!activeChatId) {
+                                console.error("[BusinessChat] ❌ Erro: activeChatId é null/undefined ao persistir mensagem final");
+                                // Try to get from chat.currentChatId as fallback
+                                const fallbackId = chat.currentChatId;
+                                if (fallbackId) {
+                                    console.warn("[BusinessChat] ⚠️ Usando currentChatId como fallback:", fallbackId);
+                                    chat.setMessages(prev => {
+                                        const newMsgs = [...prev, finalMsg];
+                                        chat.persistChat(newMsgs, fallbackId, "Consultor Business");
+                                        return newMsgs;
+                                    });
+                                } else {
+                                    console.error("[BusinessChat] ❌ Não foi possível persistir: nenhum chatId disponível");
+                                    chat.setMessages(prev => [...prev, finalMsg]);
+                                }
+                            } else {
+                                console.log("[BusinessChat] 💾 Persistindo mensagem final com activeChatId:", activeChatId);
+                                chat.setMessages(prev => {
+                                    const newMsgs = [...prev, finalMsg];
+                                    // CRITICAL FIX: Use activeChatId (passed as arg) instead of stale chat.currentChatId
+                                    const persistedId = chat.persistChat(newMsgs, activeChatId, "Consultor Business");
+                                    // Update currentChatId if persistChat returned a different ID
+                                    if (persistedId && persistedId !== activeChatId) {
+                                        console.log("[BusinessChat] 🔄 ID mudou durante persistência:", activeChatId, "→", persistedId);
+                                        chat.setCurrentChatId(persistedId);
+                                    }
+                                    return newMsgs;
+                                });
+                            }
                         }
 
                         setStreamBuffer("");
@@ -260,15 +257,37 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
         chat.setMessages(newMessages);
 
         // Persist immediately to ensure ID creation if new
-        // CRITICAL: Capture the returned ID
+        // CRITICAL: Always use the ID returned by persistChat to avoid stale chatId
         let chatId = chat.currentChatId;
+        console.log("[BusinessChat] 📝 Persistindo mensagem, chatId atual:", chatId);
+        
         const persistedId = await chat.persistChat(newMessages, chatId, "Consultor Business");
-
+        
+        // Always use the ID returned by persistChat (new or existing)
         if (persistedId) {
             chatId = persistedId;
+            console.log("[BusinessChat] ✅ Chat persistido com ID:", chatId);
+            
+            // Update currentChatId if it changed (e.g., new chat created)
             if (chatId !== chat.currentChatId) {
+                console.log("[BusinessChat] 🔄 Atualizando currentChatId:", chat.currentChatId, "→", chatId);
                 chat.setCurrentChatId(chatId);
             }
+        } else {
+            // Fallback: use currentChatId if persistChat didn't return ID
+            chatId = chat.currentChatId || chatId;
+            console.warn("[BusinessChat] ⚠️ persistChat não retornou ID, usando:", chatId);
+        }
+        
+        // Validate chatId before proceeding
+        if (!chatId) {
+            console.error("[BusinessChat] ❌ Erro: chatId é null/undefined após persistência");
+            setIsStreaming(false);
+            chat.setMessages(prev => [...prev, { 
+                role: "assistant", 
+                content: "Erro: Não foi possível identificar o chat. Por favor, tente novamente." 
+            }]);
+            return;
         }
 
         // Clear inputs
@@ -277,7 +296,8 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
         // Start Stream
         setIsStreaming(true);
         try {
-            // Pass chatId explicitly to closure
+            // Pass chatId explicitly to closure - this is the source of truth
+            console.log("[BusinessChat] 🚀 Iniciando stream com chatId:", chatId);
             await streamAgentViaWS(newMessages, isThinkingMode, chatId);
         } catch (e) {
             console.error(e);
@@ -290,6 +310,67 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
         if (wsRef.current) wsRef.current.close();
         setIsStreaming(false);
     };
+
+    const regenerateResponse = useCallback(async (messageIndex) => {
+        if (isStreaming) {
+            console.warn("[BusinessChat] Não é possível regenerar durante streaming");
+            return;
+        }
+
+        // Encontra a última mensagem do usuário antes desta mensagem do assistente
+        let lastUserMsgIndex = -1;
+        for (let i = messageIndex - 1; i >= 0; i--) {
+            if (chat.messages[i].role === "user") {
+                lastUserMsgIndex = i;
+                break;
+            }
+        }
+
+        if (lastUserMsgIndex === -1) {
+            console.warn("[BusinessChat] Não foi possível encontrar mensagem do usuário para regenerar");
+            return;
+        }
+
+        // Remove todas as mensagens APÓS a mensagem do usuário (mantém a mensagem do usuário)
+        const newMessages = chat.messages.slice(0, lastUserMsgIndex + 1);
+        chat.setMessages(newMessages);
+
+        // Persiste o estado atualizado
+        const chatId = chat.currentChatId;
+        await chat.persistChat(newMessages, chatId, "Consultor Business");
+
+        // Reenvia a última mensagem do usuário
+        const lastUserMsg = newMessages[newMessages.length - 1];
+        if (lastUserMsg && lastUserMsg.content) {
+            console.log("[BusinessChat] Regenerando resposta para:", lastUserMsg.content);
+            // Usa setTimeout para garantir que o estado foi atualizado
+            setTimeout(() => {
+                sendMessage(lastUserMsg.content);
+            }, 100);
+        }
+    }, [chat, isStreaming, sendMessage]);
+
+    const toggleFavorite = useCallback((messageIndex) => {
+        chat.setMessages(prev => 
+            prev.map((msg, i) => 
+                i === messageIndex 
+                    ? { ...msg, isFavorite: !msg.isFavorite }
+                    : msg
+            )
+        );
+
+        // Persiste mudança de favorito
+        const updatedMessages = chat.messages.map((msg, i) => 
+            i === messageIndex 
+                ? { ...msg, isFavorite: !msg.isFavorite }
+                : msg
+        );
+        
+        const chatId = chat.currentChatId;
+        if (chatId) {
+            chat.persistChat(updatedMessages, chatId, "Consultor Business");
+        }
+    }, [chat]);
 
     return (
         <div className="flex flex-col h-full bg-black/20 border-l border-white/5 relative">
@@ -311,8 +392,8 @@ export function BusinessChat({ isOpen, onClose, userId = "local", onUpdate }) {
                     streamThought={streamThought}
                     activeTool={activeTool}
                     toolStatus={toolStatus}
-                    onRegenerate={() => { }} // TODO
-                    onFavorite={() => { }} // TODO
+                    onRegenerate={regenerateResponse}
+                    onFavorite={toggleFavorite}
                     // Adapter for artifacts to just log for now or support simple viewing
                     onOpenArtifact={() => { }}
                 />

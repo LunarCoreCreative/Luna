@@ -21,13 +21,11 @@ HEALTH_MODEL = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
 # Health Mode imports
 try:
     from .health.storage import get_summary as get_health_summary, load_meals, get_goals
-    from .health.permissions import validate_data_access
     from .health.profiles import get_health_profile
 except ImportError:
     get_health_summary = None
     load_meals = None
     get_goals = None
-    validate_data_access = None
     get_health_profile = None
 
 
@@ -43,246 +41,19 @@ async def health_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     """
     Agent for Health Mode using Llama 4 Maverick.
     Uses native tool calling - no parsing needed!
-    
-    Supports view_as_student_id for evaluators to view student data.
     """
     user_msg = request.messages[-1].content
     yield f"data: {json.dumps({'start': True, 'mode': 'health'})}\n\n"
     
-    # Resolve target user_id (for view_as_student_id support)
-    actual_user_id = request.user_id or "local"
-    target_user_id = actual_user_id
-    view_as_context = ""
-    student_name = None  # Initialize for use in prompt construction
-    students_list = []  # Initialize students list for evaluators
-    
-    # Check if user is evaluator (to show students list even when no student is selected)
-    is_evaluator = False
-    if get_health_profile:
-        try:
-            user_profile = get_health_profile(actual_user_id)
-            if user_profile and user_profile.get("type") == "evaluator":
-                is_evaluator = True
-                # Get list of all students for this evaluator
-                try:
-                    from .profiles import get_evaluator_students
-                    from ..firebase_config import get_user_profile, get_user_info
-                    
-                    student_ids = get_evaluator_students(actual_user_id)
-                    for sid in student_ids:
-                        student_info = {"id": sid, "name": "Aluno"}
-                        try:
-                            # Try Firestore first
-                            profile = get_user_profile(sid)
-                            if profile and profile.get("name"):
-                                student_info["name"] = profile.get("name")
-                            else:
-                                # Fallback to Auth
-                                info = get_user_info(sid)
-                                if info:
-                                    student_info["name"] = info.get("display_name") or info.get("name") or "Aluno"
-                        except:
-                            pass
-                        students_list.append(student_info)
-                except Exception as e:
-                    safe_print(f"[DEBUG-HEALTH] Could not load students list: {e}")
-        except:
-            pass
-    
-    # If view_as_student_id is provided, validate permissions and use it
-    if request.view_as_student_id:
-        # CRITICAL: Always validate permissions, even if functions are not imported
-        if not validate_data_access or not get_health_profile:
-            yield f"data: {json.dumps({'error': 'Sistema de permissões não disponível. Acesso negado por segurança.'})}\n\n"
-            return
-        
-        try:
-            # CRITICAL SECURITY CHECK: Validate that user is an evaluator trying to view a student
-            # This prevents students or non-evaluators from accessing other users' data
-            allowed, error_msg = validate_data_access(actual_user_id, request.view_as_student_id, "view")
-            if not allowed:
-                safe_print(f"[SECURITY] Acesso negado: user_id={actual_user_id} tentou acessar dados de view_as_student_id={request.view_as_student_id}, erro: {error_msg}")
-                yield f"data: {json.dumps({'error': f'Acesso negado: {error_msg}'})}\n\n"
-                return
-            
-            # Additional check: Verify user is actually an evaluator
-            user_profile = get_health_profile(actual_user_id)
-            if not user_profile or user_profile.get("type") != "evaluator":
-                safe_print(f"[SECURITY] Tentativa de acesso não autorizada: user_id={actual_user_id} não é avaliador")
-                yield f"data: {json.dumps({'error': 'Acesso negado: apenas avaliadores podem visualizar dados de alunos'})}\n\n"
-                return
-            
-            # Get student name from Firebase (Firestore first, then Auth)
-            student_name = "aluno"
-            try:
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                # Try Firestore first (where "name" field is stored)
-                user_profile = get_user_profile(request.view_as_student_id)
-                if user_profile and user_profile.get("name"):
-                    student_name = user_profile.get("name")
-                else:
-                    # Fallback to Auth display_name
-                    user_info = get_user_info(request.view_as_student_id)
-                    if user_info:
-                        student_name = user_info.get("display_name") or user_info.get("name") or "aluno"
-            except Exception as e:
-                safe_print(f"[DEBUG-HEALTH] Could not fetch student name: {e}")
-                # Try to get from health profile as fallback
-                student_profile = get_health_profile(request.view_as_student_id)
-                if student_profile and student_profile.get("user_name"):
-                    student_name = student_profile.get("user_name")
-            
-            # Use student's user_id for data loading
-            target_user_id = request.view_as_student_id
-            
-            # Get list of all students for this evaluator (for name matching)
-            students_list = []
-            try:
-                from .profiles import get_evaluator_students
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                student_ids = get_evaluator_students(actual_user_id)
-                for sid in student_ids:
-                    student_info = {"id": sid, "name": "Aluno"}
-                    try:
-                        # Try Firestore first
-                        profile = get_user_profile(sid)
-                        if profile and profile.get("name"):
-                            student_info["name"] = profile.get("name")
-                        else:
-                            # Fallback to Auth
-                            info = get_user_info(sid)
-                            if info:
-                                student_info["name"] = info.get("display_name") or info.get("name") or "Aluno"
-                    except:
-                        pass
-                    students_list.append(student_info)
-            except Exception as e:
-                safe_print(f"[DEBUG-HEALTH] Could not load students list: {e}")
-            
-            # Build students list text for prompt
-            students_list_text = ""
-            if students_list:
-                students_list_text = f"\n**ALUNOS VINCULADOS AO AVALIADOR:**\n"
-                for s in students_list:
-                    is_current = s['id'] == request.view_as_student_id
-                    marker = " ← VOCÊ ESTÁ ANALISANDO ESTE ALUNO AGORA" if is_current else ""
-                    students_list_text += f"- {s['name']} (ID: {s['id']}){marker}\n"
-                students_list_text += f"\n**⚠️ ATENÇÃO:** Você está atualmente analisando {student_name} (ID: {request.view_as_student_id}).\n"
-                students_list_text += f"Quando o avaliador mencionar '{student_name}', 'o aluno', 'ele', 'ela', ou qualquer referência ao aluno, você DEVE usar os dados de {student_name} (ID: {request.view_as_student_id}).\n"
-                students_list_text += f"**TODAS as ferramentas DEVEM usar user_id={request.view_as_student_id} (dados de {student_name}).**\n"
-            
-            # Add comprehensive evaluator context to prompt
-            view_as_context = f"""
-
-## 👨‍⚕️ CONTEXTO DE AVALIADOR - LEIA COM ATENÇÃO!
-
-**VOCÊ É UM AVALIADOR/NUTRICIONISTA analisando os dados do aluno {student_name} (ID: {request.view_as_student_id}).**
-
-**⚠️ REGRA CRÍTICA - TODAS AS FERRAMENTAS DEVEM USAR OS DADOS DO ALUNO:**
-- **SEMPRE** use user_id={request.view_as_student_id} em TODAS as ferramentas (add_meal, get_nutrition_summary, get_goals, list_meals, etc.)
-- **NUNCA** use os dados do avaliador (user_id={actual_user_id})
-- Quando o avaliador mencionar "{student_name}" ou "o aluno" ou "ele/ela", você DEVE buscar os dados do aluno {student_name} (ID: {request.view_as_student_id})
-- Quando o avaliador perguntar sobre refeições, metas, progresso, calorias, etc., você DEVE retornar os dados do aluno, NÃO do avaliador
-
-**REGRA CRÍTICA DE LINGUAGEM:**
-- NUNCA use "você" se referindo ao avaliador. Use "o aluno", "{student_name}", "ele/ela" ou "seu paciente"
-- Quando mencionar refeições, diga "O aluno registrou..." ou "{student_name} registrou..." NÃO diga "Você registrou..."
-- Quando mencionar metas, diga "As metas do aluno são..." NÃO diga "Suas metas são..."
-- Quando mencionar progresso, diga "O progresso do aluno..." NÃO diga "Seu progresso..."
-
-**EXEMPLOS CORRETOS:**
-- ✅ "O aluno ainda não registrou nenhuma refeição hoje"
-- ✅ "{student_name} consumiu X calorias hoje"
-- ✅ "As metas nutricionais do aluno são..."
-- ✅ "Vamos analisar o progresso do aluno"
-- ❌ "Você ainda não registrou nenhuma refeição" (ERRADO - você é o avaliador, não o aluno!)
-- ❌ "Suas refeições de hoje são..." (ERRADO - você não comeu, o aluno comeu!)
-
-{students_list_text}
-**QUANDO O AVALIADOR MENCIONAR O NOME DO ALUNO:**
-- Se o avaliador disser "{student_name}", "o aluno", "ele", "ela", ou qualquer referência ao aluno, você DEVE:
-  1. Reconhecer que está se referindo ao aluno {student_name} (ID: {request.view_as_student_id})
-  2. Usar TODAS as ferramentas com user_id={request.view_as_student_id}
-  3. Retornar APENAS os dados do aluno, nunca os dados do avaliador
-- **Se o avaliador mencionar o nome de OUTRO aluno** (diferente de {student_name}), você DEVE informar que está atualmente visualizando {student_name} e que precisa selecionar o aluno correto no dropdown primeiro
-
-**SUA FUNÇÃO:**
-- Analisar os dados nutricionais do aluno {student_name}
-- Fornecer insights profissionais sobre o progresso do aluno
-- Sugerir melhorias baseadas nos dados do aluno
-- Registrar refeições ou atualizar metas PARA O ALUNO (não para você)
-- **TODAS as ferramentas DEVEM usar user_id={request.view_as_student_id} (dados do aluno)**
-
-**TOM:**
-- Profissional mas carinhoso
-- Foque em insights práticos e acionáveis
-- Seja claro que está analisando dados de um paciente/aluno
-
-"""
-            safe_print(f"[DEBUG-HEALTH] View as mode: evaluator {actual_user_id} viewing student {target_user_id} ({student_name})")
-        except Exception as e:
-            safe_print(f"[DEBUG-HEALTH] Error validating view_as: {e}")
-            yield f"data: {json.dumps({'error': f'Erro ao validar acesso: {str(e)}'})}\n\n"
-            return
+    # Resolve target user_id
+    target_user_id = request.user_id or "local"
     
     # Build system prompt
-    # If evaluator without student selected, use evaluator mode
-    # If evaluator with student selected, use student mode (but with evaluator context)
-    use_evaluator_mode = is_evaluator and not request.view_as_student_id
-    
-    base_prompt = get_system_prompt(
+    prompt = get_system_prompt(
         user_id=target_user_id,
         user_name=request.user_name or "Usuário",
-        health_mode=True,
-        evaluator_mode=use_evaluator_mode
+        health_mode=True
     )
-    
-    # If evaluator but no student selected, add list of students to context
-    # Note: When evaluator_mode=True, the prompt already includes evaluator-specific instructions
-    # We just need to add the list of students for reference
-    if is_evaluator and not request.view_as_student_id and students_list:
-        students_list_text = "\n**ALUNOS VINCULADOS AO AVALIADOR:**\n"
-        for s in students_list:
-            students_list_text += f"- {s['name']} (ID: {s['id']})\n"
-        students_list_text += "\n**DICA:** Você pode usar as ferramentas `get_student_data`, `list_all_students`, `compare_students`, etc. para analisar os dados dos alunos.\n"
-        students_list_text += "Quando o avaliador mencionar um nome de aluno, você pode usar `get_student_data` com o nome para buscar os dados automaticamente.\n"
-        
-        # Append students list to evaluator prompt
-        prompt = base_prompt + "\n\n" + students_list_text
-    # If in evaluator mode with student selected, prepend the evaluator context (so it has priority)
-    elif view_as_context:
-        # Add evaluator context FIRST (highest priority)
-        # Add explicit instruction at the very top
-        critical_instruction = f"""
-🚨 INSTRUÇÃO CRÍTICA - LEIA PRIMEIRO! 🚨
-
-Você está analisando os dados do aluno {student_name} (ID: {request.view_as_student_id}).
-TODAS as ferramentas devem usar user_id={request.view_as_student_id}.
-NUNCA use os dados do avaliador (user_id={actual_user_id}).
-
-Quando o avaliador perguntar sobre refeições, metas, progresso, calorias, ou qualquer dado nutricional,
-você DEVE retornar os dados do aluno {student_name}, NÃO os dados do avaliador.
-
-{students_list_text if 'students_list_text' in locals() else ''}
-
-"""
-        prompt = critical_instruction + view_as_context + "\n\n" + base_prompt
-        # Replace "você" with "o aluno" in key sections when in evaluator mode
-        # This ensures the AI understands it's analyzing student data, not evaluator data
-        prompt = prompt.replace("você registrou", "o aluno registrou")
-        prompt = prompt.replace("Você registrou", "O aluno registrou")
-        prompt = prompt.replace("você consumiu", "o aluno consumiu")
-        prompt = prompt.replace("Você consumiu", "O aluno consumiu")
-        prompt = prompt.replace("suas refeições", "as refeições do aluno")
-        prompt = prompt.replace("Suas refeições", "As refeições do aluno")
-        prompt = prompt.replace("suas metas", "as metas do aluno")
-        prompt = prompt.replace("Suas metas", "As metas do aluno")
-        prompt = prompt.replace("seu progresso", "o progresso do aluno")
-        prompt = prompt.replace("Seu progresso", "O progresso do aluno")
-    else:
-        prompt = base_prompt
     
     # Load health context (using target_user_id)
     recent_meals = []
@@ -410,13 +181,15 @@ você DEVE retornar os dados do aluno {student_name}, NÃO os dados do avaliador
                         args = {}
                     
                     # Execute health tool (now async)
-                    # Use target_user_id (view_as_student_id if provided, otherwise request.user_id)
-                    # Pass evaluator_id when viewing as student (for preset creation)
-                    evaluator_id = actual_user_id if request.view_as_student_id else None
                     try:
-                        safe_print(f"[DEBUG-HEALTH] 🚀 Executing {name} with user_id={target_user_id}, evaluator_id={evaluator_id}")
-                        result = await execute_health_tool(name, args, user_id=target_user_id, evaluator_id=evaluator_id)
+                        safe_print(f"[DEBUG-HEALTH] 🚀 Executing {name} with user_id={target_user_id}")
+                        if name == "create_meal_plan":
+                            safe_print(f"[DEBUG-HEALTH] 📋 Creating meal plan with {len(args.get('presets', []))} presets")
+                            safe_print(f"[DEBUG-HEALTH] 👤 User ({target_user_id}) creating plan")
+                        result = await execute_health_tool(name, args, user_id=target_user_id)
                         safe_print(f"[DEBUG-HEALTH] ✅ Result success: {result.get('success', False)}")
+                        if name == "create_meal_plan" and result.get('success'):
+                            safe_print(f"[DEBUG-HEALTH] 🎉 Meal plan created: {result.get('count', 0)} presets saved")
                         if not result.get('success'):
                             safe_print(f"[DEBUG-HEALTH] ⚠️ Error: {result.get('error', 'unknown')}")
                     except Exception as e:

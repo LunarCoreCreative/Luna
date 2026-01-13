@@ -6,13 +6,29 @@ import { useModalContext } from '../../contexts/ModalContext';
 export default function RecurringModal({ isOpen, onClose, userId, onLoadData, tags }) {
     const { showAlert } = useModalContext();
     const [items, setItems] = useState([]);
-    const [newItem, setNewItem] = useState({ title: "", value: "", type: "expense", day: "5", category: "fixo" });
+    const [newItem, setNewItem] = useState({ title: "", value: "", type: "expense", day: "5", category: "fixo", credit_card_id: "" });
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [creditCards, setCreditCards] = useState([]);
 
     useEffect(() => {
-        if (isOpen) loadItems();
+        if (isOpen) {
+            loadItems();
+            loadCreditCards();
+        }
     }, [isOpen]);
+
+    const loadCreditCards = async () => {
+        try {
+            const res = await fetch(`${API_CONFIG.BASE_URL}/business/credit-cards?user_id=${userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setCreditCards(data.cards || []);
+            }
+        } catch (e) {
+            console.error("Error loading credit cards:", e);
+        }
+    };
 
     const loadItems = async () => {
         setLoading(true);
@@ -51,7 +67,8 @@ export default function RecurringModal({ isOpen, onClose, userId, onLoadData, ta
                 type: newItem.type,
                 day_of_month: parseInt(newItem.day),
                 category: newItem.category, // Include category
-                user_id: userId
+                user_id: userId,
+                credit_card_id: newItem.credit_card_id || null
             };
             console.log("Payload:", payload);
 
@@ -65,7 +82,7 @@ export default function RecurringModal({ isOpen, onClose, userId, onLoadData, ta
             console.log("Response:", res.status, data);
 
             if (res.ok) {
-                setNewItem({ title: "", value: "", type: "expense", day: "5", category: "fixo" });
+                setNewItem({ title: "", value: "", type: "expense", day: "5", category: "fixo", credit_card_id: "" });
                 loadItems();
             } else {
                 await showAlert("Erro ao salvar: " + (data.detail || "Erro desconhecido"), "Erro");
@@ -206,6 +223,24 @@ export default function RecurringModal({ isOpen, onClose, userId, onLoadData, ta
                                 ))}
                             </select>
                         </div>
+
+                        {/* Credit Card Select (only for expenses) */}
+                        {newItem.type === "expense" && creditCards.length > 0 && (
+                            <div className="flex gap-2 mb-2">
+                                <select
+                                    value={newItem.credit_card_id}
+                                    onChange={e => setNewItem({ ...newItem, credit_card_id: e.target.value })}
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
+                                >
+                                    <option value="" className="text-black">Sem cartão de crédito</option>
+                                    {creditCards.map(card => (
+                                        <option key={card.id} value={card.id} className="text-black">
+                                            {card.name} (Final: {card.last_four_digits})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
                         <div className="flex gap-2">
                             <input

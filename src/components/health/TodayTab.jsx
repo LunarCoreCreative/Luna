@@ -34,7 +34,7 @@ const mealTypeLabels = {
     snack: "Lanche"
 };
 
-export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, onEditMeal, onDeleteMeal, onUpdate, onOpenChat, onUseFromPlan }) {
+export function TodayTab({ userId = "local", onAddMeal, onEditMeal, onDeleteMeal, onUpdate, onOpenChat, onUseFromPlan }) {
     const [overview, setOverview] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -50,9 +50,8 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
         setIsLoading(true);
         setError(null);
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
             const response = await fetch(
-                `${API_CONFIG.BASE_URL}/health/daily_overview?user_id=${userId}&date=${selectedDate}&meals_limit=20${viewAsParam}`
+                `${API_CONFIG.BASE_URL}/health/daily_overview?user_id=${userId}&date=${selectedDate}&meals_limit=20`
             );
             const data = await response.json();
             
@@ -71,21 +70,20 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
 
     useEffect(() => {
         loadTodayData();
-    }, [userId, selectedDate, viewAsStudentId]);
+    }, [userId, selectedDate]);
 
     // Recarregar quando onUpdate mudar (trigger de refresh)
     useEffect(() => {
         if (onUpdate !== undefined && onUpdate !== null) {
             loadTodayData();
         }
-    }, [onUpdate, userId, selectedDate, viewAsStudentId]);
+    }, [onUpdate, userId, selectedDate]);
 
     // Carregar presets quando abrir modal
     const loadPresets = async () => {
         setPresetsLoading(true);
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/meal-presets?user_id=${userId}${viewAsParam}`);
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/meal-presets?user_id=${userId}`);
             const data = await response.json();
             
             if (data.success) {
@@ -567,8 +565,22 @@ export function TodayTab({ userId = "local", viewAsStudentId = null, onAddMeal, 
                                                     <span>C: {preset.total_carbs}g</span>
                                                     <span>G: {preset.total_fats}g</span>
                                                 </div>
+                                                {preset.foods && preset.foods.length > 0 && (
+                                                    <div className="mt-2 flex flex-wrap gap-1">
+                                                        {preset.foods.slice(0, 3).map((f, idx) => (
+                                                            <span key={idx} className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-300">
+                                                                {f.food_name}: {f.quantity || 100}g
+                                                            </span>
+                                                        ))}
+                                                        {preset.foods.length > 3 && (
+                                                            <span className="text-xs px-2 py-0.5 rounded-full bg-white/5" style={{ color: 'var(--text-muted)' }}>
+                                                                +{preset.foods.length - 3} mais
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 {preset.created_by_evaluator && (
-                                                    <span className="text-xs text-blue-400">📋 Do avaliador</span>
+                                                    <span className="text-xs text-blue-400 mt-1 block">📋 Do avaliador</span>
                                                 )}
                                             </div>
                                             <Play size={20} className="text-green-400 flex-shrink-0" />

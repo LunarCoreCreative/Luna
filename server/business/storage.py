@@ -7,7 +7,7 @@ Uses Firebase as primary storage with local JSON fallback.
 
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 import uuid
 
@@ -66,11 +66,15 @@ def _save_local_transactions(user_id: str, transactions: List[Dict]) -> None:
     file_path.write_text(json.dumps(transactions, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def load_transactions(user_id: str) -> List[Dict]:
+def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
     """
     Load all transactions for a user.
     Uses Firebase if available, otherwise local storage.
     Always syncs local cache with Firebase when available.
+    
+    Args:
+        user_id: ID do usuário
+        auto_reconcile: Se True, executa reconciliação automática se necessário
     """
     # Se user_id parece ser um Firebase UID (longo) e Firebase está disponível
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
@@ -89,6 +93,16 @@ def load_transactions(user_id: str) -> List[Dict]:
                 local_txs = _load_local_transactions(user_id)
                 if local_txs:
                     print(f"[BUSINESS] ⚠️ Firebase vazio, usando cache local com {len(local_txs)} transações")
+                    # Se há transações locais e Firebase está vazio, tenta reconciliar
+                    if auto_reconcile:
+                        try:
+                            from .sync import reconcile_transactions
+                            print(f"[BUSINESS] 🔄 Executando reconciliação automática...")
+                            reconcile_transactions(user_id, force=False)
+                            # Recarrega após reconciliação
+                            return _load_local_transactions(user_id)
+                        except Exception as e:
+                            print(f"[BUSINESS] ⚠️ Erro na reconciliação automática: {e}")
                 return local_txs
                 
         except Exception as e:
@@ -106,36 +120,98 @@ def add_transaction(
     value: float,
     description: str,
     category: str = "geral",
-    date: Optional[str] = None
+    date: Optional[str] = None,
+    recurring_id: Optional[str] = None,  # ID do item recorrente que gerou esta transação
+    credit_card_id: Optional[str] = None,  # ID do cartão de crédito (se aplicável)
+    interest_rate: Optional[float] = None,  # Taxa de juros anual (%) - apenas para investimentos
+    investment_type: Optional[str] = None  # "investment" (investimento real) ou "savings" (caixinha/poupança)
 ) -> Dict:
     """Add a new transaction. Saves to Firebase + local cache."""
     
-    # Garante que value é float
+    # Valida e converte valor usando módulo de validação
     try:
-        value = float(value)
-        if value <= 0:
-            raise ValueError("Value must be positive")
-    except (ValueError, TypeError) as e:
-        print(f"[BUSINESS] ❌ Valor inválido: {value}, erro: {e}")
-        raise ValueError(f"Invalid value: {value}")
+        from .validation import validate_value
+        is_valid, validated_value, error = validate_value(value, "value")
+        if not is_valid:
+            print(f"[BUSINESS] ❌ Valor inválido: {value}, erro: {error}")
+            raise ValueError(error)
+        value = validated_value
+    except ValueError:
+        # Re-raise ValueError (já tem mensagem de erro)
+        raise
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Erro ao validar valor: {value}, erro: {e}")
+        raise ValueError(f"Erro ao processar valor: {str(e)}")
     
-    # Use data fornecida ou data atual
-    tx_date = date if date else datetime.now().isoformat()
-    # Se a data for só YYYY-MM-DD, adiciona hora
-    if date and len(date) == 10:
-        tx_date = f"{date}T12:00:00"
+    # Normaliza data para UTC (ISO 8601)
+    try:
+        from .date_utils import normalize_date, validate_date_format
+        if date:
+            # Valida formato antes de normalizar
+            is_valid, error = validate_date_format(date)
+            if not is_valid:
+                raise ValueError(f"Data inválida: {error}")
+            tx_date = normalize_date(date, default_to_now=False)
+        else:
+            tx_date = normalize_date(None, default_to_now=True)
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Erro ao normalizar data: {e}")
+        raise ValueError(f"Erro ao processar data: {str(e)}")
+    
+    # Valida descrição e categoria
+    from .validation import validate_description, validate_category
+    
+    is_valid_desc, cleaned_description, desc_error = validate_description(description)
+    if not is_valid_desc:
+        raise ValueError(desc_error)
+    
+    is_valid_cat, cleaned_category, cat_error = validate_category(category)
+    if not is_valid_cat:
+        raise ValueError(cat_error)
     
     new_tx = {
         "id": str(uuid.uuid4())[:8],
         "type": type,
-        "value": abs(value),  # Garante valor positivo
-        "description": str(description).strip(),
-        "category": str(category).strip() if category else "geral",
+        "value": abs(value),  # Já validado e garantido positivo
+        "description": cleaned_description,  # Já validado e limpo
+        "category": cleaned_category,  # Já validado e limpo
         "date": tx_date,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     }
     
+    # Adiciona recurring_id se fornecido (para rastreamento de transações recorrentes)
+    if recurring_id:
+        new_tx["recurring_id"] = str(recurring_id)
+    
+    # Adiciona credit_card_id se fornecido
+    if credit_card_id:
+        new_tx["credit_card_id"] = str(credit_card_id)
+    
+    # Adiciona campos de investimento se for tipo investment
+    if type == "investment":
+        if interest_rate is not None:
+            new_tx["interest_rate"] = float(interest_rate)
+        if investment_type:
+            new_tx["investment_type"] = str(investment_type)
+    
     print(f"[BUSINESS] 📝 Adicionando transação: {new_tx['id']} - {new_tx['type']} - R$ {new_tx['value']:.2f}")
+    
+    # Verifica duplicatas antes de salvar
+    try:
+        from .duplicate_detector import check_duplicate
+        is_dup, dup_tx, source = check_duplicate(user_id, new_tx, exclude_id=None, check_firebase=True)
+        
+        if is_dup:
+            dup_id = dup_tx.get("id", "unknown") if dup_tx else "unknown"
+            error_msg = f"Transação duplicada detectada (ID existente: {dup_id}, fonte: {source}). Transação com mesma data ({new_tx['date'][:10]}), valor (R$ {new_tx['value']:.2f}) e descrição ('{new_tx['description']}') já existe."
+            print(f"[BUSINESS] ❌ {error_msg}")
+            raise ValueError(error_msg)
+    except ValueError:
+        # Re-raise ValueError (duplicata detectada)
+        raise
+    except Exception as e:
+        # Outros erros na verificação não devem impedir a criação
+        print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas (continuando): {e}")
     
     # SEMPRE salva localmente primeiro (garantia de persistência)
     transactions = _load_local_transactions(user_id)
@@ -147,14 +223,16 @@ def add_transaction(
     else:
         print(f"[BUSINESS] ⚠️ Transação {new_tx['id']} já existe no cache local, pulando...")
     
-    # Depois tenta salvar no Firebase (opcional, mas desejável)
+    # Depois tenta salvar no Firebase com retry automático
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            firebase_success = save_transaction_to_firebase(user_id, new_tx)
+            from .sync import sync_transaction_to_firebase
+            firebase_success, error = sync_transaction_to_firebase(user_id, new_tx, retry=True)
             if firebase_success:
                 print(f"[BUSINESS] ✅ Transação {new_tx['id']} também salva no Firebase")
             else:
-                print(f"[BUSINESS] ⚠️ Falha ao salvar no Firebase, mas transação está salva localmente")
+                print(f"[BUSINESS] ⚠️ Falha ao salvar no Firebase após retries: {error}")
+                print(f"[BUSINESS] ⚠️ Transação está salva localmente e será sincronizada depois")
         except Exception as e:
             print(f"[BUSINESS] ❌ Firebase save failed: {e}")
             import traceback
@@ -215,10 +293,20 @@ def get_summary(user_id: str) -> Dict:
 def delete_transaction(user_id: str, tx_id: str) -> bool:
     """Delete a transaction by ID from Firebase and local."""
     
-    # Delete from Firebase
+    # Delete from Firebase com retry
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            delete_transaction_from_firebase(user_id, tx_id)
+            from .sync import _retry_with_backoff
+            def attempt_delete():
+                try:
+                    delete_transaction_from_firebase(user_id, tx_id)
+                    return True, None
+                except Exception as e:
+                    return False, str(e)
+            
+            success, error, attempts = _retry_with_backoff(attempt_delete)
+            if not success:
+                print(f"[BUSINESS] ⚠️ Firebase delete failed após {attempts} tentativas: {error}")
         except Exception as e:
             print(f"[BUSINESS] Firebase delete failed: {e}")
     
@@ -264,13 +352,60 @@ def update_transaction(user_id: str, tx_id: str, updates: Dict) -> Optional[Dict
 
     # 5. Aplica atualizações no objeto em memória
     tx = transactions[tx_index]
-    tx.update(updates)
-    tx["updated_at"] = datetime.now().isoformat()
     
-    # 6. Salva no Firebase (Cloud)
+    # Verifica duplicatas se estiver atualizando campos que afetam a chave única
+    fields_that_affect_key = ["date", "value", "description", "type"]
+    if any(field in updates for field in fields_that_affect_key):
+        try:
+            from .duplicate_detector import check_duplicate
+            # Cria transação temporária com valores atualizados
+            test_tx = tx.copy()
+            test_tx.update(updates)
+            # Verifica duplicatas excluindo a própria transação
+            is_dup, dup_tx, source = check_duplicate(user_id, test_tx, exclude_id=tx_id, check_firebase=True)
+            
+            if is_dup:
+                dup_id = dup_tx.get("id", "unknown") if dup_tx else "unknown"
+                error_msg = f"Atualização criaria transação duplicada (ID existente: {dup_id}, fonte: {source})."
+                print(f"[BUSINESS] ❌ {error_msg}")
+                raise ValueError(error_msg)
+        except ValueError:
+            # Re-raise ValueError (duplicata detectada)
+            raise
+        except Exception as e:
+            # Outros erros na verificação não devem impedir a atualização
+            print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas no update (continuando): {e}")
+    
+    # Se está atualizando a data, normaliza para UTC
+    if "date" in updates:
+        try:
+            from .date_utils import normalize_date, validate_date_format
+            date_value = updates["date"]
+            is_valid, error = validate_date_format(date_value)
+            if not is_valid:
+                raise ValueError(f"Data inválida: {error}")
+            updates["date"] = normalize_date(date_value, default_to_now=False)
+        except Exception as e:
+            print(f"[BUSINESS] ❌ Erro ao normalizar data no update: {e}")
+            raise ValueError(f"Erro ao processar data: {str(e)}")
+    
+    tx.update(updates)
+    tx["updated_at"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    
+    # 6. Salva no Firebase (Cloud) com retry
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
-            update_transaction_in_firebase(user_id, tx_id, updates)
+            from .sync import _retry_with_backoff
+            def attempt_update():
+                try:
+                    update_transaction_in_firebase(user_id, tx_id, updates)
+                    return True, None
+                except Exception as e:
+                    return False, str(e)
+            
+            success, error, attempts = _retry_with_backoff(attempt_update)
+            if not success:
+                print(f"[BUSINESS] ⚠️ Firebase update failed após {attempts} tentativas: {error}")
         except Exception as e:
             print(f"[BUSINESS] Firebase update failed: {e}")
     
@@ -312,7 +447,7 @@ def add_client(user_id: str, name: str, contact: str = "") -> Dict:
         "id": str(uuid.uuid4())[:8],
         "name": name,
         "contact": contact,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     }
     
     clients.append(new_client)

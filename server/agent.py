@@ -62,7 +62,18 @@ def filter_tool_call_tokens(text: str) -> str:
     # Apenas se estiver isolado ou em linha própria
     filtered = re.sub(r'^[a-z_]+(?:_[a-z_]+)*\{\}\s*$', '', filtered, flags=re.MULTILINE | re.IGNORECASE)
     
-    return filtered
+    # Remove linhas que contêm apenas o nome de uma role (LLM malformado)
+    # Exemplos: "assistant", "user", "system", "tool" sozinhos numa linha
+    filtered = re.sub(r'^\s*(assistant|user|system|tool)\s*$', '', filtered, flags=re.MULTILINE | re.IGNORECASE)
+    
+    # Remove chamadas de função com parênteses (padrão de funções)
+    # Exemplos: list_all_students(), get_student_data(), etc.
+    filtered = re.sub(r'^[a-z_]+(?:_[a-z_]+)*\([^)]*\)\s*$', '', filtered, flags=re.MULTILINE | re.IGNORECASE)
+    
+    # Remove múltiplas linhas em branco consecutivas
+    filtered = re.sub(r'\n{3,}', '\n\n', filtered)
+    
+    return filtered.strip()
 
 def format_chat_text(text: str) -> str:
     """

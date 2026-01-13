@@ -40,7 +40,7 @@ const MEAL_TYPE_NAMES = {
     snack: "Lanche"
 };
 
-export function MealPlanTab({ userId = "local", viewAsStudentId = null, onRefresh, onUseMeal }) {
+export function MealPlanTab({ userId = "local", onRefresh, onUseMeal }) {
     const [presets, setPresets] = useState([]);
     const [evaluatorPresets, setEvaluatorPresets] = useState([]);
     const [ownPresets, setOwnPresets] = useState([]);
@@ -71,14 +71,13 @@ export function MealPlanTab({ userId = "local", viewAsStudentId = null, onRefres
 
     useEffect(() => {
         loadPresets();
-    }, [userId, viewAsStudentId]);
+    }, [userId]);
 
     const loadPresets = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/meal-presets?user_id=${userId}${viewAsParam}`);
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/meal-presets?user_id=${userId}`);
             const data = await response.json();
             
             if (data.success) {
@@ -199,8 +198,7 @@ export function MealPlanTab({ userId = "local", viewAsStudentId = null, onRefres
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     ...formData,
-                    user_id: userId,
-                    created_for: viewAsStudentId || undefined
+                    user_id: userId
                 })
             });
             
@@ -311,9 +309,20 @@ export function MealPlanTab({ userId = "local", viewAsStudentId = null, onRefres
                         )}
                         
                         {preset.foods && preset.foods.length > 0 && (
-                            <p className="text-xs mt-2 truncate" style={{ color: 'var(--text-muted)' }}>
-                                {preset.foods.map(f => f.food_name).join(", ")}
-                            </p>
+                            <div className="mt-2 space-y-1">
+                                {preset.foods.slice(0, 4).map((f, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        <span className="w-1 h-1 rounded-full bg-green-400/50"></span>
+                                        <span style={{ color: 'var(--text-secondary)' }}>{f.food_name}</span>
+                                        <span className="text-green-400/70 font-medium">{f.quantity || 100}g</span>
+                                    </div>
+                                ))}
+                                {preset.foods.length > 4 && (
+                                    <p className="text-xs pl-3" style={{ color: 'var(--text-muted)' }}>
+                                        +{preset.foods.length - 4} mais...
+                                    </p>
+                                )}
+                            </div>
                         )}
                         
                         {isEvaluator && (

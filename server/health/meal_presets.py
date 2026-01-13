@@ -151,13 +151,12 @@ def get_meal_types() -> Dict:
     """Retorna os tipos de refeição disponíveis."""
     return MEAL_TYPES
 
-def get_presets(user_id: str, include_evaluator: bool = True) -> List[Dict]:
+def get_presets(user_id: str) -> List[Dict]:
     """
     Retorna todos os presets disponíveis para um usuário.
     
     Args:
         user_id: ID do usuário
-        include_evaluator: Se True, inclui presets criados pelo avaliador
     
     Returns:
         Lista de presets ordenados por meal_type
@@ -177,14 +176,7 @@ def get_presets(user_id: str, include_evaluator: bool = True) -> List[Dict]:
     else:
         presets = _load_local_presets(user_id)
     
-    # Se include_evaluator, busca presets do avaliador para este aluno
-    if include_evaluator:
-        from .profiles import get_student_evaluator
-        evaluator_id = get_student_evaluator(user_id)  # Retorna string (ID) ou None
-        if evaluator_id:
-            # Busca presets do avaliador criados para este aluno
-            evaluator_presets = _get_presets_for_student(evaluator_id, user_id)
-            presets.extend(evaluator_presets)
+    logger.info(f"[MEAL_PRESETS] Carregados {len(presets)} presets para {user_id}")
     
     # Ordena por meal_type
     def sort_key(p):
@@ -195,38 +187,13 @@ def get_presets(user_id: str, include_evaluator: bool = True) -> List[Dict]:
     
     return presets
 
-def _get_presets_for_student(evaluator_id: str, student_id: str) -> List[Dict]:
-    """Busca presets criados por um avaliador para um aluno específico."""
-    # Presets do avaliador são salvos na coleção do avaliador com created_for = student_id
-    all_evaluator_presets = []
-    
-    if FIREBASE_AVAILABLE:
-        all_evaluator_presets = _get_firebase_presets(evaluator_id)
-    else:
-        all_evaluator_presets = _load_local_presets(evaluator_id)
-    
-    # Filtra apenas os criados para este aluno
-    student_presets = [
-        p for p in all_evaluator_presets 
-        if p.get("created_for") == student_id
-    ]
-    
-    # Marca como criado pelo avaliador
-    for p in student_presets:
-        p["created_by_evaluator"] = True
-        p["evaluator_id"] = evaluator_id
-    
-    return student_presets
-
 def create_preset(
     user_id: str,
     name: str,
     meal_type: str,
     foods: List[Dict],
     suggested_time: Optional[str] = None,
-    notes: Optional[str] = None,
-    created_for: Optional[str] = None,
-    evaluator_id: Optional[str] = None
+    notes: Optional[str] = None
 ) -> Dict:
     """
     Cria um novo preset de refeição.
@@ -238,8 +205,6 @@ def create_preset(
         foods: Lista de alimentos com macros
         suggested_time: Horário sugerido (ex: "07:00")
         notes: Observações
-        created_for: ID do aluno (se avaliador criando para aluno)
-        evaluator_id: ID do avaliador que criou (se aplicável)
     
     Returns:
         Preset criado
@@ -253,15 +218,9 @@ def create_preset(
     total_carbs = sum(f.get("carbs", 0) or 0 for f in foods)
     total_fats = sum(f.get("fats", 0) or 0 for f in foods)
     
-    # Determina se foi criado por avaliador
-    is_from_evaluator = evaluator_id is not None or (created_for is not None and created_for != user_id)
-    
     preset = {
         "id": preset_id,
         "user_id": user_id,
-        "created_for": created_for or user_id,  # Para quem é o preset
-        "created_by_evaluator": is_from_evaluator,
-        "evaluator_id": evaluator_id,  # ID do avaliador que criou
         
         "name": name,
         "meal_type": meal_type,
@@ -280,19 +239,16 @@ def create_preset(
         "updated_at": now
     }
     
-    # Salva no Firebase e local - salva na coleção do user_id (aluno)
-    target_user = user_id
-    
-    if FIREBASE_AVAILABLE and target_user and target_user != "local":
-        _save_firebase_preset(target_user, preset)
+    # Salva no Firebase e local
+    if FIREBASE_AVAILABLE and user_id and user_id != "local":
+        _save_firebase_preset(user_id, preset)
     
     # Salva local
-    presets = _load_local_presets(target_user)
+    presets = _load_local_presets(user_id)
     presets.append(preset)
-    _save_local_presets(target_user, presets)
+    _save_local_presets(user_id, presets)
     
-    creator = evaluator_id or user_id
-    logger.info(f"[MEAL_PRESETS] Preset '{name}' criado por {creator} para {created_for or user_id}, salvo em {target_user}")
+    logger.info(f"[MEAL_PRESETS] Preset '{name}' criado por {user_id}")
     
     return preset
 
@@ -380,7 +336,7 @@ def delete_preset(user_id: str, preset_id: str) -> bool:
 
 def get_preset_by_id(user_id: str, preset_id: str) -> Optional[Dict]:
     """Busca um preset específico pelo ID."""
-    presets = get_presets(user_id, include_evaluator=True)
+    presets = get_presets(user_id)
     
     for preset in presets:
         if preset.get("id") == preset_id:

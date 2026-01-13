@@ -8,7 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { API_CONFIG } from "../../config/api";
 import { parseThought } from "../../utils/messageUtils";
 
-export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentId = null, studentName = null, onUpdate, initialMessage = null }) {
+export function HealthChat({ isOpen, onClose, userId: propUserId, onUpdate, initialMessage = null }) {
     // Hooks
     const chat = useChat();
     const attachmentsHook = useAttachments();
@@ -16,47 +16,6 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
     
     // Obter userId do AuthContext se disponível, senão usar prop ou "local"
     const userId = user?.uid || propUserId || "local";
-    
-    // Estado para armazenar nome do aluno (se não fornecido via prop)
-    const [studentDisplayName, setStudentDisplayName] = useState(studentName);
-
-    // Buscar nome do aluno se viewAsStudentId estiver presente e nome não fornecido
-    useEffect(() => {
-        if (viewAsStudentId && !studentDisplayName) {
-            const fetchStudentName = async () => {
-                try {
-                    // Tentar buscar da lista de alunos do avaliador
-                    const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile/students?user_id=${userId}`);
-                    const data = await response.json();
-                    
-                    if (data.success && data.students_info) {
-                        const studentInfo = data.students_info.find(s => s.id === viewAsStudentId);
-                        if (studentInfo?.name) {
-                            setStudentDisplayName(studentInfo.name);
-                            return;
-                        }
-                    }
-                    
-                    // Fallback: usar ID truncado
-                    setStudentDisplayName(viewAsStudentId.substring(0, 16) + "...");
-                } catch (error) {
-                    console.error("[HealthChat] Erro ao buscar nome do aluno:", error);
-                    setStudentDisplayName("Aluno");
-                }
-            };
-            
-            fetchStudentName();
-        } else if (!viewAsStudentId) {
-            setStudentDisplayName(null);
-        }
-    }, [viewAsStudentId, userId, studentDisplayName]);
-
-    // Atualizar nome quando prop mudar
-    useEffect(() => {
-        if (studentName) {
-            setStudentDisplayName(studentName);
-        }
-    }, [studentName]);
 
     // State
     const [isStreaming, setIsStreaming] = useState(false);
@@ -71,16 +30,9 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
     const chatInputRef = useRef(null);
     const activeToolRef = useRef(null);
     const initializedRef = useRef(false);
-    const lastViewAsStudentIdRef = useRef(null);
 
-    // Initialize chat on mount or when viewAsStudentId changes
+    // Initialize chat on mount
     useEffect(() => {
-        // Reset initialization if viewAsStudentId changed
-        if (viewAsStudentId !== lastViewAsStudentIdRef.current) {
-            initializedRef.current = false;
-            lastViewAsStudentIdRef.current = viewAsStudentId;
-        }
-        
         if (isOpen && userId && !initializedRef.current) {
             initializedRef.current = true;
             const loadHealthChat = async () => {
@@ -107,22 +59,12 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
                             console.log("[HealthChat] No existing chat, starting new.");
                             chat.startNewChat();
                             
-                            // Mensagem inicial diferente para avaliadores visualizando alunos
-                            let initialMessage;
-                            if (viewAsStudentId && studentDisplayName) {
-                                initialMessage = {
-                                    role: "assistant",
-                                    content: `Olá! 👋 Sou a Luna Health, sua assistente nutricional.\n\nVejo que você está analisando os dados nutricionais de **${studentDisplayName}**. 📊\n\nPosso te ajudar a:\n- Analisar o progresso nutricional do aluno\n- Revisar refeições e padrões alimentares\n- Avaliar o cumprimento das metas nutricionais\n- Sugerir melhorias e orientações personalizadas\n- Gerar relatórios e insights sobre a alimentação\n\nO que você gostaria de saber sobre ${studentDisplayName}? Posso começar mostrando um resumo do progresso atual ou você tem alguma área específica que quer avaliar? 🎯`,
-                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                };
-                            } else {
-                                // Mensagem inicial padrão para alunos
-                                initialMessage = {
-                                    role: "assistant",
-                                    content: `Olá! Sou a Luna Health, sua nutricionista inteligente. 🥗\n\nEstou aqui para te ajudar a alcançar seus objetivos nutricionais!\n\nPara começar, preciso conhecer você melhor. Posso fazer algumas perguntas rápidas para calcular suas metas nutricionais personalizadas?\n\n💡 **Dica**: Você pode ver seu diário alimentar completo na aba **"Hoje"** (ícone de calendário 📅) aqui ao lado, e configurar suas metas na aba **"Metas"** (ícone de alvo 🎯).\n\nVamos começar? 😊`,
-                                    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                                };
-                            }
+                            // Mensagem inicial padrão
+                            const initialMessage = {
+                                role: "assistant",
+                                content: `Olá! Sou a Luna Health, sua nutricionista inteligente. 🥗\n\nEstou aqui para te ajudar a alcançar seus objetivos nutricionais!\n\nPara começar, preciso conhecer você melhor. Posso fazer algumas perguntas rápidas para calcular suas metas nutricionais personalizadas?\n\n💡 **Dica**: Você pode ver seu diário alimentar completo na aba **"Hoje"** (ícone de calendário 📅) aqui ao lado, e configurar suas metas na aba **"Metas"** (ícone de alvo 🎯).\n\nVamos começar? 😊`,
+                                timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                            };
                             
                             chat.setMessages([initialMessage]);
                         }
@@ -134,7 +76,7 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
             };
             loadHealthChat();
         }
-    }, [isOpen, userId, viewAsStudentId, studentDisplayName]);
+    }, [isOpen, userId]);
     
     // Enviar mensagem inicial quando fornecida
     const lastInitialMessageRef = useRef(null);
@@ -186,8 +128,7 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
                         health_mode: true, // Health Mode flag
                         canvas_mode: false,
                         user_id: userId,
-                        user_name: profile?.name || "Usuário",
-                        view_as_student_id: viewAsStudentId || null // Para avaliadores visualizarem alunos
+                        user_name: profile?.name || "Usuário"
                     }
                 }));
             };
@@ -351,16 +292,6 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
     // Render directly (no modal overlay) - parent handles layout
     return (
         <div className="h-full flex flex-col">
-            {/* Banner quando visualizando dados de aluno */}
-            {viewAsStudentId && (
-                <div className="px-4 py-2 bg-blue-500/20 border-b border-blue-500/30 flex items-center gap-2">
-                    <User className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                    <span className="text-sm text-blue-300">
-                        Analisando dados de <span className="font-semibold text-blue-200">{studentDisplayName || "Aluno"}</span>
-                    </span>
-                </div>
-            )}
-            
             {/* Header */}
             <div className="p-4 border-b border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -370,7 +301,7 @@ export function HealthChat({ isOpen, onClose, userId: propUserId, viewAsStudentI
                     <div>
                         <h2 className="text-lg font-semibold text-white">Luna Health</h2>
                         <span className="font-medium text-sm text-green-400">
-                            {viewAsStudentId ? "Análise do aluno" : "Sua nutricionista"}
+                            Sua nutricionista
                         </span>
                     </div>
                 </div>

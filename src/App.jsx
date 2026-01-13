@@ -62,7 +62,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ModalProvider } from "./contexts/ModalContext";
 import { LoginPage } from "./pages/LoginPage";
 import { SidebarProfile } from "./components/sidebar/SidebarProfile";
-import { parseThought, getGreeting } from "./utils/messageUtils";
+import { parseThought, getGreeting, cleanContent } from "./utils/messageUtils";
 import { API_CONFIG } from "./config/api";
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ChangelogModal } from "./components/ChangelogModal";
@@ -883,12 +883,15 @@ function App() {
                 if (data.message) {
                     fullText = data.message;
                 }
+                
+                // Apply content cleanup to remove leaked tool calls and malformed responses
+                const cleanedText = cleanContent(fullText);
 
                 // Adiciona mensagem final
-                if (fullText.trim() && !hasArtifact) {
+                if (cleanedText.trim() && !hasArtifact) {
                     const finalAssistantMsg = {
                         role: "assistant",
-                        content: fullText.trim(),
+                        content: cleanedText.trim(),
                         thought: currentThought,
                         timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                     };
@@ -1309,17 +1312,24 @@ function App() {
 
                 {/* View: HOME */}
                 {!ideMode && (chat.view === "HOME") && (
-                    <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95 duration-500">
-                        <div className="max-w-2xl w-full flex flex-col items-center gap-8">
-                            <h1 className="text-4xl md:text-5xl font-semibold text-center leading-tight" style={{ color: 'var(--text-primary)' }}>
-                                <span className="block text-2xl mb-2 font-normal" style={{ color: 'var(--text-secondary)' }}>
+                    <div className="flex-1 flex flex-col items-center overflow-y-auto p-6 animate-in fade-in zoom-in-95 duration-500 custom-scrollbar">
+                        <div className="max-w-4xl w-full flex flex-col items-center gap-8 py-8">
+                            {/* Hero Section */}
+                            <div className="text-center space-y-3">
+                                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-violet-500/20 to-blue-500/20 border border-violet-500/30 mb-4">
+                                    <Zap size={14} className="text-violet-400" />
+                                    <span className="text-xs font-medium text-violet-300">Powered by AI Agent</span>
+                                </div>
+                                <h1 className="text-4xl md:text-5xl font-bold text-center leading-tight bg-gradient-to-br from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
                                     {getGreeting()}, {profile?.name || (user?.email?.split('@')[0]) || 'usuário'}
-                                </span>
-                                Como posso ajudar você hoje?
-                            </h1>
+                                </h1>
+                                <p className="text-lg text-gray-400 max-w-lg mx-auto">
+                                    O que você gostaria de explorar hoje?
+                                </p>
+                            </div>
 
                             {/* Input Bar (Home) */}
-                            <div className="w-full relative glass-bar rounded-3xl p-1 shadow-2xl shadow-blue-900/10 transition-all focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col">
+                            <div className="w-full max-w-2xl relative glass-bar rounded-3xl p-1 shadow-2xl shadow-violet-900/20 transition-all focus-within:ring-2 focus-within:ring-violet-500/50 flex flex-col">
                                 {/* Attachment Previews */}
                                 {(attachmentsHook.attachments.length > 0 || attachmentsHook.documentAttachments.length > 0) && (
                                     <div className="flex gap-2 p-4 pb-0 overflow-x-auto pb-2">
@@ -1375,31 +1385,192 @@ function App() {
                                     <button
                                         onClick={() => sendMessage()}
                                         disabled={!homeInput.trim() && attachmentsHook.attachments.length === 0}
-                                        className={`p-3 rounded-xl transition-all ${(homeInput.trim() || attachmentsHook.attachments.length > 0) ? "bg-white text-black hover:scale-105" : "bg-white/10 text-gray-500"}`}
+                                        className={`p-3 rounded-xl transition-all ${(homeInput.trim() || attachmentsHook.attachments.length > 0) ? "bg-gradient-to-r from-violet-500 to-blue-500 text-white hover:scale-105 shadow-lg shadow-violet-500/25" : "bg-white/10 text-gray-500"}`}
                                     >
                                         <Send size={20} />
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Suggestions */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
-                                {[
-                                    { icon: <PenTool size={18} />, text: "Escreva um email", prompt: "Escreva um email profissional sobre..." },
-                                    { icon: <Compass size={18} />, text: "Planeje uma viagem", prompt: "Crie um roteiro de viagem para..." },
-                                    { icon: <Lightbulb size={18} />, text: "Ideias criativas", prompt: "Me dê 5 ideias criativas para..." },
-                                    { icon: <MessageCircle size={18} />, text: "Chat casual", prompt: "Vamos conversar sobre..." },
-                                ].map((s, i) => (
+                            {/* Luna Modes Section */}
+                            <div className="w-full space-y-4">
+                                <div className="flex items-center gap-2 px-1">
+                                    <LayoutDashboard size={16} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-400">Modos Especializados</span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                                    {/* Health Mode */}
                                     <button
-                                        key={i}
-                                        onClick={() => sendMessage(s.prompt)}
-                                        className="glass-panel p-4 rounded-2xl flex flex-col gap-3 items-start hover:bg-white/10 dark:hover:bg-white/10 transition-all hover:-translate-y-1 text-left"
-                                        style={{ color: 'var(--text-primary)' }}
+                                        onClick={() => { setHealthModeOpen(true); setBusinessModeOpen(false); }}
+                                        className="group relative overflow-hidden p-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 to-emerald-900/20 hover:border-emerald-500/40 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-emerald-500/10 text-left"
                                     >
-                                        <div className="p-2 rounded-lg" style={{ background: 'var(--bg-glass)' }}>{s.icon}</div>
-                                        <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{s.text}</span>
+                                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className="relative z-10 space-y-3">
+                                            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                                                <Heart size={20} className="text-emerald-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-white">Luna Health</h3>
+                                                <p className="text-xs text-gray-400 mt-1">Nutrição e bem-estar com IA</p>
+                                            </div>
+                                        </div>
+                                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">Novo</span>
+                                        </div>
                                     </button>
-                                ))}
+
+                                    {/* Business Mode */}
+                                    <button
+                                        onClick={() => { setBusinessModeOpen(true); setHealthModeOpen(false); }}
+                                        className="group relative overflow-hidden p-5 rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-950/50 to-blue-900/20 hover:border-blue-500/40 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/10 text-left"
+                                    >
+                                        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className="relative z-10 space-y-3">
+                                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                                                <Building2 size={20} className="text-blue-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-white">Luna Business</h3>
+                                                <p className="text-xs text-gray-400 mt-1">Gestão financeira inteligente</p>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    {/* Study Mode */}
+                                    <button
+                                        onClick={() => setStudyModeOpen(true)}
+                                        className="group relative overflow-hidden p-5 rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-950/50 to-violet-900/20 hover:border-violet-500/40 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-violet-500/10 text-left"
+                                    >
+                                        <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className="relative z-10 space-y-3">
+                                            <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+                                                <BookOpen size={20} className="text-violet-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-white">Modo Estudo</h3>
+                                                <p className="text-xs text-gray-400 mt-1">Flashcards e revisão espaçada</p>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    {/* IDE Mode */}
+                                    <button
+                                        onClick={() => {
+                                            if (auth.plan === 'eclipse') {
+                                                setIdeMode(true);
+                                            } else {
+                                                chat.setView("SETTINGS");
+                                                setSettingsTab("premium");
+                                            }
+                                        }}
+                                        className="group relative overflow-hidden p-5 rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/50 to-amber-900/20 hover:border-amber-500/40 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-amber-500/10 text-left"
+                                    >
+                                        <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className="relative z-10 space-y-3">
+                                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                                                <Code size={20} className="text-amber-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-white">Modo IDE</h3>
+                                                <p className="text-xs text-gray-400 mt-1">Código e projetos avançados</p>
+                                            </div>
+                                        </div>
+                                        {auth.plan !== 'eclipse' && (
+                                            <div className="absolute top-3 right-3">
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">Eclipse</span>
+                                            </div>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Features Section */}
+                            <div className="w-full space-y-4">
+                                <div className="flex items-center gap-2 px-1">
+                                    <Zap size={16} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-400">Recursos Avançados</span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+                                    {/* Deep Thinking */}
+                                    <button
+                                        onClick={() => setIsThinkingMode(!isThinkingMode)}
+                                        className={`group relative overflow-hidden p-4 rounded-2xl border transition-all hover:-translate-y-0.5 text-left flex items-center gap-4 ${isThinkingMode ? 'border-violet-500/50 bg-violet-500/10' : 'border-white/10 bg-white/5 hover:border-violet-500/30 hover:bg-violet-500/5'}`}
+                                    >
+                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${isThinkingMode ? 'bg-violet-500/30' : 'bg-violet-500/10'}`}>
+                                            <Brain size={24} className={`text-violet-400 ${isThinkingMode ? 'animate-pulse' : ''}`} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h3 className="font-semibold text-white flex items-center gap-2">
+                                                Deep Thinking
+                                                {isThinkingMode && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/30 text-violet-300">Ativo</span>}
+                                            </h3>
+                                            <p className="text-xs text-gray-400 mt-0.5">Raciocínio profundo para problemas complexos</p>
+                                        </div>
+                                    </button>
+
+                                    {/* Agent Mode Info */}
+                                    <div className="group relative overflow-hidden p-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 text-left flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
+                                            <Globe size={24} className="text-cyan-400" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h3 className="font-semibold text-white flex items-center gap-2">
+                                                Agent Mode
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/30 text-cyan-300">Sempre Ativo</span>
+                                            </h3>
+                                            <p className="text-xs text-gray-400 mt-0.5">Busca na web, executa comandos e mais</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Canvas/Artifacts */}
+                                    <div className="group relative overflow-hidden p-4 rounded-2xl border border-pink-500/20 bg-pink-500/5 text-left flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-pink-500/20 flex items-center justify-center shrink-0">
+                                            <PenTool size={24} className="text-pink-400" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h3 className="font-semibold text-white">Canvas & Artefatos</h3>
+                                            <p className="text-xs text-gray-400 mt-0.5">Crie documentos, código e designs</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Quick Suggestions */}
+                            <div className="w-full space-y-4">
+                                <div className="flex items-center gap-2 px-1">
+                                    <Lightbulb size={16} className="text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-400">Comece rapidamente</span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
+                                    <button
+                                        onClick={() => sendMessage("Escreva um email profissional sobre...")}
+                                        className="group p-4 rounded-xl border border-blue-500/10 bg-blue-500/5 hover:border-blue-500/30 hover:bg-blue-500/10 transition-all hover:-translate-y-0.5 text-left flex items-center gap-3"
+                                    >
+                                        <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400"><PenTool size={16} /></div>
+                                        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">Escreva um email</span>
+                                    </button>
+                                    <button
+                                        onClick={() => sendMessage("Crie um roteiro de viagem para...")}
+                                        className="group p-4 rounded-xl border border-emerald-500/10 bg-emerald-500/5 hover:border-emerald-500/30 hover:bg-emerald-500/10 transition-all hover:-translate-y-0.5 text-left flex items-center gap-3"
+                                    >
+                                        <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400"><Compass size={16} /></div>
+                                        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">Planeje uma viagem</span>
+                                    </button>
+                                    <button
+                                        onClick={() => sendMessage("Me dê 5 ideias criativas para...")}
+                                        className="group p-4 rounded-xl border border-amber-500/10 bg-amber-500/5 hover:border-amber-500/30 hover:bg-amber-500/10 transition-all hover:-translate-y-0.5 text-left flex items-center gap-3"
+                                    >
+                                        <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400"><Lightbulb size={16} /></div>
+                                        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">Ideias criativas</span>
+                                    </button>
+                                    <button
+                                        onClick={() => sendMessage("Vamos conversar sobre...")}
+                                        className="group p-4 rounded-xl border border-violet-500/10 bg-violet-500/5 hover:border-violet-500/30 hover:bg-violet-500/10 transition-all hover:-translate-y-0.5 text-left flex items-center gap-3"
+                                    >
+                                        <div className="p-2 rounded-lg bg-violet-500/20 text-violet-400"><MessageCircle size={16} /></div>
+                                        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">Chat casual</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

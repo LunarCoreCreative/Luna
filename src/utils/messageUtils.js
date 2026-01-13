@@ -24,35 +24,51 @@ export const getGreeting = () => {
     return "Boa noite";
 };
 
-// Helper para limpar conteúdo (Filtro de tokens interno)
+/**
+ * Limpa tokens de tool calls e outros artefatos de LLM do conteúdo.
+ * Função centralizada para garantir limpeza consistente em todo o código.
+ * 
+ * @param {string} content - Conteúdo a ser limpo
+ * @returns {string} - Conteúdo limpo
+ */
 export const cleanContent = (content) => {
-    if (!content) return "";
+    if (!content || typeof content !== 'string') return "";
 
-    // Robust Regex for Tool Call Tokens (handles spaces AND NEWLINES)
-    // Using [\s\S]*? approach or just explicit \s including newlines
-    let cleaned = content.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
-    cleaned = cleaned.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
+    let cleaned = content;
+
+    // ============================================================================
+    // FASE 1: Tokens de tool calls explícitos (formato: < | token | >)
+    // ============================================================================
+    
+    // Tokens padrão: tool_calls_begin, tool_calls_end, tool_call_begin, tool_call_end, tool_sep
+    // Aceita espaços e quebras de linha flexíveis
+    cleaned = cleaned.replace(/<\s*\|\s*tool_calls?_(begin|end)\s*\|\s*>/gi, "");
     cleaned = cleaned.replace(/<\s*\|\s*tool_call_(begin|end)\s*\|\s*>/gi, "");
+    cleaned = cleaned.replace(/<\s*\|\s*tool_sep\s*\|\s*>/gi, "");
 
-    // Catch tokens interrupted by newlines (e.g. < | tool_call_begin |\n >)
-    // \s matches newlines in JS regex. 
-    // The previous regex used \s*, which matches newlines.
-    // BUT the debug script in Python showed failure on split.
-    // In Python \s also matches newline.
-    // Wait, debug_regex.py output: 
-    // "tool_call_\nend | >" was NOT matched by pattern "...tool_calls?_(begin|end)..."
-    // Because the newline was INSIDE "tool_call_\nend".
-    // "tool_call_begin" -> "tool_call_\nbegin" ?
-    // No, the debug script text was "< | tool_call_begin | \n >".
-    // The previous regex `\s*` SHOULD match `\n`.
-    // Ah! Javascript regex `.` does NOT match newline. But `\s` does.
-
-    // Let's broaden the matching to ensure NO broken tokens survive.
-    // We match any sequence starting with < | tool and ending with >
+    // ============================================================================
+    // FASE 2: Tokens quebrados por newlines (ex: < | tool_call_begin |\n >)
+    // ============================================================================
+    
+    // Captura qualquer sequência que comece com < | tool e termine com | >
+    // Usa [\s\S]*? para capturar qualquer caractere incluindo newlines
     cleaned = cleaned.replace(/<\s*\|\s*tool_[\s\S]*?\|\s*>/gi, "");
 
-    // Fallback for residual pipes
-    cleaned = cleaned.replace(/<\|.*?\|>/g, '');
+    // ============================================================================
+    // FASE 3: Tokens malformados ou incompletos
+    // ============================================================================
+    
+    // Fallback para pipes residuais (qualquer coisa entre <| e |>)
+    cleaned = cleaned.replace(/<\|[\s\S]*?\|>/g, '');
+    
+    // Tokens sem pipes (ex: <tool_call_begin> ou tool_call_end)
+    cleaned = cleaned.replace(/<tool_calls?_(begin|end)>/gi, "");
+    cleaned = cleaned.replace(/<tool_call_(begin|end)>/gi, "");
+    cleaned = cleaned.replace(/<tool_sep>/gi, "");
+    
+    // Tokens com apenas um pipe (ex: <|tool_call_begin ou tool_call_end|>)
+    cleaned = cleaned.replace(/<\|\s*tool_[\s\S]*?>/gi, "");
+    cleaned = cleaned.replace(/tool_[\s\S]*?\|\s*>/gi, "");
 
     // Remove tool calls in format: tool_name{...} (simple regex for basic cases)
     // This is a simple regex that works for most cases; complex cases are handled by filterToolCallLeaks
@@ -62,5 +78,17 @@ export const cleanContent = (content) => {
     // Also capture generic pattern: word followed by {} (empty tool call)
     cleaned = cleaned.replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\s*\{\s*\}/g, "");
 
-    return cleaned;
+    // Remove malformed LLM responses that leak role names and function calls
+    // Pattern: lines starting with "assistant", "user", "system", "tool" followed by function-like text
+    cleaned = cleaned.replace(/^(assistant|user|system|tool)\s*$/gim, "");
+    
+    // Remove function call patterns like "tool_name()" or "tool_name(args)"
+    const healthTools = "list_all_students|get_student_data|compare_students|get_student_summary|generate_student_report|get_weight_history|add_weight|delete_weight|get_insights|add_meal|edit_meal|delete_meal|get_meals|add_goal|get_goals|delete_goal|suggest_goals|add_preset|get_presets|delete_preset|search_foods|calculate_nutrition";
+    const allTools = `${knownTools}|${healthTools}`;
+    cleaned = cleaned.replace(new RegExp(`^\\s*(${allTools})\\s*\\([^)]*\\)\\s*$`, "gim"), "");
+    
+    // Clean up multiple consecutive newlines
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+    
+    return cleaned.trim();
 };

@@ -2,6 +2,71 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.3] - 2025-01-28
+
+### ✨ Novas Funcionalidades
+
+#### 💳 Sistema de Cartões de Crédito
+
+- **Nova Aba de Cartões de Crédito**:
+  - Gerenciamento completo de cartões de crédito
+  - Cadastro de cartões com: nome, limite, dia de vencimento, últimos 4 dígitos, bandeira e cor personalizada
+  - Cálculo automático de métricas:
+    - Fatura atual (baseada em transações do período)
+    - Limite disponível
+    - Limite utilizado
+    - Dias até vencimento
+    - Status (OK, Warning, Overdue)
+  - Visualização de cartões em cards coloridos
+  - Resumo geral com totais de todos os cartões
+  - Sistema de pagamento de faturas com criação automática de transação
+
+- **Integração com Transações**:
+  - Campo para vincular transações de despesa a cartões de crédito
+  - Seleção de cartão ao criar/editar despesas
+  - Seleção de cartão em itens fixos/recorrentes
+  - Exibição visual na coluna "Extra" da tabela de transações
+  - Transações geradas a partir de itens fixos herdam o cartão selecionado
+
+#### 💰 Melhorias em Investimentos
+
+- **Campos de Juros e Tipo de Investimento**:
+  - Campo para definir taxa de juros anual (%) em investimentos
+  - Seleção entre "Investimento (com juros)" e "Caixinha/Poupança"
+  - Exibição do tipo e taxa de juros na coluna "Extra" da tabela
+  - Suporte completo no backend para armazenar e processar esses dados
+
+#### 🔍 Melhorias em Filtros Avançados
+
+- **Correções e Melhorias**:
+  - Corrigido problema de filtros "quebrando" a UI
+  - Painel de filtros avançados reorganizado para melhor layout
+  - Validações de segurança para evitar erros com arrays vazios
+  - Filtros funcionando corretamente com múltiplas categorias, faixa de valores e regex
+
+### 🔧 Melhorias
+
+- **UI/UX**:
+  - Nova coluna "Extra" na tabela de transações para informações adicionais
+  - Melhor organização visual dos campos condicionais (cartão de crédito, juros)
+  - Mensagens informativas quando não há cartões cadastrados
+  - Exibição do nome do cartão e últimos 4 dígitos nas transações vinculadas
+
+- **Backend**:
+  - Novos campos opcionais em transações: `credit_card_id`, `interest_rate`, `investment_type`
+  - Suporte completo para cartões de crédito em itens recorrentes
+  - Validação e processamento de novos campos em todas as operações CRUD
+
+### 🐛 Correções de Bugs
+
+- Corrigido erro de sintaxe JSX (elementos adjacentes) que impedia compilação
+- Corrigido problema de filtros avançados causando erros na UI
+- Corrigido carregamento de cartões de crédito (chave correta da API)
+- Corrigido exibição de informações de cartão nas transações
+- Melhorada validação de arrays e objetos em hooks do React
+
+---
+
 ## [1.1.0] - 2025-01-28
 
 ### ✨ Novas Funcionalidades

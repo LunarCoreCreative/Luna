@@ -14,7 +14,12 @@ from .storage import (
     get_summary as storage_get_summary,
     get_summaries_by_range,
     get_goals,
-    update_goals as storage_update_goals
+    update_goals as storage_update_goals,
+    get_weights,
+    add_weight,
+    delete_weight,
+    get_notifications,
+    mark_notification_read
 )
 from .foods import (
     search_foods,
@@ -23,8 +28,7 @@ from .foods import (
     try_find_or_add_food
 )
 from .profiles import (
-    get_health_profile,
-    get_evaluator_students
+    get_health_profile
 )
 from .meal_presets import (
     get_presets,
@@ -102,7 +106,7 @@ HEALTH_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "edit_meal",
-            "description": "Edita uma refeição já registrada.",
+            "description": "Edita uma refeição já registrada. Use quando o usuário quiser corrigir informações de uma refeição (nome, tipo, valores nutricionais, etc). Necessita do meal_id da refeição (obtido via list_meals).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -165,7 +169,7 @@ HEALTH_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "list_meals",
-            "description": "Lista refeições recentes do usuário.",
+            "description": "Lista refeições recentes do usuário. Pode filtrar por data específica ou limitar número de resultados. Use para mostrar histórico de refeições ou obter IDs para edição/remoção.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -344,116 +348,6 @@ HEALTH_TOOLS_SCHEMA = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_student_data",
-            "description": "Busca dados completos de um aluno/paciente específico (por nome ou ID). Use quando o avaliador mencionar um nome de aluno ou pedir dados de um paciente específico. Retorna: refeições recentes, metas, resumo nutricional, progresso. Exemplo: 'Mostre os dados do André' → use get_student_data com nome 'André'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "student_name_or_id": {
-                        "type": "string",
-                        "description": "Nome do aluno (ex: 'André', 'Maria') ou ID do aluno (Firebase UID). Se for nome, o sistema buscará entre os alunos vinculados ao avaliador."
-                    }
-                },
-                "required": ["student_name_or_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_all_students",
-            "description": "Lista todos os alunos vinculados ao avaliador com resumo rápido (nome, última atividade, status). Use quando o avaliador pedir para ver todos os pacientes ou fazer uma visão geral.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "compare_students",
-            "description": "Compara dados nutricionais entre múltiplos alunos. Use quando o avaliador quiser comparar progresso, padrões ou métricas entre pacientes. Exemplo: 'Compare o progresso do André e da Maria'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "student_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Lista de IDs ou nomes dos alunos a comparar (mínimo 2). Se for nome, o sistema buscará entre os alunos vinculados."
-                    },
-                    "metric": {
-                        "type": "string",
-                        "enum": ["calories", "protein", "adherence", "progress", "all"],
-                        "description": "Métrica específica para comparar: 'calories' (calorias), 'protein' (proteínas), 'adherence' (aderência ao registro), 'progress' (progresso geral), 'all' (todas as métricas). Padrão: 'all'"
-                    },
-                    "period_days": {
-                        "type": "integer",
-                        "description": "Número de dias para análise (padrão: 7, para última semana)"
-                    }
-                },
-                "required": ["student_ids"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_student_summary",
-            "description": "Gera resumo completo e detalhado de um aluno em um período específico. Use para análises profundas de um paciente específico. Permite análise de tendências, padrões e progresso ao longo do tempo.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "student_name_or_id": {
-                        "type": "string",
-                        "description": "Nome do aluno (ex: 'André', 'Maria') ou ID do aluno (Firebase UID)"
-                    },
-                    "period_days": {
-                        "type": "integer",
-                        "description": "Número de dias para análise (padrão: 30, para último mês)"
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "description": "Data inicial no formato YYYY-MM-DD (opcional, se não fornecido usa period_days a partir de hoje)"
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "description": "Data final no formato YYYY-MM-DD (opcional, padrão é hoje)"
-                    }
-                },
-                "required": ["student_name_or_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_student_report",
-            "description": "Gera relatório profissional formatado de um aluno. Use quando o avaliador pedir um relatório completo ou documentação. Retorna relatório estruturado com análises, gráficos e recomendações.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "student_name_or_id": {
-                        "type": "string",
-                        "description": "Nome do aluno (ex: 'André', 'Maria') ou ID do aluno (Firebase UID)"
-                    },
-                    "period_days": {
-                        "type": "integer",
-                        "description": "Número de dias para análise (padrão: 30, para último mês)"
-                    },
-                    "include_recommendations": {
-                        "type": "boolean",
-                        "description": "Se deve incluir recomendações profissionais no relatório (padrão: true)"
-                    }
-                },
-                "required": ["student_name_or_id"]
-            }
-        }
-    },
     # =========================================================================
     # MEAL PLAN / PRESETS TOOLS
     # =========================================================================
@@ -461,7 +355,7 @@ HEALTH_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "list_meal_presets",
-            "description": "Lista todos os presets de refeições do plano alimentar do usuário. Use quando o usuário perguntar sobre seu plano alimentar, refeições programadas, ou quiser ver os presets disponíveis. Retorna presets do próprio usuário e do avaliador (se houver).",
+            "description": "Lista todos os presets de refeições do plano alimentar do usuário. Use quando o usuário perguntar sobre seu plano alimentar, refeições programadas, ou quiser ver os presets disponíveis.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -473,7 +367,7 @@ HEALTH_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "create_meal_preset",
-            "description": "Cria um novo preset de refeição no plano alimentar. Use quando o usuário pedir para criar uma refeição planejada, adicionar algo ao plano alimentar, ou quando o avaliador quiser criar um preset para um aluno. Exemplo: 'cria um preset de café da manhã com ovos e aveia' ou 'adiciona um lanche pré-treino no meu plano'.",
+            "description": "Cria um novo preset de refeição no plano alimentar. Use quando o usuário pedir para criar uma refeição planejada ou adicionar algo ao plano alimentar. Exemplo: 'cria um preset de café da manhã com ovos e aveia' ou 'adiciona um lanche pré-treino no meu plano'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -508,10 +402,6 @@ HEALTH_TOOLS_SCHEMA = [
                     "notes": {
                         "type": "string",
                         "description": "Observações adicionais sobre o preset (ex: 'Pode substituir aveia por tapioca'). Opcional."
-                    },
-                    "for_student_id": {
-                        "type": "string",
-                        "description": "ID do aluno para quem o avaliador está criando o preset. Opcional, usado apenas por avaliadores."
                     }
                 },
                 "required": ["name", "meal_type", "foods"]
@@ -613,7 +503,7 @@ HEALTH_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "create_meal_plan",
-            "description": "Cria um plano alimentar completo com múltiplos presets para o dia. Use quando o usuário pedir para criar um plano alimentar completo, uma dieta do dia, ou quando o avaliador quiser montar um cardápio. Exemplo: 'monte um plano alimentar para mim', 'crie uma dieta de 2000 calorias'.",
+            "description": "🚨 FERRAMENTA OBRIGATÓRIA: Cria um plano alimentar completo com múltiplos presets e SALVA no banco de dados. Use SEMPRE quando o usuário pedir para 'criar', 'montar', 'implementar' ou 'aplicar' um plano alimentar, dieta ou cardápio. IMPORTANTE: Você DEVE chamar esta ferramenta UMA VEZ com um array 'presets' contendo TODAS as refeições. NUNCA tente chamar tools individuais para cada refeição - isso não existe! Exemplo de uso correto: create_meal_plan(presets=[{name: 'Café da Manhã', meal_type: 'breakfast', foods: [...]}, {name: 'Almoço', meal_type: 'lunch', foods: [...]}]). NUNCA chame tools com nomes de refeições como 'Café da Manhã' ou 'Almoço' - essas não são tools válidas!",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -643,63 +533,158 @@ HEALTH_TOOLS_SCHEMA = [
                                 "notes": {"type": "string"}
                             }
                         }
-                    },
-                    "for_student_id": {
-                        "type": "string",
-                        "description": "ID do aluno (para avaliadores). Opcional."
                     }
                 },
                 "required": ["presets"]
             }
         }
+    },
+    # =========================================================================
+    # WEIGHTS TOOLS
+    # =========================================================================
+    {
+        "type": "function",
+        "function": {
+            "name": "add_weight",
+            "description": "Registra o peso do usuário. Use quando o usuário mencionar que pesou-se ou quiser registrar seu peso atual. Se já existir um registro para a data, atualiza o peso.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "weight": {
+                        "type": "number",
+                        "description": "Peso em kg (ex: 70.5)"
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Data no formato YYYY-MM-DD (opcional, padrão é hoje)"
+                    }
+                },
+                "required": ["weight"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weights",
+            "description": "Lista o histórico de pesos do usuário. Use quando o usuário perguntar sobre seu progresso de peso, histórico de pesagem, ou gráfico de peso.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número máximo de registros a retornar (opcional, ordenado por data mais recente primeiro)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_weight",
+            "description": "Remove um registro de peso. Use quando o usuário quiser deletar uma pesagem incorreta.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "weight_id": {
+                        "type": "string",
+                        "description": "ID do registro de peso a remover (obtido via get_weights)"
+                    }
+                },
+                "required": ["weight_id"]
+            }
+        }
+    },
+    # =========================================================================
+    # NOTIFICATIONS TOOLS
+    # =========================================================================
+    {
+        "type": "function",
+        "function": {
+            "name": "get_notifications",
+            "description": "Lista notificações do usuário. Use quando o usuário perguntar sobre notificações, alertas, ou quiser ver notificações não lidas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "unread_only": {
+                        "type": "boolean",
+                        "description": "Se True, retorna apenas notificações não lidas (opcional, padrão: false)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número máximo de notificações a retornar (opcional)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_notification_read",
+            "description": "Marca uma notificação como lida. Use quando o usuário quiser marcar uma notificação específica como lida.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notification_id": {
+                        "type": "string",
+                        "description": "ID da notificação a marcar como lida (obtido via get_notifications)"
+                    }
+                },
+                "required": ["notification_id"]
+            }
+        }
+    },
+    # =========================================================================
+    # GOALS SUGGESTION TOOLS
+    # =========================================================================
+    {
+        "type": "function",
+        "function": {
+            "name": "suggest_goals",
+            "description": "Sugere metas nutricionais baseadas em dados pessoais do usuário (peso, altura, idade, gênero, objetivo). Usa fórmulas científicas (Mifflin-St Jeor para BMR) para calcular calorias e macros ideais. Use quando o usuário pedir para calcular, sugerir ou criar metas nutricionais baseadas em suas informações.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "weight": {
+                        "type": "number",
+                        "description": "Peso atual em kg (obrigatório)"
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "Altura em cm (obrigatório)"
+                    },
+                    "age": {
+                        "type": "integer",
+                        "description": "Idade em anos (obrigatório)"
+                    },
+                    "gender": {
+                        "type": "string",
+                        "enum": ["male", "female", "m", "f"],
+                        "description": "Gênero: 'male' ou 'female' (obrigatório)"
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "Objetivo: 'lose' (emagrecer), 'maintain' (manter peso), 'gain' (ganhar peso), ou outros objetivos disponíveis (obrigatório)"
+                    },
+                    "activity_level": {
+                        "type": "string",
+                        "enum": ["sedentary", "light", "moderate", "active", "very_active"],
+                        "description": "Nível de atividade física (opcional, padrão: 'moderate')"
+                    },
+                    "target_weight": {
+                        "type": "number",
+                        "description": "Peso alvo em kg (opcional, útil para cálculos mais precisos)"
+                    }
+                },
+                "required": ["weight", "height", "age", "gender", "goal"]
+            }
+        }
     }
 ]
-
-# =============================================================================
-# HELPER FUNCTIONS FOR EVALUATOR TOOLS
-# =============================================================================
-
-def _resolve_student_id(evaluator_id: str, student_name_or_id: str) -> Optional[str]:
-    """
-    Resolve student_id from name or ID.
-    If it's a name, search among evaluator's students.
-    If it's an ID, verify it's linked to the evaluator.
-    """
-    # First, check if it's already an ID (Firebase UIDs are typically 28 chars)
-    if len(student_name_or_id) > 20:
-        # Likely an ID, verify it's linked to evaluator
-        student_ids = get_evaluator_students(evaluator_id)
-        if student_name_or_id in student_ids:
-            return student_name_or_id
-        return None
-    
-    # It's a name, search among students
-    student_ids = get_evaluator_students(evaluator_id)
-    if not student_ids:
-        return None
-    
-    # Search by name
-    from ..firebase_config import get_user_profile, get_user_info
-    
-    search_name = student_name_or_id.lower().strip()
-    for sid in student_ids:
-        try:
-            # Try Firestore first
-            profile = get_user_profile(sid)
-            if profile and profile.get("name"):
-                if profile.get("name").lower() == search_name:
-                    return sid
-            else:
-                # Fallback to Auth
-                info = get_user_info(sid)
-                if info:
-                    display_name = info.get("display_name") or info.get("name") or ""
-                    if display_name.lower() == search_name:
-                        return sid
-        except:
-            continue
-    
-    return None
 
 def _generate_recommendations(summaries: List[Dict], goals: Dict, adherence_rate: float, 
                              avg_calories: float, avg_protein: float) -> List[str]:
@@ -746,15 +731,14 @@ def _generate_recommendations(summaries: List[Dict], goals: Dict, adherence_rate
 # TOOL EXECUTION
 # =============================================================================
 
-async def execute_health_tool(name: str, args: Dict, user_id: str = "local", evaluator_id: str = None) -> Dict:
+async def execute_health_tool(name: str, args: Dict, user_id: str = "local") -> Dict:
     """
     Execute a health tool and return the result.
     
     Args:
         name: Nome da tool
         args: Argumentos da tool
-        user_id: ID do usuário alvo (pode ser o aluno se avaliador está visualizando)
-        evaluator_id: ID do avaliador (se estiver visualizando como aluno)
+        user_id: ID do usuário alvo
     """
     
     try:
@@ -1214,440 +1198,12 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                     }
         
         # =============================================================================
-        # EVALUATOR-SPECIFIC TOOLS
-        # =============================================================================
-        
-        elif name == "get_student_data":
-            student_name_or_id = args.get("student_name_or_id", "")
-            if not student_name_or_id:
-                return {
-                    "success": False,
-                    "error": "Por favor, informe o nome ou ID do aluno que deseja consultar."
-                }
-            
-            # Resolve student_id from name or ID
-            student_id = _resolve_student_id(user_id, student_name_or_id)
-            if not student_id:
-                return {
-                    "success": False,
-                    "error": f"❌ Aluno '{student_name_or_id}' não encontrado ou não está vinculado a você. Verifique o nome ou use 'list_all_students' para ver todos os alunos disponíveis."
-                }
-            
-            # Get student data
-            try:
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                # Get student name
-                student_name = "Aluno"
-                try:
-                    profile = get_user_profile(student_id)
-                    if profile and profile.get("name"):
-                        student_name = profile.get("name")
-                    else:
-                        info = get_user_info(student_id)
-                        if info:
-                            student_name = info.get("display_name") or info.get("name") or "Aluno"
-                except:
-                    pass
-                
-                # Get recent meals
-                recent_meals = load_meals(student_id, limit=10)
-                
-                # Get today's summary
-                today_summary = storage_get_summary(student_id)
-                
-                # Get goals
-                goals = get_goals(student_id)
-                
-                return {
-                    "success": True,
-                    "student_id": student_id,
-                    "student_name": student_name,
-                    "recent_meals": recent_meals[:5],  # Last 5 meals
-                    "today_summary": today_summary,
-                    "goals": goals,
-                    "message": f"📊 Dados de {student_name} (ID: {student_id[:8]}...)"
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"❌ Erro ao buscar dados do aluno: {str(e)}"
-                }
-        
-        elif name == "list_all_students":
-            try:
-                # Get all students for this evaluator
-                student_ids = get_evaluator_students(user_id)
-                
-                if not student_ids:
-                    return {
-                        "success": True,
-                        "students": [],
-                        "count": 0,
-                        "message": "📋 Você ainda não tem alunos vinculados. Compartilhe seu código de avaliador para que alunos se vinculem."
-                    }
-                
-                # Get student info
-                from ..firebase_config import get_user_profile, get_user_info
-                students = []
-                
-                for sid in student_ids:
-                    student_info = {"id": sid, "name": "Aluno", "email": None}
-                    try:
-                        # Try Firestore first
-                        profile = get_user_profile(sid)
-                        if profile and profile.get("name"):
-                            student_info["name"] = profile.get("name")
-                        else:
-                            # Fallback to Auth
-                            info = get_user_info(sid)
-                            if info:
-                                student_info["name"] = info.get("display_name") or info.get("name") or "Aluno"
-                                student_info["email"] = info.get("email")
-                    except:
-                        pass
-                    
-                    # Get last activity (last meal date)
-                    try:
-                        meals = load_meals(sid, limit=1)
-                        if meals:
-                            student_info["last_activity"] = meals[0].get("date")
-                        else:
-                            student_info["last_activity"] = None
-                    except:
-                        student_info["last_activity"] = None
-                    
-                    students.append(student_info)
-                
-                return {
-                    "success": True,
-                    "students": students,
-                    "count": len(students),
-                    "message": f"📋 Lista de {len(students)} aluno(s) vinculado(s)"
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"❌ Erro ao listar alunos: {str(e)}"
-                }
-        
-        elif name == "compare_students":
-            student_ids_or_names = args.get("student_ids", [])
-            metric = args.get("metric", "all")
-            period_days = args.get("period_days", 7)
-            
-            if len(student_ids_or_names) < 2:
-                return {
-                    "success": False,
-                    "error": "❌ É necessário fornecer pelo menos 2 alunos para comparação."
-                }
-            
-            try:
-                from datetime import datetime, timedelta
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                # Resolve all student IDs
-                resolved_students = []
-                for student_name_or_id in student_ids_or_names:
-                    student_id = _resolve_student_id(user_id, student_name_or_id)
-                    if not student_id:
-                        return {
-                            "success": False,
-                            "error": f"❌ Aluno '{student_name_or_id}' não encontrado ou não está vinculado a você."
-                        }
-                    
-                    # Get student name
-                    student_name = "Aluno"
-                    try:
-                        profile = get_user_profile(student_id)
-                        if profile and profile.get("name"):
-                            student_name = profile.get("name")
-                        else:
-                            info = get_user_info(student_id)
-                            if info:
-                                student_name = info.get("display_name") or info.get("name") or "Aluno"
-                    except:
-                        pass
-                    
-                    resolved_students.append({"id": student_id, "name": student_name})
-                
-                # Calculate date range
-                end_date = datetime.now().strftime("%Y-%m-%d")
-                start_date = (datetime.now() - timedelta(days=period_days)).strftime("%Y-%m-%d")
-                
-                # Get summaries for each student
-                comparison_data = []
-                for student in resolved_students:
-                    summaries = get_summaries_by_range(student["id"], start_date, end_date)
-                    
-                    if summaries:
-                        total_calories = sum(s.get("total_calories", 0) for s in summaries)
-                        total_protein = sum(s.get("total_protein", 0) for s in summaries)
-                        avg_calories = total_calories / len(summaries)
-                        avg_protein = total_protein / len(summaries)
-                        
-                        # Count adherence (days with meals)
-                        days_with_meals = sum(1 for s in summaries if s.get("meals_count", 0) > 0)
-                        adherence_rate = (days_with_meals / len(summaries)) * 100 if summaries else 0
-                        
-                        # Get goals
-                        goals = get_goals(student["id"])
-                        goal_calories = goals.get("daily_calories", 0)
-                        goal_protein = goals.get("daily_protein", 0)
-                        
-                        comparison_data.append({
-                            "student_id": student["id"],
-                            "student_name": student["name"],
-                            "avg_calories": round(avg_calories, 1),
-                            "avg_protein": round(avg_protein, 1),
-                            "adherence_rate": round(adherence_rate, 1),
-                            "days_analyzed": len(summaries),
-                            "goal_calories": goal_calories,
-                            "goal_protein": goal_protein,
-                            "calories_vs_goal": round((avg_calories / goal_calories * 100) if goal_calories > 0 else 0, 1),
-                            "protein_vs_goal": round((avg_protein / goal_protein * 100) if goal_protein > 0 else 0, 1)
-                        })
-                    else:
-                        comparison_data.append({
-                            "student_id": student["id"],
-                            "student_name": student["name"],
-                            "avg_calories": 0,
-                            "avg_protein": 0,
-                            "adherence_rate": 0,
-                            "days_analyzed": 0,
-                            "goal_calories": 0,
-                            "goal_protein": 0,
-                            "calories_vs_goal": 0,
-                            "protein_vs_goal": 0
-                        })
-                
-                return {
-                    "success": True,
-                    "comparison": comparison_data,
-                    "period": f"{start_date} a {end_date}",
-                    "metric": metric,
-                    "message": f"📊 Comparação entre {len(resolved_students)} aluno(s) nos últimos {period_days} dias"
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"❌ Erro ao comparar alunos: {str(e)}"
-                }
-        
-        elif name == "get_student_summary":
-            student_name_or_id = args.get("student_name_or_id", "")
-            period_days = args.get("period_days", 30)
-            start_date = args.get("start_date")
-            end_date = args.get("end_date")
-            
-            if not student_name_or_id:
-                return {
-                    "success": False,
-                    "error": "Por favor, informe o nome ou ID do aluno."
-                }
-            
-            # Resolve student_id
-            student_id = _resolve_student_id(user_id, student_name_or_id)
-            if not student_id:
-                return {
-                    "success": False,
-                    "error": f"❌ Aluno '{student_name_or_id}' não encontrado ou não está vinculado a você."
-                }
-            
-            try:
-                from datetime import datetime, timedelta
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                # Get student name
-                student_name = "Aluno"
-                try:
-                    profile = get_user_profile(student_id)
-                    if profile and profile.get("name"):
-                        student_name = profile.get("name")
-                    else:
-                        info = get_user_info(student_id)
-                        if info:
-                            student_name = info.get("display_name") or info.get("name") or "Aluno"
-                except:
-                    pass
-                
-                # Calculate date range
-                if not end_date:
-                    end_date = datetime.now().strftime("%Y-%m-%d")
-                if not start_date:
-                    start_date = (datetime.now() - timedelta(days=period_days)).strftime("%Y-%m-%d")
-                
-                # Get summaries
-                summaries = get_summaries_by_range(student_id, start_date, end_date)
-                
-                if not summaries:
-                    return {
-                        "success": True,
-                        "student_id": student_id,
-                        "student_name": student_name,
-                        "period": f"{start_date} a {end_date}",
-                        "summaries": [],
-                        "statistics": {},
-                        "message": f"📊 Nenhum dado encontrado para {student_name} no período de {start_date} a {end_date}"
-                    }
-                
-                # Calculate statistics
-                total_calories = sum(s.get("total_calories", 0) for s in summaries)
-                total_protein = sum(s.get("total_protein", 0) for s in summaries)
-                total_carbs = sum(s.get("total_carbs", 0) for s in summaries)
-                total_fats = sum(s.get("total_fats", 0) for s in summaries)
-                
-                avg_calories = total_calories / len(summaries)
-                avg_protein = total_protein / len(summaries)
-                avg_carbs = total_carbs / len(summaries)
-                avg_fats = total_fats / len(summaries)
-                
-                # Get goals
-                goals = get_goals(student_id)
-                goal_calories = goals.get("daily_calories", 0)
-                goal_protein = goals.get("daily_protein", 0)
-                
-                # Count adherence
-                days_with_meals = sum(1 for s in summaries if s.get("meals_count", 0) > 0)
-                adherence_rate = (days_with_meals / len(summaries)) * 100 if summaries else 0
-                
-                # Days that met goals
-                days_met_calories = sum(1 for s in summaries 
-                                       if goal_calories > 0 
-                                       and s.get("total_calories", 0) >= goal_calories * 0.9)  # 90% of goal
-                days_met_protein = sum(1 for s in summaries 
-                                      if goal_protein > 0 
-                                      and s.get("total_protein", 0) >= goal_protein * 0.9)
-                
-                return {
-                    "success": True,
-                    "student_id": student_id,
-                    "student_name": student_name,
-                    "period": f"{start_date} a {end_date}",
-                    "summaries": summaries,
-                    "statistics": {
-                        "total_days": len(summaries),
-                        "days_with_meals": days_with_meals,
-                        "adherence_rate": round(adherence_rate, 1),
-                        "avg_calories": round(avg_calories, 1),
-                        "avg_protein": round(avg_protein, 1),
-                        "avg_carbs": round(avg_carbs, 1),
-                        "avg_fats": round(avg_fats, 1),
-                        "goal_calories": goal_calories,
-                        "goal_protein": goal_protein,
-                        "days_met_calories": days_met_calories,
-                        "days_met_protein": days_met_protein,
-                        "calories_goal_percentage": round((avg_calories / goal_calories * 100) if goal_calories > 0 else 0, 1),
-                        "protein_goal_percentage": round((avg_protein / goal_protein * 100) if goal_protein > 0 else 0, 1)
-                    },
-                    "goals": goals,
-                    "message": f"📊 Resumo completo de {student_name} ({len(summaries)} dias analisados)"
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"❌ Erro ao gerar resumo: {str(e)}"
-                }
-        
-        elif name == "generate_student_report":
-            student_name_or_id = args.get("student_name_or_id", "")
-            period_days = args.get("period_days", 30)
-            include_recommendations = args.get("include_recommendations", True)
-            
-            if not student_name_or_id:
-                return {
-                    "success": False,
-                    "error": "Por favor, informe o nome ou ID do aluno."
-                }
-            
-            # Resolve student_id
-            student_id = _resolve_student_id(user_id, student_name_or_id)
-            if not student_id:
-                return {
-                    "success": False,
-                    "error": f"❌ Aluno '{student_name_or_id}' não encontrado ou não está vinculado a você."
-                }
-            
-            try:
-                from datetime import datetime, timedelta
-                from ..firebase_config import get_user_profile, get_user_info
-                
-                # Get student name
-                student_name = "Aluno"
-                student_email = None
-                try:
-                    profile = get_user_profile(student_id)
-                    if profile and profile.get("name"):
-                        student_name = profile.get("name")
-                    else:
-                        info = get_user_info(student_id)
-                        if info:
-                            student_name = info.get("display_name") or info.get("name") or "Aluno"
-                            student_email = info.get("email")
-                except:
-                    pass
-                
-                # Calculate date range
-                end_date = datetime.now().strftime("%Y-%m-%d")
-                start_date = (datetime.now() - timedelta(days=period_days)).strftime("%Y-%m-%d")
-                
-                # Get comprehensive summary
-                summaries = get_summaries_by_range(student_id, start_date, end_date)
-                goals = get_goals(student_id)
-                recent_meals = load_meals(student_id, limit=20)
-                
-                # Calculate statistics (same as get_student_summary)
-                if summaries:
-                    total_calories = sum(s.get("total_calories", 0) for s in summaries)
-                    total_protein = sum(s.get("total_protein", 0) for s in summaries)
-                    avg_calories = total_calories / len(summaries)
-                    avg_protein = total_protein / len(summaries)
-                    days_with_meals = sum(1 for s in summaries if s.get("meals_count", 0) > 0)
-                    adherence_rate = (days_with_meals / len(summaries)) * 100 if summaries else 0
-                else:
-                    avg_calories = 0
-                    avg_protein = 0
-                    adherence_rate = 0
-                
-                # Build report structure
-                report = {
-                    "student_id": student_id,
-                    "student_name": student_name,
-                    "student_email": student_email,
-                    "period": f"{start_date} a {end_date}",
-                    "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "summary": {
-                        "total_days": len(summaries) if summaries else 0,
-                        "days_with_meals": days_with_meals if summaries else 0,
-                        "adherence_rate": round(adherence_rate, 1),
-                        "avg_calories": round(avg_calories, 1),
-                        "avg_protein": round(avg_protein, 1),
-                        "goal_calories": goals.get("daily_calories", 0),
-                        "goal_protein": goals.get("daily_protein", 0)
-                    },
-                    "goals": goals,
-                    "recent_meals_count": len(recent_meals),
-                    "recommendations": [] if not include_recommendations else _generate_recommendations(summaries, goals, adherence_rate, avg_calories, avg_protein)
-                }
-                
-                return {
-                    "success": True,
-                    "report": report,
-                    "message": f"📄 Relatório profissional de {student_name} gerado com sucesso"
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"❌ Erro ao gerar relatório: {str(e)}"
-                }
-        
-        # =============================================================================
         # MEAL PLAN / PRESETS TOOLS
         # =============================================================================
         
         elif name == "list_meal_presets":
             try:
-                presets = get_presets(user_id, include_evaluator=True)
+                presets = get_presets(user_id)
                 
                 if not presets:
                     return {
@@ -1657,21 +1213,11 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                         "message": "📋 Você ainda não tem presets no plano alimentar. Que tal criar seu primeiro preset?"
                     }
                 
-                # Separa por origem
-                own_presets = [p for p in presets if not p.get("created_by_evaluator")]
-                evaluator_presets = [p for p in presets if p.get("created_by_evaluator")]
-                
                 message = f"📋 Plano Alimentar: {len(presets)} preset(s) disponível(is)"
-                if evaluator_presets:
-                    message += f"\n  • {len(evaluator_presets)} do avaliador"
-                if own_presets:
-                    message += f"\n  • {len(own_presets)} criado(s) por você"
                 
                 return {
                     "success": True,
                     "presets": presets,
-                    "own_presets": own_presets,
-                    "evaluator_presets": evaluator_presets,
                     "count": len(presets),
                     "message": message
                 }
@@ -1687,7 +1233,6 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
             foods = args.get("foods", [])
             suggested_time = args.get("suggested_time")
             notes = args.get("notes")
-            for_student_id = args.get("for_student_id")
             
             if not preset_name:
                 return {
@@ -1765,33 +1310,15 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                 enriched_foods.append(food_item)
             
             try:
-                # Se avaliador está criando para o aluno (evaluator_id presente):
-                # - user_id já é o ID do aluno (target)
-                # - Precisamos salvar no perfil do aluno mas marcar como criado pelo avaliador
-                if evaluator_id:
-                    # Avaliador criando para aluno: salva no perfil do aluno
-                    new_preset = create_preset(
-                        user_id=user_id,  # ID do aluno (onde será salvo)
-                        name=preset_name,
-                        meal_type=meal_type,
-                        foods=enriched_foods,
-                        suggested_time=suggested_time,
-                        notes=notes,
-                        created_for=user_id,  # Para o aluno
-                        evaluator_id=evaluator_id  # Quem criou
-                    )
-                    target_msg = " para o aluno"
-                else:
-                    new_preset = create_preset(
-                        user_id=user_id,
-                        name=preset_name,
-                        meal_type=meal_type,
-                        foods=enriched_foods,
-                        suggested_time=suggested_time,
-                        notes=notes,
-                        created_for=for_student_id
-                    )
-                    target_msg = ""
+                new_preset = create_preset(
+                    user_id=user_id,
+                    name=preset_name,
+                    meal_type=meal_type,
+                    foods=enriched_foods,
+                    suggested_time=suggested_time,
+                    notes=notes
+                )
+                target_msg = ""
                 
                 meal_type_label = MEAL_TYPES.get(meal_type, {}).get("name", meal_type)
                 meal_type_icon = MEAL_TYPES.get(meal_type, {}).get("icon", "🍽️")
@@ -1822,7 +1349,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                 preset = get_preset_by_id(user_id, preset_id)
             elif preset_name_search:
                 # Buscar por nome
-                presets = get_presets(user_id, include_evaluator=True)
+                presets = get_presets(user_id)
                 search_lower = preset_name_search.lower().strip()
                 for p in presets:
                     if search_lower in p.get("name", "").lower():
@@ -1941,7 +1468,9 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
         
         elif name == "create_meal_plan":
             presets_data = args.get("presets", [])
-            for_student_id = args.get("for_student_id")
+            
+            # Log para debug
+            print(f"[HEALTH-TOOLS] create_meal_plan called: user_id={user_id}")
             
             if not presets_data:
                 return {
@@ -2013,28 +1542,16 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                         
                         enriched_foods.append(food_item)
                     
-                    # Se avaliador está criando para o aluno
-                    if evaluator_id:
-                        new_preset = create_preset(
-                            user_id=user_id,  # ID do aluno (onde será salvo)
-                            name=preset_data.get("name", "Refeição"),
-                            meal_type=preset_data.get("meal_type", "snack"),
-                            foods=enriched_foods,
-                            suggested_time=preset_data.get("suggested_time"),
-                            notes=preset_data.get("notes"),
-                            created_for=user_id,  # Para o aluno
-                            evaluator_id=evaluator_id  # Quem criou
-                        )
-                    else:
-                        new_preset = create_preset(
-                            user_id=user_id,
-                            name=preset_data.get("name", "Refeição"),
-                            meal_type=preset_data.get("meal_type", "snack"),
-                            foods=enriched_foods,
-                            suggested_time=preset_data.get("suggested_time"),
-                            notes=preset_data.get("notes"),
-                            created_for=for_student_id
-                        )
+                    # Usuário criando preset
+                    print(f"[HEALTH-TOOLS] Creating preset for user (user_id={user_id})")
+                    new_preset = create_preset(
+                        user_id=user_id,
+                        name=preset_data.get("name", "Refeição"),
+                        meal_type=preset_data.get("meal_type", "snack"),
+                        foods=enriched_foods,
+                        suggested_time=preset_data.get("suggested_time"),
+                        notes=preset_data.get("notes")
+                    )
                     
                     created_presets.append(new_preset)
                     total_calories += new_preset.get("total_calories", 0)
@@ -2042,7 +1559,7 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                     total_carbs += new_preset.get("total_carbs", 0)
                     total_fats += new_preset.get("total_fats", 0)
                 
-                target_msg = " para o aluno" if evaluator_id else ""
+                target_msg = ""
                 return {
                     "success": True,
                     "presets": created_presets,
@@ -2066,10 +1583,218 @@ async def execute_health_tool(name: str, args: Dict, user_id: str = "local", eva
                     "error": f"❌ Erro ao criar plano alimentar: {str(e)}"
                 }
         
+        elif name == "add_weight":
+            weight = args.get("weight")
+            date = args.get("date")
+            
+            if weight is None:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça o peso em kg."
+                }
+            
+            try:
+                weight_entry = add_weight(user_id=user_id, weight=weight, date=date)
+                return {
+                    "success": True,
+                    "weight": weight_entry,
+                    "message": f"✅ Peso registrado: {weight_entry['weight']} kg na data {weight_entry['date']}"
+                }
+            except ValueError as e:
+                return {
+                    "success": False,
+                    "error": f"⚠️ {str(e)}"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao registrar peso: {str(e)}"
+                }
+        
+        elif name == "get_weights":
+            limit = args.get("limit")
+            
+            try:
+                weights = get_weights(user_id=user_id, limit=limit)
+                return {
+                    "success": True,
+                    "weights": weights,
+                    "count": len(weights),
+                    "message": f"📊 Histórico de pesos: {len(weights)} registro(s) encontrado(s)"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao buscar histórico de pesos: {str(e)}"
+                }
+        
+        elif name == "delete_weight":
+            weight_id = args.get("weight_id")
+            
+            if not weight_id:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça o ID do registro de peso a remover."
+                }
+            
+            try:
+                deleted = delete_weight(user_id=user_id, weight_id=weight_id)
+                if deleted:
+                    return {
+                        "success": True,
+                        "message": "✅ Registro de peso removido com sucesso"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "❌ Registro de peso não encontrado"
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao remover registro de peso: {str(e)}"
+                }
+        
+        elif name == "get_notifications":
+            unread_only = args.get("unread_only", False)
+            limit = args.get("limit")
+            
+            try:
+                notifications = get_notifications(user_id=user_id, unread_only=unread_only, limit=limit)
+                unread_count = sum(1 for n in notifications if not n.get("read", False))
+                return {
+                    "success": True,
+                    "notifications": notifications,
+                    "count": len(notifications),
+                    "unread_count": unread_count,
+                    "message": f"🔔 {len(notifications)} notificação(ões) encontrada(s)" + (f" ({unread_count} não lida(s))" if unread_count > 0 else "")
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao buscar notificações: {str(e)}"
+                }
+        
+        elif name == "mark_notification_read":
+            notification_id = args.get("notification_id")
+            
+            if not notification_id:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça o ID da notificação a marcar como lida."
+                }
+            
+            try:
+                success = mark_notification_read(user_id=user_id, notification_id=notification_id)
+                if success:
+                    return {
+                        "success": True,
+                        "message": "✅ Notificação marcada como lida"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "❌ Notificação não encontrada"
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao marcar notificação como lida: {str(e)}"
+                }
+        
+        elif name == "suggest_goals":
+            # Importar funções de cálculo do routes.py
+            from .routes import (
+                calculate_bmr_mifflin_st_jeor,
+                calculate_tdee,
+                adjust_calories_for_goal,
+                calculate_macros
+            )
+            
+            weight = args.get("weight")
+            height = args.get("height")
+            age = args.get("age")
+            gender = args.get("gender")
+            goal = args.get("goal")
+            activity_level = args.get("activity_level", "moderate")
+            target_weight = args.get("target_weight")
+            
+            # Validações básicas
+            if weight is None or height is None or age is None or gender is None or goal is None:
+                return {
+                    "success": False,
+                    "error": "Por favor, forneça todos os dados obrigatórios: weight, height, age, gender, goal"
+                }
+            
+            if weight <= 0 or weight > 500:
+                return {
+                    "success": False,
+                    "error": "Peso deve estar entre 1 e 500 kg"
+                }
+            
+            if height <= 0 or height > 300:
+                return {
+                    "success": False,
+                    "error": "Altura deve estar entre 1 e 300 cm"
+                }
+            
+            if age <= 0 or age > 150:
+                return {
+                    "success": False,
+                    "error": "Idade deve estar entre 1 e 150 anos"
+                }
+            
+            # Normalizar gênero
+            gender_normalized = "male" if gender.lower() in ["male", "m"] else "female"
+            
+            try:
+                # Calcular BMR
+                bmr = calculate_bmr_mifflin_st_jeor(weight, height, age, gender_normalized)
+                
+                # Calcular TDEE
+                tdee = calculate_tdee(bmr, activity_level)
+                
+                # Ajustar calorias baseado no objetivo
+                suggested_calories = adjust_calories_for_goal(tdee, goal, current_weight=weight, target_weight=target_weight)
+                
+                # Calcular macros
+                macros = calculate_macros(suggested_calories, goal, weight=weight)
+                
+                suggested_goals = {
+                    "daily_calories": round(suggested_calories, 0),
+                    "daily_protein": macros["protein"],
+                    "daily_carbs": macros["carbs"],
+                    "daily_fats": macros["fats"],
+                    "bmr": round(bmr, 1),
+                    "tdee": round(tdee, 1)
+                }
+                
+                return {
+                    "success": True,
+                    "suggested_goals": suggested_goals,
+                    "message": f"✅ Metas sugeridas calculadas:\n"
+                              f"   • Calorias diárias: {suggested_goals['daily_calories']:.0f} kcal\n"
+                              f"   • Proteínas: {suggested_goals['daily_protein']:.1f}g\n"
+                              f"   • Carboidratos: {suggested_goals['daily_carbs']:.1f}g\n"
+                              f"   • Gorduras: {suggested_goals['daily_fats']:.1f}g"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"❌ Erro ao calcular metas sugeridas: {str(e)}"
+                }
+        
         else:
+            # Detecta se está tentando chamar uma tool com nome de refeição
+            meal_names_pt = ["café da manhã", "lanche da manhã", "almoço", "lanche da tarde", "jantar", "ceia", "pré-treino", "pós-treino"]
+            if any(meal_name in name.lower() for meal_name in meal_names_pt):
+                return {
+                    "success": False,
+                    "error": f"❌ ERRO: '{name}' não é uma ferramenta válida! Você está tentando chamar uma refeição como se fosse uma tool. Para criar um plano alimentar, você DEVE usar a ferramenta 'create_meal_plan' UMA VEZ com TODOS os presets em um array. Exemplo: create_meal_plan(presets=[{{name: 'Café da Manhã', meal_type: 'breakfast', foods: [...]}}, {{name: 'Almoço', meal_type: 'lunch', foods: [...]}}]). NUNCA tente chamar tools individuais para cada refeição!"
+                }
             return {
                 "success": False,
-                "error": f"❌ Ferramenta desconhecida: '{name}'. Por favor, verifique o nome da ferramenta e tente novamente."
+                "error": f"❌ Ferramenta desconhecida: '{name}'. Por favor, verifique o nome da ferramenta e tente novamente. Tools disponíveis: create_meal_plan, create_meal_preset, list_meal_presets, add_meal, etc."
             }
     
     except ValueError as e:

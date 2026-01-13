@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
 
-export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate }) {
+export function GoalsTab({ userId = "local", onUpdate }) {
     const [goals, setGoals] = useState({
         daily_calories: "",
         daily_protein: "",
@@ -47,7 +47,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
     useEffect(() => {
         loadGoals();
         loadAvailableGoals();
-    }, [userId, viewAsStudentId]);
+    }, [userId]);
 
     const loadAvailableGoals = async () => {
         try {
@@ -71,8 +71,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
         setIsLoading(true);
         setError(null);
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}${viewAsParam}`);
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}`);
             const data = await response.json();
             
             if (data.success && data.goals) {
@@ -108,8 +107,7 @@ export function GoalsTab({ userId = "local", viewAsStudentId = null, onUpdate })
                 target_weight: goals.target_weight ? parseFloat(goals.target_weight) : null
             };
             
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}${viewAsParam}`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(goalsToSave)

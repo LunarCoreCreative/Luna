@@ -39,7 +39,6 @@ class ChatRequest(BaseModel):
     active_artifact_id: Optional[str] = None
     user_id: Optional[str] = None
     user_name: Optional[str] = "Usuário"
-    view_as_student_id: Optional[str] = None # Para avaliadores visualizarem dados de alunos
 
 class SaveChatRequest(BaseModel):
     chat_id: Optional[str] = None

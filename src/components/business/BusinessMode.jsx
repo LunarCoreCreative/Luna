@@ -22,7 +22,11 @@ import {
     LineChart,
     Wallet,
     AlertCircle,
-    Clock
+    Clock,
+    Target,
+    Download,
+    Shield,
+    CreditCard
 } from "lucide-react";
 import { API_CONFIG } from "../../config/api";
 import { useModalContext } from "../../contexts/ModalContext";
@@ -32,6 +36,13 @@ import { InvestmentsTab } from "./InvestmentsTab";
 import { BusinessChat } from "./BusinessChat";
 import RecurringModal from "./RecurringModal";
 import OverdueBills from "./OverdueBills";
+import BackupModal from "./BackupModal";
+import NotificationsPanel from "./NotificationsPanel";
+import GoalsTab from "./GoalsTab";
+import BudgetTab from "./BudgetTab";
+import ExportModal from "./ExportModal";
+import IntegrityModal from "./IntegrityModal";
+import CreditCardsTab from "./CreditCardsTab";
 
 // ============================================================================
 // DEFAULT TAGS (usuário pode adicionar mais)
@@ -64,12 +75,22 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
     const [searchQuery, setSearchQuery] = useState("");
     const [editingId, setEditingId] = useState(null);
     const [activeTab, setActiveTab] = useState("transactions"); // "transactions" | "analytics"
+    
+    // Advanced filters
+    const [selectedCategories, setSelectedCategories] = useState([]);
+    const [minValue, setMinValue] = useState("");
+    const [maxValue, setMaxValue] = useState("");
+    const [useRegex, setUseRegex] = useState(false);
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
     // Tags from backend
     const [tags, setTags] = useState([]);
     const [showTagModal, setShowTagModal] = useState(false);
     const [showRecurringModal, setShowRecurringModal] = useState(false);
     const [showOverdueModal, setShowOverdueModal] = useState(false);
+    const [showBackupModal, setShowBackupModal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [showIntegrityModal, setShowIntegrityModal] = useState(false);
     const [newTag, setNewTag] = useState({ label: "", color: TAG_COLORS[0] });
 
     // Form state for new/edit entry
@@ -78,8 +99,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         value: "",
         type: "income",
         category: "outro",
-        date: new Date().toISOString().split('T')[0] // formato YYYY-MM-DD
+        date: new Date().toISOString().split('T')[0], // formato YYYY-MM-DD
+        credit_card_id: "",
+        interest_rate: "",
+        investment_type: "investment"
     });
+
+    // Credit cards for selection
+    const [creditCards, setCreditCards] = useState([]);
 
     // Edit form state
     const [editData, setEditData] = useState({});
@@ -96,8 +123,22 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         if (isOpen) {
             loadPeriods();
             loadTags();
+            loadCreditCards();
         }
     }, [isOpen]);
+
+    const loadCreditCards = async () => {
+        try {
+            const res = await fetch(`${API_CONFIG.BASE_URL}/business/credit-cards?user_id=${userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setCreditCards(data.credit_cards || []);
+                console.log("[BUSINESS] Cartões de crédito carregados:", data.credit_cards?.length || 0);
+            }
+        } catch (e) {
+            console.error("Error loading credit cards:", e);
+        }
+    };
 
     useEffect(() => {
         if (isOpen && (selectedPeriod || currentPeriod)) {
@@ -179,22 +220,40 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
             return;
         }
 
-        // Valida e converte valor
-        const value = parseFloat(formData.value);
-        if (isNaN(value) || value <= 0) {
+        // Valida e converte valor com limites
+        const rawValue = formData.value.toString().replace(/[R$\s]/g, "").replace(",", ".");
+        const value = parseFloat(rawValue);
+        
+        if (isNaN(value) || !isFinite(value)) {
             console.error("[BUSINESS] Valor inválido:", formData.value);
-            showAlert("Por favor, insira um valor válido maior que zero.", "Erro");
+            showAlert("Por favor, insira um valor numérico válido.", "Erro");
             return;
         }
+        
+        if (value < 0.01) {
+            showAlert("O valor mínimo é R$ 0,01.", "Erro");
+            return;
+        }
+        
+        if (value > 1000000000) {
+            showAlert("O valor máximo é R$ 1.000.000.000,00.", "Erro");
+            return;
+        }
+        
+        // Arredonda para 2 casas decimais
+        const roundedValue = Math.round(value * 100) / 100;
 
         try {
             const payload = {
                 description: formData.description.trim(),
-                value: value,
+                value: roundedValue,
                 type: formData.type,
                 category: formData.category || "outro",
                 date: formData.date || new Date().toISOString().split('T')[0],
-                user_id: userId
+                user_id: userId,
+                credit_card_id: formData.credit_card_id || null,
+                interest_rate: formData.type === "investment" && formData.interest_rate ? parseFloat(formData.interest_rate) : null,
+                investment_type: formData.type === "investment" ? (formData.investment_type || "investment") : null
             };
 
             console.log("[BUSINESS] Enviando transação:", payload);
@@ -249,7 +308,10 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
             value: tx.value.toString(),
             type: tx.type,
             category: tx.category,
-            date: tx.date ? tx.date.split('T')[0] : new Date().toISOString().split('T')[0]
+            date: tx.date ? tx.date.split('T')[0] : new Date().toISOString().split('T')[0],
+            credit_card_id: tx.credit_card_id || "",
+            interest_rate: tx.interest_rate || "",
+            investment_type: tx.investment_type || "investment"
         });
     };
 
@@ -259,22 +321,40 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
             return;
         }
 
-        // Valida e converte valor
-        const value = parseFloat(editData.value);
-        if (isNaN(value) || value <= 0) {
+        // Valida e converte valor com limites
+        const rawValue = editData.value.toString().replace(/[R$\s]/g, "").replace(",", ".");
+        const value = parseFloat(rawValue);
+        
+        if (isNaN(value) || !isFinite(value)) {
             console.error("[BUSINESS] Valor inválido:", editData.value);
-            showAlert("Por favor, insira um valor válido maior que zero.", "Erro");
+            showAlert("Por favor, insira um valor numérico válido.", "Erro");
             return;
         }
+        
+        if (value < 0.01) {
+            showAlert("O valor mínimo é R$ 0,01.", "Erro");
+            return;
+        }
+        
+        if (value > 1000000000) {
+            showAlert("O valor máximo é R$ 1.000.000.000,00.", "Erro");
+            return;
+        }
+        
+        // Arredonda para 2 casas decimais
+        const roundedValue = Math.round(value * 100) / 100;
 
         try {
             const payload = {
                 description: editData.description.trim(),
-                value: value,
+                value: roundedValue,
                 type: editData.type,
                 category: editData.category || "outro",
                 date: editData.date || new Date().toISOString().split('T')[0],
-                user_id: userId
+                user_id: userId,
+                credit_card_id: editData.credit_card_id || null,
+                interest_rate: editData.type === "investment" && editData.interest_rate ? parseFloat(editData.interest_rate) : null,
+                investment_type: editData.type === "investment" ? (editData.investment_type || "investment") : null
             };
 
             console.log("[BUSINESS] Atualizando transação:", txId, payload);
@@ -403,14 +483,54 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
         }
     };
 
-    // Filtered transactions
-    const filteredTx = transactions.filter(tx => {
+    // Get unique categories from transactions
+    const availableCategories = useMemo(() => {
+        if (!transactions || !Array.isArray(transactions)) return [];
+        const cats = new Set();
+        transactions.forEach(tx => {
+            if (tx && tx.category) cats.add(tx.category);
+        });
+        return Array.from(cats).sort();
+    }, [transactions]);
+
+    // Filtered transactions with advanced filters
+    const filteredTx = useMemo(() => {
+        return transactions.filter(tx => {
+            // Filter by type
         if (filter !== "all" && tx.type !== filter) return false;
-        if (searchQuery && !tx.description.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+            
+            // Filter by search query (with optional regex)
+            if (searchQuery) {
+                try {
+                    if (useRegex) {
+                        const regex = new RegExp(searchQuery, 'i');
+                        if (!regex.test(tx.description || '')) return false;
+                    } else {
+                        if (!tx.description.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+                    }
+                } catch (e) {
+                    // Invalid regex, fallback to simple search
+                    if (!tx.description.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+                }
+            }
+            
+            // Filter by categories (multiple selection)
+            if (selectedCategories.length > 0 && !selectedCategories.includes(tx.category)) return false;
+            
+            // Filter by value range
+            const txValue = parseFloat(tx.value) || 0;
+            if (minValue) {
+                const min = parseFloat(minValue);
+                if (isNaN(min) || txValue < min) return false;
+            }
+            if (maxValue) {
+                const max = parseFloat(maxValue);
+                if (isNaN(max) || txValue > max) return false;
+            }
+            
         return true;
     });
-
-    if (!isOpen) return null;
+    }, [transactions, filter, searchQuery, selectedCategories, minValue, maxValue, useRegex]);
 
     if (!isOpen) return null;
 
@@ -534,6 +654,9 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Notifications Panel */}
+                    <NotificationsPanel userId={userId} />
+                    
                     <button
                         onClick={onClose}
                         className="p-2.5 hover:bg-white/10 rounded-xl transition-all duration-200 hover:scale-110 active:scale-95 group"
@@ -634,6 +757,69 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
                             )}
                         </button>
+                        <button
+                            onClick={() => setActiveTab("goals")}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            style={{
+                                color: activeTab === "goals" ? '#a855f7' : 'var(--text-secondary)'
+                            }}
+                        >
+                            <span className="relative z-10 flex items-center gap-2">
+                                <Target size={18} />
+                                Metas
+                            </span>
+                            {activeTab === "goals" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "goals" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("budget")}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            style={{
+                                color: activeTab === "budget" ? '#a855f7' : 'var(--text-secondary)'
+                            }}
+                        >
+                            <span className="relative z-10 flex items-center gap-2">
+                                <DollarSign size={18} />
+                                Orçamento
+                            </span>
+                            {activeTab === "budget" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "budget" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("credit-cards")}
+                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            style={{
+                                color: activeTab === "credit-cards" ? '#a855f7' : 'var(--text-secondary)'
+                            }}
+                        >
+                            <span className="relative z-10 flex items-center gap-2">
+                                <CreditCard size={18} />
+                                Cartões
+                            </span>
+                            {activeTab === "credit-cards" && (
+                                <>
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 rounded-t-full shadow-lg shadow-purple-500/30" />
+                                    <div className="absolute inset-0 bg-purple-500/5 rounded-t-xl" />
+                                </>
+                            )}
+                            {activeTab !== "credit-cards" && (
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/5 rounded-t-xl transition-opacity duration-200" />
+                            )}
+                        </button>
                     </div>
 
                     {/* Content based on active tab */}
@@ -643,16 +829,23 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         <ProjectionsTab transactions={transactions} summary={summary} userId={userId} />
                     ) : activeTab === "investments" ? (
                         <InvestmentsTab transactions={transactions} summary={summary} userId={userId} />
+                    ) : activeTab === "goals" ? (
+                        <GoalsTab userId={userId} onLoadData={loadData} />
+                    ) : activeTab === "budget" ? (
+                        <BudgetTab userId={userId} selectedPeriod={selectedPeriod || currentPeriod} onLoadData={loadData} />
+                    ) : activeTab === "credit-cards" ? (
+                        <CreditCardsTab userId={userId} onLoadData={loadData} />
                     ) : (
                         <>
                             {/* Toolbar */}
                             <div
-                                className="flex items-center justify-between px-6 py-3"
+                                className="flex flex-col px-6 py-3"
                                 style={{
                                     borderBottom: '1px solid var(--border-color)',
                                     background: 'var(--bg-secondary)'
                                 }}
                             >
+                                <div className="flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3">
                                     {/* Search */}
                                     <div className="relative group flex-1 max-w-md">
@@ -670,6 +863,22 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             }}
                                         />
                                     </div>
+                                    
+                                    {/* Advanced Filters Toggle */}
+                                    <button
+                                        onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                                        className="px-4 py-2 rounded-lg transition-all duration-200 hover:bg-white/5 flex items-center gap-2"
+                                        style={{
+                                            background: showAdvancedFilters ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                                            border: '1px solid var(--border-color)',
+                                            color: 'var(--text-primary)'
+                                        }}
+                                        title="Filtros Avançados"
+                                    >
+                                        <Filter size={16} />
+                                        <span className="text-sm font-medium">Filtros</span>
+                                        {showAdvancedFilters && <span className="text-xs text-purple-400">({filteredTx.length})</span>}
+                                    </button>
 
                                     {/* Filter */}
                                     <div
@@ -696,6 +905,8 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                         ))}
                                     </div>
 
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-3">
                                     {/* Manage Tags Button */}
                                     <button
                                         onClick={() => setShowTagModal(true)}
@@ -737,7 +948,51 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                         <AlertCircle size={16} />
                                         Contas em Atraso
                                     </button>
-                                </div>
+
+                                        {/* Backup Button */}
+                                        <button
+                                            onClick={() => setShowBackupModal(true)}
+                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            style={{
+                                                color: 'var(--text-secondary)',
+                                                background: 'var(--bg-tertiary)',
+                                                border: '1px solid var(--border-color)'
+                                            }}
+                                            title="Backup e Restauração"
+                                        >
+                                            <Download size={16} />
+                                            Backup
+                                        </button>
+
+                                        {/* Export Button */}
+                                        <button
+                                            onClick={() => setShowExportModal(true)}
+                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            style={{
+                                                color: 'var(--text-secondary)',
+                                                background: 'var(--bg-tertiary)',
+                                                border: '1px solid var(--border-color)'
+                                            }}
+                                            title="Exportar Dados"
+                                        >
+                                            <Download size={16} />
+                                            Exportar
+                                        </button>
+
+                                        {/* Integrity Button */}
+                                        <button
+                                            onClick={() => setShowIntegrityModal(true)}
+                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            style={{
+                                                color: 'var(--text-secondary)',
+                                                background: 'var(--bg-tertiary)',
+                                                border: '1px solid var(--border-color)'
+                                            }}
+                                            title="Verificar Integridade dos Dados"
+                                        >
+                                            <Shield size={16} />
+                                            Integridade
+                                        </button>
 
                                 {/* Add Button */}
                                 <button
@@ -747,24 +1002,162 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                     <Plus size={20} className="drop-shadow-sm" />
                                     Nova Entrada
                                 </button>
+                                    </div>
+                                </div>
+                                </div>
                             </div>
+
+                            {/* Advanced Filters Panel - Outside toolbar */}
+                            {showAdvancedFilters && (
+                                <div 
+                                    className="w-full px-6 py-3 border-t transition-all duration-200"
+                                    style={{
+                                        background: 'var(--bg-secondary)',
+                                        borderColor: 'var(--border-color)'
+                                    }}
+                                >
+                                    <div className="p-4 rounded-xl border-2" style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-color)' }}>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {/* Category Filter */}
+                                            <div>
+                                                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                                                    Categorias
+                                                </label>
+                                                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar">
+                                                    {availableCategories && availableCategories.length > 0 ? (
+                                                        availableCategories.map(cat => (
+                                                            <button
+                                                                key={cat}
+                                                                onClick={() => {
+                                                                    if (selectedCategories.includes(cat)) {
+                                                                        setSelectedCategories(selectedCategories.filter(c => c !== cat));
+                                                                    } else {
+                                                                        setSelectedCategories([...selectedCategories, cat]);
+                                                                    }
+                                                                }}
+                                                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                                                    selectedCategories.includes(cat)
+                                                                        ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30'
+                                                                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-white/5'
+                                                                }`}
+                                                            >
+                                                                {cat}
+                                                            </button>
+                                                        ))
+                                                    ) : (
+                                                        <p className="text-xs text-[var(--text-secondary)] py-2">
+                                                            Nenhuma categoria disponível
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                {selectedCategories.length > 0 && (
+                                                    <button
+                                                        onClick={() => setSelectedCategories([])}
+                                                        className="mt-2 text-xs text-purple-400 hover:text-purple-300"
+                                                    >
+                                                        Limpar seleção
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Value Range Filter */}
+                                            <div>
+                                                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                                                    Faixa de Valores
+                                                </label>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Mínimo"
+                                                        value={minValue}
+                                                        onChange={(e) => setMinValue(e.target.value)}
+                                                        className="flex-1 px-3 py-2 rounded-lg border-2 transition-all duration-200 focus:outline-none focus:border-purple-500/50"
+                                                        style={{
+                                                            background: 'var(--bg-secondary)',
+                                                            borderColor: 'var(--border-color)',
+                                                            color: 'var(--text-primary)'
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Máximo"
+                                                        value={maxValue}
+                                                        onChange={(e) => setMaxValue(e.target.value)}
+                                                        className="flex-1 px-3 py-2 rounded-lg border-2 transition-all duration-200 focus:outline-none focus:border-purple-500/50"
+                                                        style={{
+                                                            background: 'var(--bg-secondary)',
+                                                            borderColor: 'var(--border-color)',
+                                                            color: 'var(--text-primary)'
+                                                        }}
+                                                    />
+                                                </div>
+                                                {(minValue || maxValue) && (
+                                                    <button
+                                                        onClick={() => { setMinValue(""); setMaxValue(""); }}
+                                                        className="mt-2 text-xs text-purple-400 hover:text-purple-300"
+                                                    >
+                                                        Limpar
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Regex Toggle */}
+                                            <div>
+                                                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                                                    Busca Avançada
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={useRegex}
+                                                            onChange={(e) => setUseRegex(e.target.checked)}
+                                                            className="w-4 h-4 rounded border-2 transition-all duration-200"
+                                                            style={{
+                                                                accentColor: '#a855f7',
+                                                                borderColor: useRegex ? '#a855f7' : 'var(--border-color)'
+                                                            }}
+                                                        />
+                                                        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                                            Usar Regex
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                {useRegex && (
+                                                    <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                                        Ex: ^Receita|Despesa$
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Clear All Filters */}
+                                        {(selectedCategories.length > 0 || minValue || maxValue || useRegex) && (
+                                            <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedCategories([]);
+                                                        setMinValue("");
+                                                        setMaxValue("");
+                                                        setUseRegex(false);
+                                                    }}
+                                                    className="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:bg-white/5"
+                                                    style={{
+                                                        background: 'var(--bg-secondary)',
+                                                        color: 'var(--text-primary)',
+                                                        border: '1px solid var(--border-color)'
+                                                    }}
+                                                >
+                                                    Limpar Todos os Filtros
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Table */}
                             <main className="flex-1 overflow-auto min-h-0">
-                                <RecurringModal
-                                    isOpen={showRecurringModal}
-                                    onClose={() => setShowRecurringModal(false)}
-                                    userId={userId}
-                                    onLoadData={loadData}
-                                    tags={tags}
-                                />
-                                <OverdueBills
-                                    isOpen={showOverdueModal}
-                                    onClose={() => setShowOverdueModal(false)}
-                                    userId={userId}
-                                    onLoadData={loadData}
-                                    tags={tags}
-                                />
                                 {isLoading ? (
                                     <div className="flex items-center justify-center h-full">
                                         <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-primary)' }} />
@@ -783,6 +1176,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                 <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Tipo</th>
                                                 <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Categoria</th>
                                                 <th className="text-right px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Valor</th>
+                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Extra</th>
                                                 <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Data</th>
                                                 <th className="text-right px-6 py-3 text-xs font-medium uppercase tracking-wider w-24" style={{ color: 'var(--text-secondary)' }}>Ações</th>
                                             </tr>
@@ -880,6 +1274,65 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                         />
                                                     </td>
                                                     <td className="px-6 py-3">
+                                                        {/* Credit Card Selection (only for expenses) */}
+                                                        {formData.type === "expense" ? (
+                                                            creditCards.length > 0 ? (
+                                                                <select
+                                                                    value={formData.credit_card_id}
+                                                                    onChange={(e) => setFormData({ ...formData, credit_card_id: e.target.value })}
+                                                                    className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                                                    style={{
+                                                                        background: 'var(--bg-tertiary)',
+                                                                        border: '1px solid var(--border-color)',
+                                                                        color: 'var(--text-primary)'
+                                                                    }}
+                                                                >
+                                                                    <option value="">Sem cartão</option>
+                                                                    {creditCards.map(card => (
+                                                                        <option key={card.id} value={card.id}>
+                                                                            {card.name} (Final: {card.last_four_digits})
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            ) : (
+                                                                <span className="text-xs text-gray-500">Cadastre cartões na aba "Cartões"</span>
+                                                            )
+                                                        ) : formData.type === "investment" ? (
+                                                            <div className="flex gap-2">
+                                                                <select
+                                                                    value={formData.investment_type}
+                                                                    onChange={(e) => setFormData({ ...formData, investment_type: e.target.value })}
+                                                                    className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                                                                    style={{
+                                                                        background: 'var(--bg-tertiary)',
+                                                                        border: '1px solid var(--border-color)',
+                                                                        color: 'var(--text-primary)'
+                                                                    }}
+                                                                >
+                                                                    <option value="investment">Investimento (com juros)</option>
+                                                                    <option value="savings">Caixinha/Poupança</option>
+                                                                </select>
+                                                                {formData.investment_type === "investment" && (
+                                                                    <input
+                                                                        type="number"
+                                                                        step="0.1"
+                                                                        placeholder="Juros % a.a."
+                                                                        value={formData.interest_rate}
+                                                                        onChange={(e) => setFormData({ ...formData, interest_rate: e.target.value })}
+                                                                        className="w-32 rounded-lg px-3 py-2 text-sm outline-none text-right"
+                                                                        style={{
+                                                                            background: 'var(--bg-tertiary)',
+                                                                            border: '1px solid var(--border-color)',
+                                                                            color: 'var(--text-primary)'
+                                                                        }}
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-xs text-gray-500">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-3">
                                                         <input
                                                             type="date"
                                                             value={formData.date}
@@ -902,7 +1355,19 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                 <Check size={14} />
                                                             </button>
                                                             <button
-                                                                onClick={() => { setShowAddRow(false); setFormData({ description: "", value: "", type: "income", category: "outro" }); }}
+                                                                onClick={() => { 
+                                                                    setShowAddRow(false); 
+                                                                    setFormData({ 
+                                                                        description: "", 
+                                                                        value: "", 
+                                                                        type: "income", 
+                                                                        category: "outro",
+                                                                        date: new Date().toISOString().split('T')[0],
+                                                                        credit_card_id: "",
+                                                                        interest_rate: "",
+                                                                        investment_type: "investment"
+                                                                    }); 
+                                                                }}
                                                                 className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                                                             >
                                                                 <X size={14} />
@@ -1010,6 +1475,61 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                 />
                                                             </td>
                                                             <td className="px-6 py-3">
+                                                                {/* Credit Card Selection (only for expenses) */}
+                                                                {editData.type === "expense" && creditCards.length > 0 ? (
+                                                                    <select
+                                                                        value={editData.credit_card_id || ""}
+                                                                        onChange={(e) => setEditData({ ...editData, credit_card_id: e.target.value })}
+                                                                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                                                        style={{
+                                                                            background: 'var(--bg-tertiary)',
+                                                                            border: '1px solid var(--border-color)',
+                                                                            color: 'var(--text-primary)'
+                                                                        }}
+                                                                    >
+                                                                        <option value="">Sem cartão</option>
+                                                                        {creditCards.map(card => (
+                                                                            <option key={card.id} value={card.id}>
+                                                                                {card.name} (Final: {card.last_four_digits})
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                ) : editData.type === "investment" ? (
+                                                                    <div className="flex gap-2">
+                                                                        <select
+                                                                            value={editData.investment_type || "investment"}
+                                                                            onChange={(e) => setEditData({ ...editData, investment_type: e.target.value })}
+                                                                            className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                                                                            style={{
+                                                                                background: 'var(--bg-tertiary)',
+                                                                                border: '1px solid var(--border-color)',
+                                                                                color: 'var(--text-primary)'
+                                                                            }}
+                                                                        >
+                                                                            <option value="investment">Investimento (com juros)</option>
+                                                                            <option value="savings">Caixinha/Poupança</option>
+                                                                        </select>
+                                                                        {editData.investment_type === "investment" && (
+                                                                            <input
+                                                                                type="number"
+                                                                                step="0.1"
+                                                                                placeholder="Juros % a.a."
+                                                                                value={editData.interest_rate || ""}
+                                                                                onChange={(e) => setEditData({ ...editData, interest_rate: e.target.value })}
+                                                                                className="w-32 rounded-lg px-3 py-2 text-sm outline-none text-right"
+                                                                                style={{
+                                                                                    background: 'var(--bg-tertiary)',
+                                                                                    border: '1px solid var(--border-color)',
+                                                                                    color: 'var(--text-primary)'
+                                                                                }}
+                                                                            />
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-xs text-gray-500">-</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-3">
                                                                 <input
                                                                     type="date"
                                                                     value={editData.date || ""}
@@ -1080,6 +1600,30 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4">
+                                                            {tx.type === "expense" && tx.credit_card_id ? (
+                                                                <span className="text-xs text-purple-400 flex items-center gap-1">
+                                                                    <CreditCard size={12} />
+                                                                    {(() => {
+                                                                        const card = creditCards.find(c => c.id === tx.credit_card_id);
+                                                                        return card ? `${card.name} (${card.last_four_digits})` : "Cartão";
+                                                                    })()}
+                                                                </span>
+                                                            ) : tx.type === "investment" ? (
+                                                                <div className="flex flex-col gap-1">
+                                                                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                                                        {tx.investment_type === "savings" ? "Caixinha" : "Investimento"}
+                                                                    </span>
+                                                                    {tx.interest_rate && (
+                                                                        <span className="text-xs text-yellow-400">
+                                                                            {tx.interest_rate}% a.a.
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-xs text-gray-500">-</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4">
                                                             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(tx.date)}</span>
                                                         </td>
                                                         <td className="px-6 py-4 text-right">
@@ -1108,7 +1652,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             {/* Empty State */}
                                             {filteredTx.length === 0 && !isLoading && (
                                                 <tr>
-                                                    <td colSpan={6} className="px-6 py-16 text-center">
+                                                    <td colSpan={7} className="px-6 py-16 text-center">
                                                         <div className="flex flex-col items-center gap-3">
                                                             <div
                                                                 className="w-12 h-12 rounded-full flex items-center justify-center"
@@ -1243,6 +1787,38 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                     </div>
                 )
             }
+
+            {/* Modals */}
+            <RecurringModal
+                isOpen={showRecurringModal}
+                onClose={() => setShowRecurringModal(false)}
+                userId={userId}
+                onLoadData={loadData}
+                tags={tags}
+            />
+            <OverdueBills
+                isOpen={showOverdueModal}
+                onClose={() => setShowOverdueModal(false)}
+                userId={userId}
+                onLoadData={loadData}
+                tags={tags}
+            />
+            <BackupModal
+                isOpen={showBackupModal}
+                onClose={() => setShowBackupModal(false)}
+                userId={userId}
+            />
+            <ExportModal
+                isOpen={showExportModal}
+                onClose={() => setShowExportModal(false)}
+                userId={userId}
+                selectedPeriod={selectedPeriod || currentPeriod}
+            />
+            <IntegrityModal
+                isOpen={showIntegrityModal}
+                onClose={() => setShowIntegrityModal(false)}
+                userId={userId}
+            />
         </div >
     );
 };

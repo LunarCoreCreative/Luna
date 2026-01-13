@@ -37,7 +37,6 @@ from .profiles import (
     get_student_evaluator,
     unlink_student
 )
-from .permissions import validate_data_access
 from datetime import datetime, timedelta
 from .foods import search_foods, calculate_nutrition, add_food_manually, get_food_nutrition
 from .meal_presets import (
@@ -322,65 +321,6 @@ def get_goal_config(goal_id: str) -> dict:
     return AVAILABLE_GOALS.get(goal_id, AVAILABLE_GOALS["maintain"])
 
 # =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
-def resolve_user_id(user_id: str, view_as: Optional[str] = None) -> str:
-    """
-    Resolve o user_id correto baseado no parâmetro view_as.
-    
-    Se view_as for fornecido:
-    - Verifica se user_id é avaliador
-    - Verifica se view_as está na lista de alunos do avaliador
-    - Se sim, retorna view_as
-    - Se não, levanta HTTPException 403
-    
-    Se view_as não for fornecido:
-    - Retorna user_id (comportamento normal)
-    
-    Args:
-        user_id: Firebase UID do usuário atual
-        view_as: Firebase UID do aluno a visualizar (opcional)
-    
-    Returns:
-        user_id correto a usar para buscar dados
-    
-    Raises:
-        HTTPException: 403 se acesso negado
-    """
-    if not view_as:
-        return user_id
-    
-    # CRITICAL SECURITY CHECK: Validate access
-    allowed, error_msg = validate_data_access(user_id, view_as, "view")
-    
-    if not allowed:
-        logger.warning(
-            f"[SECURITY] Acesso negado: user_id={user_id} tentou acessar "
-            f"dados de view_as={view_as}, erro: {error_msg}"
-        )
-        raise HTTPException(
-            status_code=403,
-            detail=error_msg or "Acesso negado: você não tem permissão para visualizar os dados deste aluno"
-        )
-    
-    # Additional security check: Verify user is actually an evaluator
-    from .profiles import get_health_profile
-    user_profile = get_health_profile(user_id)
-    if not user_profile or user_profile.get("type") != "evaluator":
-        logger.warning(
-            f"[SECURITY] Tentativa de acesso não autorizada: user_id={user_id} não é avaliador"
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="Acesso negado: apenas avaliadores podem visualizar dados de alunos"
-        )
-    
-    logger.info(
-        f"[PERMISSIONS] Acesso permitido: avaliador {user_id} visualizando dados do aluno {view_as}"
-    )
-    return view_as
-
 # =============================================================================
 # MODELS
 # =============================================================================
@@ -437,7 +377,7 @@ class ProfileLinkRequest(BaseModel):
 # =============================================================================
 
 @router.get("/meals")
-async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: Optional[str] = None, view_as: Optional[str] = None):
+async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: Optional[str] = None):
     """
     Get meals for a user.
     
@@ -445,15 +385,11 @@ async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: O
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
         limit: Limite de refeições a retornar (opcional, padrão: todas)
         date: Filtrar por data no formato YYYY-MM-DD (opcional)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success, meals (lista) e count (número de refeições)
     """
-    logger.info(f"[GET /health/meals] user_id={user_id}, limit={limit}, date={date}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
+    logger.info(f"[GET /health/meals] user_id={user_id}, limit={limit}, date={date}")
     
     # Validações de parâmetros
     if limit is not None:
@@ -474,8 +410,8 @@ async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: O
             )
     
     try:
-        meals = load_meals(target_user_id, limit=limit, date=date)
-        logger.info(f"[GET /health/meals] Sucesso: user_id={user_id}, target_user_id={target_user_id}, encontrados {len(meals)} meals")
+        meals = load_meals(user_id, limit=limit, date=date)
+        logger.info(f"[GET /health/meals] Sucesso: user_id={user_id}, encontrados {len(meals)} meals")
         return {"success": True, "meals": meals, "count": len(meals)}
     except HTTPException:
         raise
@@ -487,26 +423,23 @@ async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: O
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meals")
-async def create_meal(meal: MealCreate, view_as: Optional[str] = None):
+async def create_meal(meal: MealCreate):
     """
     Create a new meal.
     
     Args:
         meal: Meal data
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
     user_id = meal.user_id or "local"
-    # Resolver user_id baseado em view_as (para avaliadores adicionando refeições para alunos)
-    target_user_id = resolve_user_id(user_id, view_as)
     
     logger.info(
-        f"[POST /health/meals] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"[POST /health/meals] user_id={user_id}, "
         f"name={meal.name}, meal_type={meal.meal_type}, calories={meal.calories}, "
         f"protein={meal.protein}, carbs={meal.carbs}, fats={meal.fats}, date={meal.date}"
     )
     try:
         new_meal = add_meal(
-            user_id=target_user_id,
+            user_id=user_id,
             name=meal.name,
             meal_type=meal.meal_type,
             calories=meal.calories,
@@ -517,19 +450,19 @@ async def create_meal(meal: MealCreate, view_as: Optional[str] = None):
             date=meal.date
         )
         logger.info(
-            f"[POST /health/meals] Sucesso: target_user_id={target_user_id}, meal_id={new_meal.get('id')}, "
+            f"[POST /health/meals] Sucesso: user_id={user_id}, meal_id={new_meal.get('id')}, "
             f"name={new_meal.get('name')}"
         )
         return {"success": True, "meal": new_meal}
     except Exception as e:
         logger.error(
-            f"[POST /health/meals] Erro: target_user_id={target_user_id}, name={meal.name}, "
+            f"[POST /health/meals] Erro: user_id={user_id}, name={meal.name}, "
             f"meal_type={meal.meal_type}, erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/meals/{meal_id}")
-async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local", view_as: Optional[str] = None):
+async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local"):
     """
     Update an existing meal.
     
@@ -537,19 +470,15 @@ async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local", view
         meal_id: ID da refeição
         meal: Dados atualizados
         user_id: Firebase UID do usuário
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
     logger.info(
-        f"[PUT /health/meals/{meal_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"[PUT /health/meals/{meal_id}] user_id={user_id}, "
         f"updates: name={meal.name}, meal_type={meal.meal_type}, calories={meal.calories}, "
         f"protein={meal.protein}, carbs={meal.carbs}, fats={meal.fats}"
     )
     try:
         updated_meal = update_meal(
-            user_id=target_user_id,
+            user_id=user_id,
             meal_id=meal_id,
             name=meal.name,
             meal_type=meal.meal_type,
@@ -562,11 +491,11 @@ async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local", view
         if not updated_meal:
             logger.warning(
                 f"[PUT /health/meals/{meal_id}] Refeição não encontrada: "
-                f"target_user_id={target_user_id}, meal_id={meal_id}"
+                f"user_id={user_id}, meal_id={meal_id}"
             )
             raise HTTPException(status_code=404, detail="Refeição não encontrada")
         logger.info(
-            f"[PUT /health/meals/{meal_id}] Sucesso: target_user_id={target_user_id}, "
+            f"[PUT /health/meals/{meal_id}] Sucesso: user_id={user_id}, "
             f"meal_id={meal_id}, name={updated_meal.get('name')}"
         )
         return {"success": True, "meal": updated_meal}
@@ -574,35 +503,31 @@ async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local", view
         raise
     except Exception as e:
         logger.error(
-            f"[PUT /health/meals/{meal_id}] Erro: target_user_id={target_user_id}, meal_id={meal_id}, "
+            f"[PUT /health/meals/{meal_id}] Erro: user_id={user_id}, meal_id={meal_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/meals/{meal_id}")
-async def remove_meal(meal_id: str, user_id: str = "local", view_as: Optional[str] = None):
+async def remove_meal(meal_id: str, user_id: str = "local"):
     """
     Delete a meal.
     
     Args:
         meal_id: ID da refeição
         user_id: Firebase UID do usuário
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
-    """
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
-    logger.info(f"[DELETE /health/meals/{meal_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
+    """    
+    logger.info(f"[DELETE /health/meals/{meal_id}] user_id={user_id}, user_id={user_id}")
     try:
-        success = delete_meal(target_user_id, meal_id)
+        success = delete_meal(user_id, meal_id)
         if not success:
             logger.warning(
                 f"[DELETE /health/meals/{meal_id}] Refeição não encontrada: "
-                f"target_user_id={target_user_id}, meal_id={meal_id}"
+                f"user_id={user_id}, meal_id={meal_id}"
             )
             raise HTTPException(status_code=404, detail="Refeição não encontrada")
         logger.info(
-            f"[DELETE /health/meals/{meal_id}] Sucesso: target_user_id={target_user_id}, "
+            f"[DELETE /health/meals/{meal_id}] Sucesso: user_id={user_id}, "
             f"meal_id={meal_id} removido"
         )
         return {"success": True, "message": "Refeição removida com sucesso"}
@@ -610,7 +535,7 @@ async def remove_meal(meal_id: str, user_id: str = "local", view_as: Optional[st
         raise
     except Exception as e:
         logger.error(
-            f"[DELETE /health/meals/{meal_id}] Erro: target_user_id={target_user_id}, meal_id={meal_id}, "
+            f"[DELETE /health/meals/{meal_id}] Erro: user_id={user_id}, meal_id={meal_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -620,23 +545,19 @@ async def remove_meal(meal_id: str, user_id: str = "local", view_as: Optional[st
 # =============================================================================
 
 @router.get("/goals")
-async def get_user_goals(user_id: str = "local", view_as: Optional[str] = None):
+async def get_user_goals(user_id: str = "local"):
     """
     Get user's nutrition goals.
     
     Args:
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     """
-    logger.info(f"[GET /health/goals] user_id={user_id}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
+    logger.info(f"[GET /health/goals] user_id={user_id}")
     
     try:
-        goals = get_goals(target_user_id)
+        goals = get_goals(user_id)
         logger.info(
-            f"[GET /health/goals] Sucesso: user_id={user_id}, target_user_id={target_user_id}, "
+            f"[GET /health/goals] Sucesso: user_id={user_id}, "
             f"goals_keys={list(goals.keys()) if goals else 'vazio'}"
         )
         return {"success": True, "goals": goals}
@@ -648,27 +569,23 @@ async def get_user_goals(user_id: str = "local", view_as: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/goals")
-async def update_user_goals(goals: GoalsUpdate, user_id: str = "local", view_as: Optional[str] = None):
+async def update_user_goals(goals: GoalsUpdate, user_id: str = "local"):
     """
     Update user's nutrition goals.
     
     Args:
         goals: Goals data to update
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
-    # Resolver user_id baseado em view_as (para avaliadores editando metas de alunos)
-    target_user_id = resolve_user_id(user_id, view_as)
-    
     logger.info(
-        f"[PUT /health/goals] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"[PUT /health/goals] user_id={user_id}, "
         f"daily_calories={goals.daily_calories}, daily_protein={goals.daily_protein}, "
         f"daily_carbs={goals.daily_carbs}, daily_fats={goals.daily_fats}, "
         f"target_weight={goals.target_weight}, current_weight={goals.current_weight}"
     )
     try:
         updated_goals = update_goals(
-            user_id=target_user_id,
+            user_id=user_id,
             daily_calories=goals.daily_calories,
             daily_protein=goals.daily_protein,
             daily_carbs=goals.daily_carbs,
@@ -677,13 +594,13 @@ async def update_user_goals(goals: GoalsUpdate, user_id: str = "local", view_as:
             current_weight=goals.current_weight
         )
         logger.info(
-            f"[PUT /health/goals] Sucesso: target_user_id={target_user_id}, "
+            f"[PUT /health/goals] Sucesso: user_id={user_id}, "
             f"goals atualizados: {list(updated_goals.keys())}"
         )
         return {"success": True, "goals": updated_goals}
     except Exception as e:
         logger.error(
-            f"[PUT /health/goals] Erro: target_user_id={target_user_id}, "
+            f"[PUT /health/goals] Erro: user_id={user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -1025,17 +942,17 @@ async def list_meal_types():
     }
 
 @router.get("/meal-presets")
-async def list_meal_presets(user_id: str = "local", view_as: Optional[str] = None):
+async def list_meal_presets(user_id: str = "local"):
     """
     Lista todos os presets de refeição do usuário.
     
     Inclui presets criados pelo próprio usuário e pelo avaliador (se houver).
     """
-    logger.info(f"[GET /health/meal-presets] user_id={user_id}, view_as={view_as}")
+    logger.info(f"[GET /health/meal-presets] user_id={user_id}")
     
     try:
-        target_user = resolve_user_id(user_id, view_as)
-        presets = get_presets(target_user, include_evaluator=True)
+        target_user = user_id
+        presets = get_presets(target_user)
         
         # Separa presets do avaliador e do próprio usuário
         evaluator_presets = [p for p in presets if p.get("created_by_evaluator")]
@@ -1076,25 +993,16 @@ async def get_meal_preset(preset_id: str, user_id: str = "local"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meal-presets")
-async def create_meal_preset(preset: MealPresetCreate, view_as: Optional[str] = None):
+async def create_meal_preset(preset: MealPresetCreate):
     """
     Cria um novo preset de refeição.
     
-    O avaliador pode criar presets para seus alunos usando view_as ou created_for.
-    
     Args:
         preset: Dados do preset
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
     user_id = preset.user_id or "local"
-    # Resolver user_id baseado em view_as (para avaliadores criando presets para alunos)
-    target_user_id = resolve_user_id(user_id, view_as)
     
-    # Se view_as está definido, o preset é criado para o aluno pelo avaliador
-    created_for = preset.created_for or (target_user_id if view_as else None)
-    evaluator_id = user_id if view_as else None
-    
-    logger.info(f"[POST /health/meal-presets] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, name={preset.name}, created_for={created_for}")
+    logger.info(f"[POST /health/meal-presets] user_id={user_id}, name={preset.name}")
     
     # Validar meal_type
     if preset.meal_type not in MEAL_TYPES:
@@ -1103,25 +1011,17 @@ async def create_meal_preset(preset: MealPresetCreate, view_as: Optional[str] = 
             detail=f"Tipo de refeição inválido. Tipos válidos: {list(MEAL_TYPES.keys())}"
         )
     
-    # Validar permissão se criando para outro usuário
-    if created_for and created_for != user_id:
-        allowed, error_msg = validate_data_access(user_id, created_for, "edit")
-        if not allowed:
-            raise HTTPException(status_code=403, detail=error_msg)
-    
     try:
         # Converte foods para dicts
         foods_data = [f.dict() for f in preset.foods]
         
         new_preset = create_preset(
-            user_id=target_user_id,  # Salva no perfil do aluno
+            user_id=user_id,
             name=preset.name,
             meal_type=preset.meal_type,
             foods=foods_data,
             suggested_time=preset.suggested_time,
-            notes=preset.notes,
-            created_for=created_for,
-            evaluator_id=evaluator_id
+            notes=preset.notes
         )
         
         return {
@@ -1134,20 +1034,16 @@ async def create_meal_preset(preset: MealPresetCreate, view_as: Optional[str] = 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/meal-presets/{preset_id}")
-async def update_meal_preset(preset_id: str, updates: MealPresetUpdate, view_as: Optional[str] = None):
+async def update_meal_preset(preset_id: str, updates: MealPresetUpdate):
     """
     Atualiza um preset existente.
     
     Args:
         preset_id: ID do preset
         updates: Dados atualizados
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
-    user_id = updates.user_id or "local"
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
-    logger.info(f"[PUT /health/meal-presets/{preset_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
+    user_id = updates.user_id or "local"    
+    logger.info(f"[PUT /health/meal-presets/{preset_id}] user_id={user_id}")
     
     # Validar meal_type se fornecido
     if updates.meal_type and updates.meal_type not in MEAL_TYPES:
@@ -1164,7 +1060,7 @@ async def update_meal_preset(preset_id: str, updates: MealPresetUpdate, view_as:
         if "foods" in updates_dict and updates_dict["foods"]:
             updates_dict["foods"] = [f if isinstance(f, dict) else f.dict() for f in updates_dict["foods"]]
         
-        updated = update_preset(target_user_id, preset_id, updates_dict)
+        updated = update_preset(user_id, preset_id, updates_dict)
         
         if not updated:
             raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
@@ -1181,22 +1077,18 @@ async def update_meal_preset(preset_id: str, updates: MealPresetUpdate, view_as:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/meal-presets/{preset_id}")
-async def delete_meal_preset(preset_id: str, user_id: str = "local", view_as: Optional[str] = None):
+async def delete_meal_preset(preset_id: str, user_id: str = "local"):
     """
     Deleta um preset.
     
     Args:
         preset_id: ID do preset
         user_id: Firebase UID do usuário
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
-    """
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
-    logger.info(f"[DELETE /health/meal-presets/{preset_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
+    """    
+    logger.info(f"[DELETE /health/meal-presets/{preset_id}] user_id={user_id}")
     
     try:
-        deleted = delete_preset(target_user_id, preset_id)
+        deleted = delete_preset(user_id, preset_id)
         
         if not deleted:
             raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
@@ -1216,7 +1108,7 @@ async def delete_meal_preset(preset_id: str, user_id: str = "local", view_as: Op
 # =============================================================================
 
 @router.get("/history")
-async def get_history(user_id: str = "local", start: Optional[str] = None, end: Optional[str] = None, view_as: Optional[str] = None):
+async def get_history(user_id: str = "local", start: Optional[str] = None, end: Optional[str] = None):
     """
     Get nutrition summaries for a date range.
     
@@ -1224,16 +1116,11 @@ async def get_history(user_id: str = "local", start: Optional[str] = None, end: 
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
         start: Data inicial no formato YYYY-MM-DD (obrigatório)
         end: Data final no formato YYYY-MM-DD (obrigatório, inclusiva)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success e summaries (lista de summaries diários ordenados por data)
     """
-    logger.info(f"[GET /health/history] user_id={user_id}, start={start}, end={end}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
+    logger.info(f"[GET /health/history] user_id={user_id}, start={start}, end={end}")    
     # Validações
     if not start:
         raise HTTPException(status_code=400, detail="Parâmetro 'start' é obrigatório (formato: YYYY-MM-DD)")
@@ -1259,10 +1146,10 @@ async def get_history(user_id: str = "local", start: Optional[str] = None, end: 
         )
     
     try:
-        summaries = get_summaries_by_range(target_user_id, start, end)
+        summaries = get_summaries_by_range(user_id, start, end)
         
         logger.info(
-            f"[GET /health/history] Sucesso: user_id={user_id}, target_user_id={target_user_id}, "
+            f"[GET /health/history] Sucesso: user_id={user_id}, "
             f"start={start}, end={end}, summaries_count={len(summaries)}"
         )
         
@@ -1296,23 +1183,18 @@ class WeightCreate(BaseModel):
     date: Optional[str] = None  # Data no formato YYYY-MM-DD (opcional, padrão: hoje)
 
 @router.get("/weights")
-async def get_weights_endpoint(user_id: str = "local", limit: Optional[int] = None, view_as: Optional[str] = None):
+async def get_weights_endpoint(user_id: str = "local", limit: Optional[int] = None):
     """
     Get weight records for a user.
     
     Args:
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
         limit: Limite de registros a retornar (opcional, ordenado por data mais recente primeiro)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success, weights (lista) e count (número de registros)
     """
-    logger.info(f"[GET /health/weights] user_id={user_id}, limit={limit}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
+    logger.info(f"[GET /health/weights] user_id={user_id}, limit={limit}")    
     # Validações
     if limit is not None:
         if limit < 1:
@@ -1321,8 +1203,8 @@ async def get_weights_endpoint(user_id: str = "local", limit: Optional[int] = No
             raise HTTPException(status_code=400, detail="O parâmetro 'limit' não pode ser maior que 1000")
     
     try:
-        weights = get_weights(target_user_id, limit=limit)
-        logger.info(f"[GET /health/weights] Sucesso: user_id={user_id}, target_user_id={target_user_id}, encontrados {len(weights)} registros")
+        weights = get_weights(user_id, limit=limit)
+        logger.info(f"[GET /health/weights] Sucesso: user_id={user_id}, encontrados {len(weights)} registros")
         return {"success": True, "weights": weights, "count": len(weights)}
     except HTTPException:
         raise
@@ -1334,7 +1216,7 @@ async def get_weights_endpoint(user_id: str = "local", limit: Optional[int] = No
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/weights")
-async def create_weight(weight_data: WeightCreate, user_id: str = "local", view_as: Optional[str] = None):
+async def create_weight(weight_data: WeightCreate, user_id: str = "local"):
     """
     Add or update a weight record for a user.
     Se já existir um registro para a data, atualiza o peso.
@@ -1342,28 +1224,24 @@ async def create_weight(weight_data: WeightCreate, user_id: str = "local", view_
     Args:
         weight_data: Dados do peso (weight em kg, date opcional)
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success e weight (registro criado/atualizado)
-    """
-    # Resolver user_id baseado em view_as (para avaliadores editando dados de alunos)
-    target_user_id = resolve_user_id(user_id, view_as)
-    
+    """    
     logger.info(
-        f"[POST /health/weights] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"[POST /health/weights] user_id={user_id}, "
         f"weight={weight_data.weight}, date={weight_data.date}"
     )
     
     try:
         weight_entry = add_weight(
-            user_id=target_user_id,
+            user_id=user_id,
             weight=weight_data.weight,
             date=weight_data.date
         )
         
         logger.info(
-            f"[POST /health/weights] Sucesso: target_user_id={target_user_id}, "
+            f"[POST /health/weights] Sucesso: user_id={user_id}, "
             f"date={weight_entry['date']}, weight={weight_entry['weight']}"
         )
         
@@ -1371,50 +1249,46 @@ async def create_weight(weight_data: WeightCreate, user_id: str = "local", view_
         
     except ValueError as e:
         logger.error(
-            f"[POST /health/weights] Erro de validação: target_user_id={target_user_id}, "
+            f"[POST /health/weights] Erro de validação: user_id={user_id}, "
             f"weight={weight_data.weight}, date={weight_data.date}, erro={str(e)}"
         )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(
-            f"[POST /health/weights] Erro: target_user_id={target_user_id}, "
+            f"[POST /health/weights] Erro: user_id={user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/weights/{weight_id}")
-async def delete_weight_endpoint(weight_id: str, user_id: str = "local", view_as: Optional[str] = None):
+async def delete_weight_endpoint(weight_id: str, user_id: str = "local"):
     """
     Delete a weight record by ID.
     
     Args:
         weight_id: ID do registro de peso a deletar
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
-        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success indicando se foi deletado
-    """
-    # Resolver user_id baseado em view_as (para avaliadores editando dados de alunos)
-    target_user_id = resolve_user_id(user_id, view_as)
-    
-    logger.info(f"[DELETE /health/weights/{weight_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
+    """    
+    logger.info(f"[DELETE /health/weights/{weight_id}] user_id={user_id}")
     
     try:
-        deleted = delete_weight(target_user_id, weight_id)
+        deleted = delete_weight(user_id, weight_id)
         
         if deleted:
-            logger.info(f"[DELETE /health/weights/{weight_id}] Sucesso: target_user_id={target_user_id}")
+            logger.info(f"[DELETE /health/weights/{weight_id}] Sucesso: user_id={user_id}")
             return {"success": True, "message": "Peso deletado com sucesso"}
         else:
-            logger.warning(f"[DELETE /health/weights/{weight_id}] Não encontrado: target_user_id={target_user_id}")
+            logger.warning(f"[DELETE /health/weights/{weight_id}] Não encontrado: user_id={user_id}")
             raise HTTPException(status_code=404, detail="Registro de peso não encontrado")
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            f"[DELETE /health/weights/{weight_id}] Erro: target_user_id={target_user_id}, "
+            f"[DELETE /health/weights/{weight_id}] Erro: user_id={user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -1424,7 +1298,7 @@ async def delete_weight_endpoint(weight_id: str, user_id: str = "local", view_as
 # =============================================================================
 
 @router.get("/daily_overview")
-async def get_daily_overview(user_id: str = "local", date: Optional[str] = None, meals_limit: int = 5, view_as: Optional[str] = None):
+async def get_daily_overview(user_id: str = "local", date: Optional[str] = None, meals_limit: int = 5):
     """
     Get daily overview - resumo do dia + últimas refeições em uma única chamada.
     
@@ -1435,18 +1309,13 @@ async def get_daily_overview(user_id: str = "local", date: Optional[str] = None,
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
         date: Data no formato YYYY-MM-DD (opcional, padrão: hoje)
         meals_limit: Número de refeições a retornar (padrão: 5, máximo: 20)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success e overview contendo:
         - summary: Resumo nutricional completo (igual a GET /health/summary)
         - recent_meals: Lista das últimas N refeições do dia
     """
-    logger.info(f"[GET /health/daily_overview] user_id={user_id}, date={date}, meals_limit={meals_limit}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
+    logger.info(f"[GET /health/daily_overview] user_id={user_id}, date={date}, meals_limit={meals_limit}")    
     # Validações
     if meals_limit < 1:
         raise HTTPException(status_code=400, detail="O parâmetro 'meals_limit' deve ser maior que 0")
@@ -1464,7 +1333,7 @@ async def get_daily_overview(user_id: str = "local", date: Optional[str] = None,
     
     try:
         # Obtém resumo do dia
-        summary = get_summary(target_user_id, date=date)
+        summary = get_summary(user_id, date=date)
         
         # Obtém últimas refeições do dia
         summary_date = summary.get("date", date or datetime.now().strftime("%Y-%m-%d"))
@@ -1472,7 +1341,7 @@ async def get_daily_overview(user_id: str = "local", date: Optional[str] = None,
         if "T" in summary_date:
             summary_date = summary_date.split("T")[0]
         
-        recent_meals = load_meals(target_user_id, limit=meals_limit, date=summary_date)
+        recent_meals = load_meals(user_id, limit=meals_limit, date=summary_date)
         
         overview = {
             "summary": summary,
@@ -1496,9 +1365,8 @@ async def get_daily_overview(user_id: str = "local", date: Optional[str] = None,
         )
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/summary")
-async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = None, view_as: Optional[str] = None):
+async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = None):
     """
     Get nutrition summary for a user.
     
@@ -1511,7 +1379,6 @@ async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = No
     Args:
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
         date: Data no formato YYYY-MM-DD (opcional, padrão: hoje)
-        view_as: Visualizar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success e summary contendo:
@@ -1521,11 +1388,7 @@ async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = No
         - goals: Metas nutricionais
         - remaining_calories, remaining_protein, remaining_carbs, remaining_fats: Saldos
     """
-    logger.info(f"[GET /health/summary] user_id={user_id}, date={date}, view_as={view_as}")
-    
-    # Resolver user_id baseado em view_as
-    target_user_id = resolve_user_id(user_id, view_as)
-    
+    logger.info(f"[GET /health/summary] user_id={user_id}, date={date}")    
     # Validação de data
     if date is not None:
         try:
@@ -1538,7 +1401,7 @@ async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = No
             )
     
     try:
-        summary = get_summary(target_user_id, date=date)
+        summary = get_summary(user_id, date=date)
         
         # Garante que todos os campos esperados estão presentes
         required_fields = [
@@ -1562,7 +1425,7 @@ async def get_nutrition_summary(user_id: str = "local", date: Optional[str] = No
                     summary[field] = 0.0
         
         logger.info(
-            f"[GET /health/summary] Sucesso: user_id={user_id}, target_user_id={target_user_id}, date={summary.get('date')}, "
+            f"[GET /health/summary] Sucesso: user_id={user_id}, date={summary.get('date')}, "
             f"meals_count={summary.get('meals_count')}, total_calories={summary.get('total_calories')}"
         )
         return {"success": True, "summary": summary}

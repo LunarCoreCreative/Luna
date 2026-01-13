@@ -6,7 +6,7 @@ Handles monthly periods and period summaries.
 
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from .storage import get_user_data_dir, load_transactions, _load_local_transactions
 
@@ -19,17 +19,26 @@ def get_periods_file(user_id: str) -> Path:
 def get_period_from_date(date_str: str) -> str:
     """Extract period (YYYY-MM) from date string."""
     try:
+        from .date_utils import get_period_from_date as get_period_util
+        period = get_period_util(date_str)
+        if period:
+            return period
+    except:
+        pass
+    
+    # Fallback: método antigo
+    try:
         if len(date_str) >= 7:
             return date_str[:7]  # YYYY-MM
         dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
         return dt.strftime("%Y-%m")
     except:
-        return datetime.now().strftime("%Y-%m")
+        return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
 def get_current_period() -> str:
     """Get current period (YYYY-MM)."""
-    return datetime.now().strftime("%Y-%m")
+    return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
 def get_periods_list(user_id: str) -> List[str]:

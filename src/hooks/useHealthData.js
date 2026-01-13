@@ -3,10 +3,40 @@ import { API_CONFIG } from "../config/api";
 import { useModalContext } from "../contexts/ModalContext";
 
 /**
+ * Função helper para fazer fetch com retry automático em caso de erro de rede
+ */
+async function fetchWithRetry(url, options = {}, maxRetries = 2) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            // Se a resposta não for ok, não tenta novar (erros do servidor não devem ser retentados)
+            if (!response.ok && response.status >= 500 && attempt < maxRetries) {
+                // Erros 5xx podem ser retentados
+                await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Backoff exponencial simples
+                continue;
+            }
+            return response;
+        } catch (error) {
+            // Erros de rede (fetch failed, timeout, etc) devem ser retentados
+            if (attempt < maxRetries && (
+                error.name === 'TypeError' || // Network error
+                error.message?.includes('fetch') ||
+                error.message?.includes('network') ||
+                error.message?.includes('Failed to fetch')
+            )) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Backoff exponencial simples
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+
+/**
  * Hook customizado para gerenciar dados do Health Mode
  * Centraliza toda a lógica de estado e requisições
  */
-export function useHealthData(userId, viewAsStudentId = null) {
+export function useHealthData(userId) {
     const { showAlert } = useModalContext();
     
     // Estados principais
@@ -38,14 +68,14 @@ export function useHealthData(userId, viewAsStudentId = null) {
     const loadHealthProfile = useCallback(async () => {
         try {
             setLoadingProfile(true);
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`);
+            const response = await fetchWithRetry(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`);
             const data = await response.json();
             
             if (data.success && data.profile) {
                 setHealthProfile(data.profile);
             } else {
                 // Criar perfil padrão se não existir
-                const createResponse = await fetch(`${API_CONFIG.BASE_URL}/health/profile`, {
+                const createResponse = await fetchWithRetry(`${API_CONFIG.BASE_URL}/health/profile`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -60,21 +90,24 @@ export function useHealthData(userId, viewAsStudentId = null) {
             }
         } catch (err) {
             console.error("[HEALTH] Erro ao carregar perfil:", err);
+            const isNetworkError = err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('network');
+            const errorMessage = isNetworkError
+                ? "Erro de conexão. Verifique sua internet e tente novamente."
+                : "Erro ao carregar perfil de saúde. Por favor, tente novamente mais tarde.";
+            showAlert(errorMessage, "error");
         } finally {
             setLoadingProfile(false);
         }
-    }, [userId]);
+    }, [userId, showAlert]);
 
     // Carregar dados principais - OTIMIZADO: carrega em paralelo
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            
             // Carregar meals e summary em PARALELO (Promise.all)
             const [mealsRes, summaryRes] = await Promise.all([
-                fetch(`${API_CONFIG.BASE_URL}/health/meals?user_id=${userId}${viewAsParam}&limit=50`),
-                fetch(`${API_CONFIG.BASE_URL}/health/summary?user_id=${userId}${viewAsParam}`)
+                fetchWithRetry(`${API_CONFIG.BASE_URL}/health/meals?user_id=${userId}&limit=50`),
+                fetchWithRetry(`${API_CONFIG.BASE_URL}/health/summary?user_id=${userId}`)
             ]);
             
             const [mealsData, summaryData] = await Promise.all([
@@ -89,27 +122,43 @@ export function useHealthData(userId, viewAsStudentId = null) {
             if (summaryData.success) {
                 setSummary(summaryData.summary || {});
             }
+            
+            // Verificar se algum request falhou
+            if (!mealsData.success || !summaryData.success) {
+                const errors = [];
+                if (!mealsData.success) errors.push("refeições");
+                if (!summaryData.success) errors.push("resumo nutricional");
+                showAlert(`Não foi possível carregar ${errors.join(" e ")}. Por favor, tente novamente.`, "error");
+            }
         } catch (e) {
             console.error("[HEALTH] Error loading data:", e);
-            showAlert("Erro ao carregar dados", "error");
+            const isNetworkError = e.name === 'TypeError' || e.message?.includes('fetch') || e.message?.includes('network');
+            const errorMessage = isNetworkError
+                ? "Erro de conexão. Verifique sua internet e tente novamente."
+                : "Erro ao carregar dados. Por favor, tente novamente mais tarde.";
+            showAlert(errorMessage, "error");
         } finally {
             setIsLoading(false);
         }
-    }, [userId, viewAsStudentId, showAlert]);
+    }, [userId, showAlert]);
 
     // Carregar metas
     const loadGoals = useCallback(async () => {
         try {
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-            const res = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}${viewAsParam}`);
+            const res = await fetch(`${API_CONFIG.BASE_URL}/health/goals?user_id=${userId}`);
             const data = await res.json();
             if (data.success) {
                 setGoals(data.goals || {});
+            } else {
+                console.warn("[HEALTH] Goals request não teve sucesso:", data);
+                // Não mostra alert para goals pois podem não existir ainda (é normal)
             }
         } catch (e) {
             console.error("[HEALTH] Error loading goals:", e);
+            // Goals não são críticos, então apenas logamos o erro
+            // O usuário ainda pode usar a aplicação sem goals
         }
-    }, [userId, viewAsStudentId]);
+    }, [userId]);
 
     // Carregar histórico (calorias/macros) - usado pelo HistoryTab
     const loadHistoryData = useCallback(async () => {
@@ -127,11 +176,8 @@ export function useHealthData(userId, viewAsStudentId = null) {
             const start = startDate.toISOString().split("T")[0];
             const end = today.toISOString().split("T")[0];
 
-            // Usar view_as como parâmetro (não substituir userId)
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
-
             const response = await fetch(
-                `${API_CONFIG.BASE_URL}/health/history?user_id=${userId}&start=${start}&end=${end}${viewAsParam}`
+                `${API_CONFIG.BASE_URL}/health/history?user_id=${userId}&start=${start}&end=${end}`
             );
             
             if (!response.ok) {
@@ -151,7 +197,7 @@ export function useHealthData(userId, viewAsStudentId = null) {
         } finally {
             setHistoryLoading(false);
         }
-    }, [userId, viewAsStudentId, historyPeriod]);
+    }, [userId, historyPeriod]);
 
     // Carregar pesos históricos
     const loadWeightsData = useCallback(async () => {
@@ -159,10 +205,8 @@ export function useHealthData(userId, viewAsStudentId = null) {
         if (!userId) return;
         
         try {
-            // Usar view_as como parâmetro (não substituir userId)
-            const viewAsParam = viewAsStudentId ? `&view_as=${viewAsStudentId}` : '';
             const response = await fetch(
-                `${API_CONFIG.BASE_URL}/health/weights?user_id=${userId}&limit=100${viewAsParam}`
+                `${API_CONFIG.BASE_URL}/health/weights?user_id=${userId}&limit=100`
             );
             
             if (!response.ok) {
@@ -177,39 +221,34 @@ export function useHealthData(userId, viewAsStudentId = null) {
         } catch (err) {
             console.error("[HEALTH] Erro ao carregar pesos:", err);
         }
-    }, [userId, viewAsStudentId]);
+    }, [userId]);
 
-    // Pré-carregar histórico em segundo plano - ADIADO: só depois dos dados principais
+    // Pré-carregar histórico em segundo plano - só depois dos dados principais
     // Usar useRef para evitar loops infinitos
     const historyLoadedRef = useRef(false);
     const lastUserIdRef = useRef(null);
-    const lastViewAsRef = useRef(null);
     
     useEffect(() => {
-        // Resetar flag se userId ou viewAsStudentId mudou
-        if (lastUserIdRef.current !== userId || lastViewAsRef.current !== viewAsStudentId) {
+        // Resetar flag se userId mudou
+        if (lastUserIdRef.current !== userId) {
             historyLoadedRef.current = false;
             lastUserIdRef.current = userId;
-            lastViewAsRef.current = viewAsStudentId;
         }
         
         // Só carregar histórico se:
         // 1. userId existe
         // 2. healthProfile existe (perfil carregado)
         // 3. Não está carregando dados principais (para não competir)
-        // 4. Ainda não carregou histórico para esta combinação de userId/viewAsStudentId
+        // 4. Ainda não carregou histórico para este userId
         if (!userId || !healthProfile || isLoading || historyLoadedRef.current) return;
         
-        // Adiar carregamento de histórico para não bloquear carregamento inicial
-        const timer = setTimeout(() => {
-            loadHistoryData();
-            loadWeightsData();
-            historyLoadedRef.current = true;
-        }, 1500); // 1.5 segundos de delay para garantir que dados principais terminaram
-        
-        return () => clearTimeout(timer);
+        // Carregar histórico assim que dados principais terminarem (sem delay artificial)
+        // O histórico é carregado em background e não bloqueia a UI
+        loadHistoryData();
+        loadWeightsData();
+        historyLoadedRef.current = true;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId, viewAsStudentId, healthProfile, isLoading]); // Removido loadHistoryData, loadWeightsData e historyPeriod das deps
+    }, [userId, healthProfile, isLoading]); // Removido loadHistoryData, loadWeightsData e historyPeriod das deps
     
     // Carregar histórico quando historyPeriod mudar (se já tiver carregado antes)
     useEffect(() => {
