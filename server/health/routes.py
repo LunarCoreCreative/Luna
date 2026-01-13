@@ -618,18 +618,27 @@ async def get_user_goals(user_id: str = "local", view_as: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/goals")
-async def update_user_goals(goals: GoalsUpdate, user_id: str = "local"):
-    """Update user's nutrition goals."""
-    user_id = goals.user_id or user_id
+async def update_user_goals(goals: GoalsUpdate, user_id: str = "local", view_as: Optional[str] = None):
+    """
+    Update user's nutrition goals.
+    
+    Args:
+        goals: Goals data to update
+        user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
+    # Resolver user_id baseado em view_as (para avaliadores editando metas de alunos)
+    target_user_id = resolve_user_id(user_id, view_as)
+    
     logger.info(
-        f"[PUT /health/goals] user_id={user_id}, "
+        f"[PUT /health/goals] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
         f"daily_calories={goals.daily_calories}, daily_protein={goals.daily_protein}, "
         f"daily_carbs={goals.daily_carbs}, daily_fats={goals.daily_fats}, "
         f"target_weight={goals.target_weight}, current_weight={goals.current_weight}"
     )
     try:
         updated_goals = update_goals(
-            user_id=user_id,
+            user_id=target_user_id,
             daily_calories=goals.daily_calories,
             daily_protein=goals.daily_protein,
             daily_carbs=goals.daily_carbs,
@@ -638,13 +647,13 @@ async def update_user_goals(goals: GoalsUpdate, user_id: str = "local"):
             current_weight=goals.current_weight
         )
         logger.info(
-            f"[PUT /health/goals] Sucesso: user_id={user_id}, "
+            f"[PUT /health/goals] Sucesso: target_user_id={target_user_id}, "
             f"goals atualizados: {list(updated_goals.keys())}"
         )
         return {"success": True, "goals": updated_goals}
     except Exception as e:
         logger.error(
-            f"[PUT /health/goals] Erro: user_id={user_id}, "
+            f"[PUT /health/goals] Erro: target_user_id={target_user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -1263,7 +1272,7 @@ async def get_weights_endpoint(user_id: str = "local", limit: Optional[int] = No
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/weights")
-async def create_weight(weight_data: WeightCreate, user_id: str = "local"):
+async def create_weight(weight_data: WeightCreate, user_id: str = "local", view_as: Optional[str] = None):
     """
     Add or update a weight record for a user.
     Se já existir um registro para a data, atualiza o peso.
@@ -1271,23 +1280,28 @@ async def create_weight(weight_data: WeightCreate, user_id: str = "local"):
     Args:
         weight_data: Dados do peso (weight em kg, date opcional)
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success e weight (registro criado/atualizado)
     """
+    # Resolver user_id baseado em view_as (para avaliadores editando dados de alunos)
+    target_user_id = resolve_user_id(user_id, view_as)
+    
     logger.info(
-        f"[POST /health/weights] user_id={user_id}, weight={weight_data.weight}, date={weight_data.date}"
+        f"[POST /health/weights] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"weight={weight_data.weight}, date={weight_data.date}"
     )
     
     try:
         weight_entry = add_weight(
-            user_id=user_id,
+            user_id=target_user_id,
             weight=weight_data.weight,
             date=weight_data.date
         )
         
         logger.info(
-            f"[POST /health/weights] Sucesso: user_id={user_id}, "
+            f"[POST /health/weights] Sucesso: target_user_id={target_user_id}, "
             f"date={weight_entry['date']}, weight={weight_entry['weight']}"
         )
         
@@ -1295,46 +1309,50 @@ async def create_weight(weight_data: WeightCreate, user_id: str = "local"):
         
     except ValueError as e:
         logger.error(
-            f"[POST /health/weights] Erro de validação: user_id={user_id}, "
+            f"[POST /health/weights] Erro de validação: target_user_id={target_user_id}, "
             f"weight={weight_data.weight}, date={weight_data.date}, erro={str(e)}"
         )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(
-            f"[POST /health/weights] Erro: user_id={user_id}, "
+            f"[POST /health/weights] Erro: target_user_id={target_user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/weights/{weight_id}")
-async def delete_weight_endpoint(weight_id: str, user_id: str = "local"):
+async def delete_weight_endpoint(weight_id: str, user_id: str = "local", view_as: Optional[str] = None):
     """
     Delete a weight record by ID.
     
     Args:
         weight_id: ID do registro de peso a deletar
         user_id: Firebase UID do usuário (ou "local" para desenvolvimento)
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     
     Returns:
         Dict com success indicando se foi deletado
     """
-    logger.info(f"[DELETE /health/weights/{weight_id}] user_id={user_id}")
+    # Resolver user_id baseado em view_as (para avaliadores editando dados de alunos)
+    target_user_id = resolve_user_id(user_id, view_as)
+    
+    logger.info(f"[DELETE /health/weights/{weight_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
     
     try:
-        deleted = delete_weight(user_id, weight_id)
+        deleted = delete_weight(target_user_id, weight_id)
         
         if deleted:
-            logger.info(f"[DELETE /health/weights/{weight_id}] Sucesso: user_id={user_id}")
+            logger.info(f"[DELETE /health/weights/{weight_id}] Sucesso: target_user_id={target_user_id}")
             return {"success": True, "message": "Peso deletado com sucesso"}
         else:
-            logger.warning(f"[DELETE /health/weights/{weight_id}] Não encontrado: user_id={user_id}")
+            logger.warning(f"[DELETE /health/weights/{weight_id}] Não encontrado: target_user_id={target_user_id}")
             raise HTTPException(status_code=404, detail="Registro de peso não encontrado")
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            f"[DELETE /health/weights/{weight_id}] Erro: user_id={user_id}, "
+            f"[DELETE /health/weights/{weight_id}] Erro: target_user_id={target_user_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
