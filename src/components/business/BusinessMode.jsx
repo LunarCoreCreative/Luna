@@ -544,20 +544,20 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
             
             {/* Header */}
             <header
-                className="relative flex items-center justify-between px-6 py-5 backdrop-blur-xl bg-[var(--bg-primary)]/80 border-b border-[var(--border-color)]/50 z-10"
+                className="relative flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 backdrop-blur-xl bg-[var(--bg-primary)]/80 border-b border-[var(--border-color)]/50 z-10 flex-wrap gap-3"
             >
-                <div className="flex items-center gap-5">
+                <div className="flex items-center gap-3 sm:gap-5 flex-1 min-w-0">
                     <div className="relative">
                         <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20 transform transition-transform hover:scale-105">
                             <DollarSign size={28} className="text-white drop-shadow-sm" />
                         </div>
                         <div className="absolute -top-1 -right-1 w-4 h-4 bg-purple-400 rounded-full animate-pulse border-2 border-[var(--bg-primary)]" />
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 bg-clip-text text-transparent">
+                    <div className="min-w-0">
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-purple-400 via-violet-500 to-indigo-500 bg-clip-text text-transparent truncate">
                             Gestão Financeira
                         </h1>
-                        <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-xs sm:text-sm font-medium mt-0.5 hidden sm:block" style={{ color: 'var(--text-secondary)' }}>
                             Controle completo das suas finanças
                         </p>
                     </div>
@@ -671,18 +671,18 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                 <div className="flex-1 flex flex-col min-w-0 relative">
                     {/* Tabs */}
                     <div
-                        className="relative flex items-center gap-1 px-6 py-2 border-b border-[var(--border-color)]/50 bg-[var(--bg-primary)]/50 backdrop-blur-sm z-10"
+                        className="relative flex items-center gap-1 px-3 sm:px-4 lg:px-6 py-2 border-b border-[var(--border-color)]/50 bg-[var(--bg-primary)]/50 backdrop-blur-sm z-10 overflow-x-auto"
                     >
                         <button
                             onClick={() => setActiveTab("transactions")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "transactions" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <Table size={18} />
-                                Transações
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <Table size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Transações</span>
                             </span>
                             {activeTab === "transactions" && (
                                 <>
@@ -696,14 +696,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("analytics")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "analytics" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <BarChart3 size={18} />
-                                Analytics
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <BarChart3 size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Analytics</span>
                             </span>
                             {activeTab === "analytics" && (
                                 <>
@@ -717,14 +717,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("projections")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "projections" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <LineChart size={18} />
-                                Projeções
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <LineChart size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Projeções</span>
                             </span>
                             {activeTab === "projections" && (
                                 <>
@@ -738,14 +738,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("investments")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "investments" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <Wallet size={18} />
-                                Investimentos
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <Wallet size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Investimentos</span>
                             </span>
                             {activeTab === "investments" && (
                                 <>
@@ -759,14 +759,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("goals")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "goals" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <Target size={18} />
-                                Metas
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <Target size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Metas</span>
                             </span>
                             {activeTab === "goals" && (
                                 <>
@@ -780,14 +780,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("budget")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "budget" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <DollarSign size={18} />
-                                Orçamento
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <DollarSign size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Orçamento</span>
                             </span>
                             {activeTab === "budget" && (
                                 <>
@@ -801,14 +801,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                         </button>
                         <button
                             onClick={() => setActiveTab("credit-cards")}
-                            className="px-5 py-3.5 font-semibold transition-all duration-300 relative group"
+                            className="px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 font-semibold transition-all duration-300 relative group flex-shrink-0"
                             style={{
                                 color: activeTab === "credit-cards" ? '#a855f7' : 'var(--text-secondary)'
                             }}
                         >
-                            <span className="relative z-10 flex items-center gap-2">
-                                <CreditCard size={18} />
-                                Cartões
+                            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                                <CreditCard size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                <span className="text-xs sm:text-sm lg:text-base">Cartões</span>
                             </span>
                             {activeTab === "credit-cards" && (
                                 <>
@@ -845,17 +845,17 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                     background: 'var(--bg-secondary)'
                                 }}
                             >
-                                <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-3 flex-wrap flex-1 min-w-0">
                                     {/* Search */}
-                                    <div className="relative group flex-1 max-w-md">
-                                        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-200" style={{ color: 'var(--text-secondary)' }} />
+                                    <div className="relative group flex-1 max-w-md min-w-[150px]">
+                                        <Search size={16} className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 transition-colors duration-200" style={{ color: 'var(--text-secondary)' }} />
                                         <input
                                             type="text"
-                                            placeholder="Buscar transações..."
+                                            placeholder="Buscar..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="w-full pl-11 pr-4 py-3 rounded-xl border-2 transition-all duration-200 focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 focus:shadow-lg focus:shadow-purple-500/10"
+                                            className="w-full pl-9 sm:pl-11 pr-3 sm:pr-4 py-2 sm:py-3 text-sm rounded-xl border-2 transition-all duration-200 focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 focus:shadow-lg focus:shadow-purple-500/10"
                                             style={{
                                                 background: 'var(--bg-tertiary)',
                                                 borderColor: 'var(--border-color)',
@@ -867,7 +867,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                     {/* Advanced Filters Toggle */}
                                     <button
                                         onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                                        className="px-4 py-2 rounded-lg transition-all duration-200 hover:bg-white/5 flex items-center gap-2"
+                                        className="px-2.5 sm:px-4 py-2 rounded-lg transition-all duration-200 hover:bg-white/5 flex items-center gap-1.5 sm:gap-2"
                                         style={{
                                             background: showAdvancedFilters ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)',
@@ -875,8 +875,8 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                         }}
                                         title="Filtros Avançados"
                                     >
-                                        <Filter size={16} />
-                                        <span className="text-sm font-medium">Filtros</span>
+                                        <Filter size={14} className="sm:w-4 sm:h-4" />
+                                        <span className="text-xs sm:text-sm font-medium hidden sm:inline">Filtros</span>
                                         {showAdvancedFilters && <span className="text-xs text-purple-400">({filteredTx.length})</span>}
                                     </button>
 
@@ -906,53 +906,53 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                     </div>
 
                                     {/* Action Buttons */}
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                     {/* Manage Tags Button */}
                                     <button
                                         onClick={() => setShowTagModal(true)}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
                                             background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <Tag size={16} />
-                                        Tags
+                                        <Tag size={14} className="sm:w-4 sm:h-4" />
+                                        <span className="hidden sm:inline">Tags</span>
                                     </button>
 
                                     {/* Recurring Button */}
                                     <button
                                         onClick={() => setShowRecurringModal(true)}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
                                             background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <Calendar size={16} />
-                                        Fixos
+                                        <Calendar size={14} className="sm:w-4 sm:h-4" />
+                                        <span className="hidden sm:inline">Fixos</span>
                                     </button>
 
                                     {/* Overdue Bills Button */}
                                     <button
                                         onClick={() => setShowOverdueModal(true)}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                         style={{
                                             color: 'var(--text-secondary)',
                                             background: 'var(--bg-tertiary)',
                                             border: '1px solid var(--border-color)'
                                         }}
                                     >
-                                        <AlertCircle size={16} />
-                                        Contas em Atraso
+                                        <AlertCircle size={14} className="sm:w-4 sm:h-4" />
+                                        <span className="hidden sm:inline">Contas em Atraso</span>
                                     </button>
 
                                         {/* Backup Button */}
                                         <button
                                             onClick={() => setShowBackupModal(true)}
-                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                             style={{
                                                 color: 'var(--text-secondary)',
                                                 background: 'var(--bg-tertiary)',
@@ -960,14 +960,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             }}
                                             title="Backup e Restauração"
                                         >
-                                            <Download size={16} />
-                                            Backup
+                                            <Download size={14} className="sm:w-4 sm:h-4" />
+                                            <span className="hidden sm:inline">Backup</span>
                                         </button>
 
                                         {/* Export Button */}
                                         <button
                                             onClick={() => setShowExportModal(true)}
-                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                             style={{
                                                 color: 'var(--text-secondary)',
                                                 background: 'var(--bg-tertiary)',
@@ -975,14 +975,14 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             }}
                                             title="Exportar Dados"
                                         >
-                                            <Download size={16} />
-                                            Exportar
+                                            <Download size={14} className="sm:w-4 sm:h-4" />
+                                            <span className="hidden sm:inline">Exportar</span>
                                         </button>
 
                                         {/* Integrity Button */}
                                         <button
                                             onClick={() => setShowIntegrityModal(true)}
-                                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                                            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
                                             style={{
                                                 color: 'var(--text-secondary)',
                                                 background: 'var(--bg-tertiary)',
@@ -990,17 +990,18 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             }}
                                             title="Verificar Integridade dos Dados"
                                         >
-                                            <Shield size={16} />
-                                            Integridade
+                                            <Shield size={14} className="sm:w-4 sm:h-4" />
+                                            <span className="hidden sm:inline">Integridade</span>
                                         </button>
 
                                 {/* Add Button */}
                                 <button
                                     onClick={() => setShowAddRow(!showAddRow)}
-                                    className="flex items-center gap-2.5 px-6 py-3 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-600 hover:from-purple-400 hover:via-violet-400 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 shadow-lg shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/30 hover:scale-105 active:scale-95 font-semibold"
+                                    className="flex items-center gap-1.5 sm:gap-2.5 px-3 sm:px-4 lg:px-6 py-2 sm:py-3 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-600 hover:from-purple-400 hover:via-violet-400 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 shadow-lg shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/30 hover:scale-105 active:scale-95 text-xs sm:text-sm font-semibold"
                                 >
-                                    <Plus size={20} className="drop-shadow-sm" />
-                                    Nova Entrada
+                                    <Plus size={16} className="sm:w-5 sm:h-5 drop-shadow-sm" />
+                                    <span className="hidden sm:inline">Nova Entrada</span>
+                                    <span className="sm:hidden">Nova</span>
                                 </button>
                                     </div>
                                 </div>
@@ -1163,29 +1164,31 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                         <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-primary)' }} />
                                     </div>
                                 ) : (
-                                    <table className="w-full">
+                                    <div className="overflow-x-auto h-full">
+                                        <div className="pb-12">
+                                        <table className="w-full min-w-[600px] md:min-w-[800px]">
                                         <thead
-                                            className="sticky top-0"
+                                            className="sticky top-0 z-10"
                                             style={{
                                                 background: 'var(--bg-secondary)',
                                                 borderBottom: '1px solid var(--border-color)'
                                             }}
                                         >
                                             <tr>
-                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Descrição</th>
-                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Tipo</th>
-                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Categoria</th>
-                                                <th className="text-right px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Valor</th>
-                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Extra</th>
-                                                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Data</th>
-                                                <th className="text-right px-6 py-3 text-xs font-medium uppercase tracking-wider w-24" style={{ color: 'var(--text-secondary)' }}>Ações</th>
+                                                <th className="text-left px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Descrição</th>
+                                                <th className="text-left px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Tipo</th>
+                                                <th className="text-left px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider hidden md:table-cell" style={{ color: 'var(--text-secondary)' }}>Categoria</th>
+                                                <th className="text-right px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Valor</th>
+                                                <th className="text-left px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider hidden lg:table-cell" style={{ color: 'var(--text-secondary)' }}>Extra</th>
+                                                <th className="text-left px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Data</th>
+                                                <th className="text-right px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-medium uppercase tracking-wider w-16 sm:w-20 md:w-24" style={{ color: 'var(--text-secondary)' }}>Ações</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {/* Add Row */}
                                             {showAddRow && (
                                                 <tr style={{ background: 'rgba(139, 92, 246, 0.05)', borderLeft: '2px solid var(--accent-primary)' }}>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         <input
                                                             type="text"
                                                             placeholder="Descrição..."
@@ -1200,7 +1203,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             autoFocus
                                                         />
                                                     </td>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         <div className="flex gap-2">
                                                             <button
                                                                 onClick={() => setFormData({ ...formData, type: "income" })}
@@ -1231,7 +1234,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             </button>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         <div className="relative">
                                                             <select
                                                                 value={formData.category}
@@ -1259,7 +1262,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         <input
                                                             type="number"
                                                             placeholder="0,00"
@@ -1273,7 +1276,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             }}
                                                         />
                                                     </td>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         {/* Credit Card Selection (only for expenses) */}
                                                         {formData.type === "expense" ? (
                                                             creditCards.length > 0 ? (
@@ -1332,7 +1335,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             <span className="text-xs text-gray-500">-</span>
                                                         )}
                                                     </td>
-                                                    <td className="px-6 py-3">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                         <input
                                                             type="date"
                                                             value={formData.date}
@@ -1346,7 +1349,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             }}
                                                         />
                                                     </td>
-                                                    <td className="px-6 py-3 text-right">
+                                                    <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-right">
                                                         <div className="flex items-center justify-end gap-1">
                                                             <button
                                                                 onClick={handleAdd}
@@ -1389,7 +1392,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                             key={tx.id}
                                                             style={{ background: 'rgba(139, 92, 246, 0.05)', borderLeft: '2px solid var(--accent-primary)', borderBottom: '1px solid var(--border-color)' }}
                                                         >
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                                 <input
                                                                     type="text"
                                                                     value={editData.description || ""}
@@ -1402,7 +1405,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     }}
                                                                 />
                                                             </td>
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                                 <div className="flex gap-2">
                                                                     <button
                                                                         onClick={() => setEditData({ ...editData, type: "income" })}
@@ -1433,12 +1436,12 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     </button>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 hidden md:table-cell">
                                                                 <div className="relative">
                                                                     <select
                                                                         value={editData.category || "outro"}
                                                                         onChange={(e) => setEditData({ ...editData, category: e.target.value })}
-                                                                        className="w-full rounded-lg px-3 py-2 text-sm outline-none appearance-none cursor-pointer"
+                                                                        className="w-full rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm outline-none appearance-none cursor-pointer"
                                                                         style={{
                                                                             background: 'var(--bg-tertiary)',
                                                                             border: '1px solid var(--border-color)',
@@ -1461,7 +1464,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     </div>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                                 <input
                                                                     type="number"
                                                                     value={editData.value || ""}
@@ -1474,7 +1477,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     }}
                                                                 />
                                                             </td>
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3">
                                                                 {/* Credit Card Selection (only for expenses) */}
                                                                 {editData.type === "expense" && creditCards.length > 0 ? (
                                                                     <select
@@ -1529,12 +1532,12 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     <span className="text-xs text-gray-500">-</span>
                                                                 )}
                                                             </td>
-                                                            <td className="px-6 py-3">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 hidden lg:table-cell">
                                                                 <input
                                                                     type="date"
                                                                     value={editData.date || ""}
                                                                     onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                                                                    className="rounded-lg px-3 py-2 text-sm outline-none"
+                                                                    className="rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm outline-none"
                                                                     style={{
                                                                         background: 'var(--bg-tertiary)',
                                                                         border: '1px solid var(--border-color)',
@@ -1543,7 +1546,7 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                     }}
                                                                 />
                                                             </td>
-                                                            <td className="px-6 py-3 text-right">
+                                                            <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 text-right">
                                                                 <div className="flex items-center justify-end gap-1">
                                                                     <button
                                                                         onClick={() => handleSaveEdit(tx.id)}
@@ -1623,10 +1626,10 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                                                 <span className="text-xs text-gray-500">-</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4">
-                                                            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(tx.date)}</span>
+                                                        <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 md:py-4">
+                                                            <span className="text-[10px] sm:text-xs md:text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(tx.date)}</span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-right">
+                                                        <td className="px-2 sm:px-4 md:px-6 py-2 sm:py-3 md:py-4 text-right">
                                                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <button
                                                                     onClick={() => handleStartEdit(tx)}
@@ -1674,13 +1677,15 @@ export const BusinessMode = ({ isOpen, onClose, userId = "local" }) => {
                                             )}
                                         </tbody>
                                     </table>
+                                        </div>
+                                    </div>
                                 )}
                             </main>
                         </>
                     )}
                 </div>
                 {/* Chat Sidebar */}
-                <div className="w-[500px] border-l border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col z-20 shadow-xl h-full">
+                <div className="hidden lg:flex w-[400px] xl:w-[500px] border-l border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col z-20 shadow-xl h-full flex-shrink-0">
                     <BusinessChat isOpen={true} onClose={() => { }} userId={userId} onUpdate={loadData} />
                 </div>
             </div>

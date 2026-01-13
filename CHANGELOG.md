@@ -2,6 +2,18 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.5] - 2025-01-28
+
+### 🔧 Melhorias
+
+- **Responsividade**:
+  - Correções de layout para melhor adaptação em telas menores que FullHD
+  - Ajustes em componentes do Business Mode para melhor visualização em diferentes resoluções
+  - Melhorias na organização de elementos em telas menores
+  - Otimização de espaçamentos e tamanhos de fonte para diferentes tamanhos de tela
+
+---
+
 ## [1.1.4] - 2025-01-28
 
 ### ✨ Novas Funcionalidades

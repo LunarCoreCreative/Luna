@@ -189,3 +189,4 @@
 4. Criar tab "Metas" ou integrar em InvestmentsTab
 5. Adicionar seção de backup nas configurações
 6. Adicionar botão de verificação de integridade em ferramentas
+{3B770A94-4A38-488D-B816-92A5FD04D1EE}.png
