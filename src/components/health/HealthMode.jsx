@@ -751,37 +751,39 @@ export const HealthMode = ({ isOpen, onClose, userId: propUserId }) => {
                                 onEditMeal={(meal) => {
                                     setActiveTab("meal_plan");
                                 }}
-                                onDeleteMeal={(meal) => {
+                                onDeleteMeal={async (meal) => {
                                     if (!meal?.id) {
                                         console.error("[HealthMode] Meal sem ID para deletar");
                                         return;
                                     }
                                     
-                                    // Confirmar exclusão usando modal
-                                    showConfirm(
+                                    // Confirmar exclusão usando modal - showConfirm retorna Promise<boolean>
+                                    const confirmed = await showConfirm(
                                         `Tem certeza que deseja excluir a refeição "${meal.name || 'esta refeição'}"?`,
-                                        async () => {
-                                            try {
-                                                const targetUserId = viewAsStudentId || userId;
-                                                const response = await fetch(
-                                                    `${API_CONFIG.BASE_URL}/health/meals/${meal.id}?user_id=${targetUserId}`,
-                                                    { method: "DELETE" }
-                                                );
-                                                
-                                                if (response.ok) {
-                                                    showAlert("Refeição removida com sucesso!", "success");
-                                                    handleHealthUpdate();
-                                                } else {
-                                                    const errorData = await response.json();
-                                                    console.error("[HealthMode] Erro ao deletar:", errorData);
-                                                    showAlert(errorData.detail || "Erro ao deletar refeição", "error");
-                                                }
-                                            } catch (err) {
-                                                console.error("[HealthMode] Erro ao deletar refeição:", err);
-                                                showAlert("Erro ao conectar com o servidor", "error");
-                                            }
-                                        }
+                                        "Confirmar Exclusão"
                                     );
+                                    
+                                    if (!confirmed) return;
+                                    
+                                    try {
+                                        const targetUserId = viewAsStudentId || userId;
+                                        const response = await fetch(
+                                            `${API_CONFIG.BASE_URL}/health/meals/${meal.id}?user_id=${targetUserId}`,
+                                            { method: "DELETE" }
+                                        );
+                                        
+                                        if (response.ok) {
+                                            showAlert("Refeição removida com sucesso!", "success");
+                                            handleHealthUpdate();
+                                        } else {
+                                            const errorData = await response.json();
+                                            console.error("[HealthMode] Erro ao deletar:", errorData);
+                                            showAlert(errorData.detail || "Erro ao deletar refeição", "error");
+                                        }
+                                    } catch (err) {
+                                        console.error("[HealthMode] Erro ao deletar refeição:", err);
+                                        showAlert("Erro ao conectar com o servidor", "error");
+                                    }
                                 }}
                                 onUpdate={0}
                                 onOpenChat={handleOpenChat}
