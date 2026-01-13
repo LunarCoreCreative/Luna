@@ -180,9 +180,8 @@ def get_presets(user_id: str, include_evaluator: bool = True) -> List[Dict]:
     # Se include_evaluator, busca presets do avaliador para este aluno
     if include_evaluator:
         from .profiles import get_student_evaluator
-        evaluator = get_student_evaluator(user_id)
-        if evaluator and evaluator.get("evaluator_id"):
-            evaluator_id = evaluator["evaluator_id"]
+        evaluator_id = get_student_evaluator(user_id)  # Retorna string (ID) ou None
+        if evaluator_id:
             # Busca presets do avaliador criados para este aluno
             evaluator_presets = _get_presets_for_student(evaluator_id, user_id)
             presets.extend(evaluator_presets)
