@@ -487,17 +487,26 @@ async def get_meals(user_id: str = "local", limit: Optional[int] = None, date: O
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meals")
-async def create_meal(meal: MealCreate):
-    """Create a new meal."""
+async def create_meal(meal: MealCreate, view_as: Optional[str] = None):
+    """
+    Create a new meal.
+    
+    Args:
+        meal: Meal data
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
     user_id = meal.user_id or "local"
+    # Resolver user_id baseado em view_as (para avaliadores adicionando refeições para alunos)
+    target_user_id = resolve_user_id(user_id, view_as)
+    
     logger.info(
-        f"[POST /health/meals] user_id={user_id}, name={meal.name}, "
-        f"meal_type={meal.meal_type}, calories={meal.calories}, "
+        f"[POST /health/meals] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
+        f"name={meal.name}, meal_type={meal.meal_type}, calories={meal.calories}, "
         f"protein={meal.protein}, carbs={meal.carbs}, fats={meal.fats}, date={meal.date}"
     )
     try:
         new_meal = add_meal(
-            user_id=user_id,
+            user_id=target_user_id,
             name=meal.name,
             meal_type=meal.meal_type,
             calories=meal.calories,
@@ -508,28 +517,39 @@ async def create_meal(meal: MealCreate):
             date=meal.date
         )
         logger.info(
-            f"[POST /health/meals] Sucesso: user_id={user_id}, meal_id={new_meal.get('id')}, "
+            f"[POST /health/meals] Sucesso: target_user_id={target_user_id}, meal_id={new_meal.get('id')}, "
             f"name={new_meal.get('name')}"
         )
         return {"success": True, "meal": new_meal}
     except Exception as e:
         logger.error(
-            f"[POST /health/meals] Erro: user_id={user_id}, name={meal.name}, "
+            f"[POST /health/meals] Erro: target_user_id={target_user_id}, name={meal.name}, "
             f"meal_type={meal.meal_type}, erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/meals/{meal_id}")
-async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local"):
-    """Update an existing meal."""
+async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local", view_as: Optional[str] = None):
+    """
+    Update an existing meal.
+    
+    Args:
+        meal_id: ID da refeição
+        meal: Dados atualizados
+        user_id: Firebase UID do usuário
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
+    # Resolver user_id baseado em view_as
+    target_user_id = resolve_user_id(user_id, view_as)
+    
     logger.info(
-        f"[PUT /health/meals/{meal_id}] user_id={user_id}, meal_id={meal_id}, "
+        f"[PUT /health/meals/{meal_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, "
         f"updates: name={meal.name}, meal_type={meal.meal_type}, calories={meal.calories}, "
         f"protein={meal.protein}, carbs={meal.carbs}, fats={meal.fats}"
     )
     try:
         updated_meal = update_meal(
-            user_id=user_id,
+            user_id=target_user_id,
             meal_id=meal_id,
             name=meal.name,
             meal_type=meal.meal_type,
@@ -542,11 +562,11 @@ async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local"):
         if not updated_meal:
             logger.warning(
                 f"[PUT /health/meals/{meal_id}] Refeição não encontrada: "
-                f"user_id={user_id}, meal_id={meal_id}"
+                f"target_user_id={target_user_id}, meal_id={meal_id}"
             )
             raise HTTPException(status_code=404, detail="Refeição não encontrada")
         logger.info(
-            f"[PUT /health/meals/{meal_id}] Sucesso: user_id={user_id}, "
+            f"[PUT /health/meals/{meal_id}] Sucesso: target_user_id={target_user_id}, "
             f"meal_id={meal_id}, name={updated_meal.get('name')}"
         )
         return {"success": True, "meal": updated_meal}
@@ -554,25 +574,35 @@ async def edit_meal(meal_id: str, meal: MealUpdate, user_id: str = "local"):
         raise
     except Exception as e:
         logger.error(
-            f"[PUT /health/meals/{meal_id}] Erro: user_id={user_id}, meal_id={meal_id}, "
+            f"[PUT /health/meals/{meal_id}] Erro: target_user_id={target_user_id}, meal_id={meal_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/meals/{meal_id}")
-async def remove_meal(meal_id: str, user_id: str = "local"):
-    """Delete a meal."""
-    logger.info(f"[DELETE /health/meals/{meal_id}] user_id={user_id}, meal_id={meal_id}")
+async def remove_meal(meal_id: str, user_id: str = "local", view_as: Optional[str] = None):
+    """
+    Delete a meal.
+    
+    Args:
+        meal_id: ID da refeição
+        user_id: Firebase UID do usuário
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
+    # Resolver user_id baseado em view_as
+    target_user_id = resolve_user_id(user_id, view_as)
+    
+    logger.info(f"[DELETE /health/meals/{meal_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
     try:
-        success = delete_meal(user_id, meal_id)
+        success = delete_meal(target_user_id, meal_id)
         if not success:
             logger.warning(
                 f"[DELETE /health/meals/{meal_id}] Refeição não encontrada: "
-                f"user_id={user_id}, meal_id={meal_id}"
+                f"target_user_id={target_user_id}, meal_id={meal_id}"
             )
             raise HTTPException(status_code=404, detail="Refeição não encontrada")
         logger.info(
-            f"[DELETE /health/meals/{meal_id}] Sucesso: user_id={user_id}, "
+            f"[DELETE /health/meals/{meal_id}] Sucesso: target_user_id={target_user_id}, "
             f"meal_id={meal_id} removido"
         )
         return {"success": True, "message": "Refeição removida com sucesso"}
@@ -580,7 +610,7 @@ async def remove_meal(meal_id: str, user_id: str = "local"):
         raise
     except Exception as e:
         logger.error(
-            f"[DELETE /health/meals/{meal_id}] Erro: user_id={user_id}, meal_id={meal_id}, "
+            f"[DELETE /health/meals/{meal_id}] Erro: target_user_id={target_user_id}, meal_id={meal_id}, "
             f"erro={str(e)}, traceback={traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -1046,14 +1076,25 @@ async def get_meal_preset(preset_id: str, user_id: str = "local"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meal-presets")
-async def create_meal_preset(preset: MealPresetCreate):
+async def create_meal_preset(preset: MealPresetCreate, view_as: Optional[str] = None):
     """
     Cria um novo preset de refeição.
     
-    O avaliador pode criar presets para seus alunos usando created_for.
+    O avaliador pode criar presets para seus alunos usando view_as ou created_for.
+    
+    Args:
+        preset: Dados do preset
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
     """
     user_id = preset.user_id or "local"
-    logger.info(f"[POST /health/meal-presets] user_id={user_id}, name={preset.name}, created_for={preset.created_for}")
+    # Resolver user_id baseado em view_as (para avaliadores criando presets para alunos)
+    target_user_id = resolve_user_id(user_id, view_as)
+    
+    # Se view_as está definido, o preset é criado para o aluno pelo avaliador
+    created_for = preset.created_for or (target_user_id if view_as else None)
+    evaluator_id = user_id if view_as else None
+    
+    logger.info(f"[POST /health/meal-presets] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}, name={preset.name}, created_for={created_for}")
     
     # Validar meal_type
     if preset.meal_type not in MEAL_TYPES:
@@ -1063,8 +1104,8 @@ async def create_meal_preset(preset: MealPresetCreate):
         )
     
     # Validar permissão se criando para outro usuário
-    if preset.created_for and preset.created_for != user_id:
-        allowed, error_msg = validate_data_access(user_id, preset.created_for, "edit")
+    if created_for and created_for != user_id:
+        allowed, error_msg = validate_data_access(user_id, created_for, "edit")
         if not allowed:
             raise HTTPException(status_code=403, detail=error_msg)
     
@@ -1073,13 +1114,14 @@ async def create_meal_preset(preset: MealPresetCreate):
         foods_data = [f.dict() for f in preset.foods]
         
         new_preset = create_preset(
-            user_id=user_id,
+            user_id=target_user_id,  # Salva no perfil do aluno
             name=preset.name,
             meal_type=preset.meal_type,
             foods=foods_data,
             suggested_time=preset.suggested_time,
             notes=preset.notes,
-            created_for=preset.created_for
+            created_for=created_for,
+            evaluator_id=evaluator_id
         )
         
         return {
@@ -1092,10 +1134,20 @@ async def create_meal_preset(preset: MealPresetCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/meal-presets/{preset_id}")
-async def update_meal_preset(preset_id: str, updates: MealPresetUpdate):
-    """Atualiza um preset existente."""
+async def update_meal_preset(preset_id: str, updates: MealPresetUpdate, view_as: Optional[str] = None):
+    """
+    Atualiza um preset existente.
+    
+    Args:
+        preset_id: ID do preset
+        updates: Dados atualizados
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
     user_id = updates.user_id or "local"
-    logger.info(f"[PUT /health/meal-presets/{preset_id}] user_id={user_id}")
+    # Resolver user_id baseado em view_as
+    target_user_id = resolve_user_id(user_id, view_as)
+    
+    logger.info(f"[PUT /health/meal-presets/{preset_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
     
     # Validar meal_type se fornecido
     if updates.meal_type and updates.meal_type not in MEAL_TYPES:
@@ -1112,7 +1164,7 @@ async def update_meal_preset(preset_id: str, updates: MealPresetUpdate):
         if "foods" in updates_dict and updates_dict["foods"]:
             updates_dict["foods"] = [f if isinstance(f, dict) else f.dict() for f in updates_dict["foods"]]
         
-        updated = update_preset(user_id, preset_id, updates_dict)
+        updated = update_preset(target_user_id, preset_id, updates_dict)
         
         if not updated:
             raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
@@ -1129,12 +1181,22 @@ async def update_meal_preset(preset_id: str, updates: MealPresetUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/meal-presets/{preset_id}")
-async def delete_meal_preset(preset_id: str, user_id: str = "local"):
-    """Deleta um preset."""
-    logger.info(f"[DELETE /health/meal-presets/{preset_id}] user_id={user_id}")
+async def delete_meal_preset(preset_id: str, user_id: str = "local", view_as: Optional[str] = None):
+    """
+    Deleta um preset.
+    
+    Args:
+        preset_id: ID do preset
+        user_id: Firebase UID do usuário
+        view_as: Visualizar/editar dados de outro usuário (apenas para avaliadores, opcional)
+    """
+    # Resolver user_id baseado em view_as
+    target_user_id = resolve_user_id(user_id, view_as)
+    
+    logger.info(f"[DELETE /health/meal-presets/{preset_id}] user_id={user_id}, view_as={view_as}, target_user_id={target_user_id}")
     
     try:
-        deleted = delete_preset(user_id, preset_id)
+        deleted = delete_preset(target_user_id, preset_id)
         
         if not deleted:
             raise HTTPException(status_code=404, detail="Preset não encontrado ou sem permissão")
