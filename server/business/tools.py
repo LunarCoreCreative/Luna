@@ -427,10 +427,27 @@ def execute_business_tool(name: str, args: Dict, user_id: str = "local") -> Dict
         
         transactions = transactions[:limit]
         
+        # Formata data para exibição
+        def format_date(date_str):
+            if not date_str:
+                return "N/A"
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                return dt.strftime("%d/%m/%Y")
+            except:
+                return date_str[:10] if len(date_str) >= 10 else date_str
+        
+        # Prepara mensagem com instrução de formatação
+        tx_type_pt = {"income": "Entrada", "expense": "Saída", "investment": "Investimento"}
+        message = f"Encontradas {len(transactions)} transação(ões). Formate como tabela markdown com colunas: ID | Tipo | Valor | Descrição | Categoria | Data"
+        
         return {
             "success": True,
             "transactions": transactions,
-            "count": len(transactions)
+            "count": len(transactions),
+            "message": message,
+            "format_hint": "Use tabela markdown: | ID | Tipo | Valor | Descrição | Categoria | Data |\n|----|------|-------|-----------|----------|------|"
         }
     
     elif name == "add_client":

@@ -59,6 +59,16 @@ Regras CRÍTICAS para informações financeiras:
 - Após chamar uma tool, use EXCLUSIVAMENTE os valores retornados por ela para responder. Não altere nem arredonde para números diferentes.
 - Se uma tool falhar ou não estiver disponível, explique claramente o erro para o usuário e diga que não consegue acessar os dados no momento. NÃO invente números.
 - Evite responder com JSON puro; prefira sempre respostas em texto natural em português, mencionando os valores retornados pelas tools.
+
+FORMATAÇÃO DE LISTAS DE TRANSAÇÕES:
+- Quando você listar transações (após usar `list_transactions`), SEMPRE formate como uma TABELA MARKDOWN para melhor visualização.
+- Use o formato de tabela markdown com colunas: ID | Tipo | Valor | Descrição | Categoria | Data
+- Exemplo de formato:
+  | ID | Tipo | Valor | Descrição | Categoria | Data |
+  |----|------|-------|-----------|----------|------|
+  | abc123 | Entrada | R$ 100,00 | Salário | Trabalho | 14/01/2026 |
+  | def456 | Saída | R$ 50,00 | Almoço | Alimentação | 14/01/2026 |
+- Se houver muitas transações, você pode limitar a tabela às mais recentes ou importantes.
 """
     
     # Load business context
