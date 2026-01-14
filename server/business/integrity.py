@@ -471,25 +471,43 @@ def verify_balance_consistency(user_id: str) -> tuple[List[Dict], List[Dict]]:
         transactions = load_transactions(user_id)
         summary = get_summary(user_id)
         
-        # Calcula saldo manualmente
-        calculated_income = sum(
-            float(tx.get("value", 0)) 
-            for tx in transactions 
-            if tx.get("type") == "income"
-        )
+        # Calcula saldo manualmente (usando mesma lógica do get_summary)
+        from decimal import Decimal, ROUND_HALF_UP
         
-        calculated_expenses = sum(
-            float(tx.get("value", 0)) 
-            for tx in transactions 
-            if tx.get("type") == "expense"
-        )
+        calculated_income = Decimal('0.00')
+        calculated_expenses = Decimal('0.00')
+        calculated_invested = Decimal('0.00')
         
-        calculated_balance = calculated_income - calculated_expenses
+        for tx in transactions:
+            try:
+                tx_value = Decimal(str(tx.get("value", 0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                tx_type = tx.get("type", "").lower().strip()
+                
+                if tx_value < 0:
+                    continue  # Ignora valores negativos
+                
+                if tx_type == "income":
+                    calculated_income += tx_value
+                elif tx_type == "expense":
+                    calculated_expenses += tx_value
+                elif tx_type == "investment":
+                    calculated_invested += tx_value
+            except (ValueError, TypeError):
+                continue
+        
+        # Converte para float para comparação
+        calculated_income = float(calculated_income.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        calculated_expenses = float(calculated_expenses.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        calculated_invested = float(calculated_invested.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        
+        # Balance = Income - Expenses - Invested (mesma fórmula do get_summary)
+        calculated_balance = calculated_income - calculated_expenses - calculated_invested
         
         # Compara com resumo
-        # get_summary retorna "income" e "expenses", não "total_income" e "total_expenses"
+        # get_summary retorna "income", "expenses", "invested", "balance"
         summary_income = summary.get("income", summary.get("total_income", 0))
         summary_expenses = summary.get("expenses", summary.get("total_expenses", 0))
+        summary_invested = summary.get("invested", 0)
         summary_balance = summary.get("balance", 0)
         
         # Tolerância de 0.01 para diferenças de arredondamento
@@ -515,6 +533,17 @@ def verify_balance_consistency(user_id: str) -> tuple[List[Dict], List[Dict]]:
                 "message": f"Soma de despesas não confere. Calculado: R$ {calculated_expenses:.2f}, Resumo: R$ {summary_expenses:.2f}"
             })
         
+        # Verifica investimentos também
+        if abs(calculated_invested - summary_invested) > tolerance:
+            issues.append({
+                "type": "balance_mismatch",
+                "field": "invested",
+                "calculated": calculated_invested,
+                "summary": summary_invested,
+                "difference": abs(calculated_invested - summary_invested),
+                "message": f"Soma de investimentos não confere. Calculado: R$ {calculated_invested:.2f}, Resumo: R$ {summary_invested:.2f}"
+            })
+        
         if abs(calculated_balance - summary_balance) > tolerance:
             issues.append({
                 "type": "balance_mismatch",
@@ -522,7 +551,7 @@ def verify_balance_consistency(user_id: str) -> tuple[List[Dict], List[Dict]]:
                 "calculated": calculated_balance,
                 "summary": summary_balance,
                 "difference": abs(calculated_balance - summary_balance),
-                "message": f"Saldo não confere. Calculado: R$ {calculated_balance:.2f}, Resumo: R$ {summary_balance:.2f}"
+                "message": f"Saldo não confere. Calculado: R$ {calculated_balance:.2f}, Resumo: R$ {summary_balance:.2f} (Income: {calculated_income:.2f}, Expenses: {calculated_expenses:.2f}, Invested: {calculated_invested:.2f})"
             })
         
     except Exception as e:

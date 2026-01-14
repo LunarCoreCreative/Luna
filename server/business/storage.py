@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
+from decimal import Decimal, ROUND_HALF_UP
 import uuid
 
 # =============================================================================
@@ -66,11 +67,41 @@ def _save_local_transactions(user_id: str, transactions: List[Dict]) -> None:
     file_path.write_text(json.dumps(transactions, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _remove_duplicates(transactions: List[Dict]) -> List[Dict]:
+    """
+    Remove transações duplicadas baseado no ID.
+    Mantém a primeira ocorrência de cada ID único.
+    """
+    seen_ids = set()
+    unique_transactions = []
+    duplicates_count = 0
+    
+    for tx in transactions:
+        tx_id = tx.get("id")
+        if not tx_id:
+            # Se não tem ID, mantém (pode ser problema, mas não é duplicata)
+            unique_transactions.append(tx)
+            continue
+        
+        if tx_id not in seen_ids:
+            seen_ids.add(tx_id)
+            unique_transactions.append(tx)
+        else:
+            duplicates_count += 1
+            print(f"[BUSINESS] ⚠️ Transação duplicada removida: ID {tx_id}")
+    
+    if duplicates_count > 0:
+        print(f"[BUSINESS] 🔍 Removidas {duplicates_count} transações duplicadas")
+    
+    return unique_transactions
+
+
 def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
     """
     Load all transactions for a user.
     Uses Firebase if available, otherwise local storage.
     Always syncs local cache with Firebase when available.
+    Removes duplicates automatically.
     
     Args:
         user_id: ID do usuário
@@ -80,38 +111,35 @@ def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
     if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
         try:
             # Carrega transações do Firebase (limite reduzido para evitar quota exceeded)
-            transactions = get_user_transactions(user_id, limit=500)
+            firebase_txs = get_user_transactions(user_id, limit=500)
             
-            # Se encontrou transações no Firebase, sincroniza o cache local
+            # Carrega também do local para merge
+            local_txs = _load_local_transactions(user_id)
+            
+            # Merge: combina Firebase e local, removendo duplicatas
+            all_transactions = firebase_txs + local_txs
+            transactions = _remove_duplicates(all_transactions)
+            
+            # Se encontrou transações, sincroniza o cache local
             if transactions:
-                print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações do Firebase, sincronizando cache local...")
+                print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações (Firebase: {len(firebase_txs)}, Local: {len(local_txs)})")
                 _save_local_transactions(user_id, transactions)
                 return transactions
             else:
-                # Firebase retornou vazio - pode ser que não há transações ou houve problema
-                # Tenta carregar do cache local e verificar se há algo
-                local_txs = _load_local_transactions(user_id)
-                if local_txs:
-                    print(f"[BUSINESS] ⚠️ Firebase vazio, usando cache local com {len(local_txs)} transações")
-                    # Se há transações locais e Firebase está vazio, tenta reconciliar
-                    if auto_reconcile:
-                        try:
-                            from .sync import reconcile_transactions
-                            print(f"[BUSINESS] 🔄 Executando reconciliação automática...")
-                            reconcile_transactions(user_id, force=False)
-                            # Recarrega após reconciliação
-                            return _load_local_transactions(user_id)
-                        except Exception as e:
-                            print(f"[BUSINESS] ⚠️ Erro na reconciliação automática: {e}")
-                return local_txs
+                # Nenhuma transação encontrada
+                return []
                 
         except Exception as e:
             print(f"[BUSINESS] ❌ Firebase load failed, fallback local: {e}")
             import traceback
             traceback.print_exc()
+            # Fallback para local mesmo em caso de erro
+            local_txs = _load_local_transactions(user_id)
+            return _remove_duplicates(local_txs)
     
     # Fallback para storage local
-    return _load_local_transactions(user_id)
+    local_txs = _load_local_transactions(user_id)
+    return _remove_duplicates(local_txs)
 
 
 def add_transaction(
@@ -243,31 +271,56 @@ def add_transaction(
 
 
 def get_summary(user_id: str) -> Dict:
-    """Calculate financial summary from Firebase or local."""
+    """
+    Calculate financial summary from Firebase or local.
+    Uses Decimal for precise calculations to avoid floating-point errors.
+    """
     
     # Carrega transações (já sincroniza Firebase com local)
     transactions = load_transactions(user_id)
     
     print(f"[BUSINESS] 📊 Calculando summary para {len(transactions)} transações")
     
-    # Garante que todos os valores são floats
-    income = 0.0
-    expenses = 0.0
-    invested = 0.0
+    # Usa Decimal para cálculos precisos
+    income = Decimal('0.00')
+    expenses = Decimal('0.00')
+    invested = Decimal('0.00')
+    
+    # Contadores para debug
+    income_count = 0
+    expense_count = 0
+    investment_count = 0
+    invalid_count = 0
     
     for tx in transactions:
         try:
-            tx_value = float(tx.get("value", 0))
-            tx_type = tx.get("type", "").lower()
+            # Converte para Decimal para precisão
+            tx_value_str = str(tx.get("value", 0))
+            tx_value = Decimal(tx_value_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            tx_type = tx.get("type", "").lower().strip()
+            
+            # Valida valor
+            if tx_value < 0:
+                print(f"[BUSINESS] ⚠️ Transação {tx.get('id')} tem valor negativo: {tx_value}, ignorando")
+                invalid_count += 1
+                continue
             
             if tx_type == "income":
                 income += tx_value
+                income_count += 1
             elif tx_type == "expense":
                 expenses += tx_value
+                expense_count += 1
             elif tx_type == "investment":
                 invested += tx_value
-        except (ValueError, TypeError) as e:
-            print(f"[BUSINESS] ⚠️ Erro ao processar transação {tx.get('id')}: {e}")
+                investment_count += 1
+            else:
+                print(f"[BUSINESS] ⚠️ Transação {tx.get('id')} tem tipo inválido: '{tx_type}', ignorando")
+                invalid_count += 1
+                continue
+        except (ValueError, TypeError, Exception) as e:
+            print(f"[BUSINESS] ⚠️ Erro ao processar transação {tx.get('id', 'unknown')}: {e}, tx={tx}")
+            invalid_count += 1
             continue
     
     # Balance is cash on hand (Income - Expenses - Outflows to Investment)
@@ -276,16 +329,20 @@ def get_summary(user_id: str) -> Dict:
     # Net Worth is Balance + Invested Assets
     net_worth = balance + invested
     
+    # Converte para float com 2 casas decimais
+    def to_float(decimal_val):
+        return float(decimal_val.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+    
     summary = {
-        "balance": round(balance, 2),
-        "income": round(income, 2),
-        "expenses": round(expenses, 2),
-        "invested": round(invested, 2),
-        "net_worth": round(net_worth, 2),
+        "balance": to_float(balance),
+        "income": to_float(income),
+        "expenses": to_float(expenses),
+        "invested": to_float(invested),
+        "net_worth": to_float(net_worth),
         "transaction_count": len(transactions)
     }
     
-    print(f"[BUSINESS] 📊 Summary calculado: Balance={summary['balance']}, Income={summary['income']}, Expenses={summary['expenses']}, Invested={summary['invested']}, Net Worth={summary['net_worth']}")
+    print(f"[BUSINESS] 📊 Summary calculado: Balance={summary['balance']}, Income={summary['income']} ({income_count} transações), Expenses={summary['expenses']} ({expense_count} transações), Invested={summary['invested']} ({investment_count} transações), Net Worth={summary['net_worth']}, Invalid={invalid_count}")
     
     return summary
 

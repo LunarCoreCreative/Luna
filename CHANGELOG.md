@@ -12,6 +12,27 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - Income/Expenses/Invested continuam sendo filtrados por período quando selecionado
   - Saldo agora está consistente entre o resumo e as metas financeiras
 
+- **Business Mode - Precisão de Cálculos e Inconsistências de Saldo**:
+  - Substituído cálculo com `float` por `Decimal` para evitar erros de arredondamento
+  - Corrigido cálculo de integridade para incluir investimentos na fórmula de saldo
+  - Implementada remoção automática de transações duplicadas ao carregar dados
+  - Adicionados logs detalhados mostrando quantas transações de cada tipo foram processadas
+  - Validação melhorada para ignorar transações com valores negativos ou tipos inválidos
+  - Cálculos agora são consistentes entre backend, Luna Advisor e verificação de integridade
+  - Resolvido problema de duplicatas entre Firebase e armazenamento local causando saldos incorretos
+
+### 🔧 Melhorias
+
+- **Precisão de Cálculos**:
+  - Uso de `Decimal` para todos os cálculos financeiros (evita erros de ponto flutuante)
+  - Arredondamento consistente com 2 casas decimais em todos os valores
+  - Validação robusta de tipos e valores de transações
+
+- **Sincronização de Dados**:
+  - Merge inteligente entre Firebase e armazenamento local
+  - Remoção automática de duplicatas baseada em ID de transação
+  - Logs informativos quando duplicatas são encontradas e removidas
+
 ---
 
 ## [1.1.6] - 2025-01-29
