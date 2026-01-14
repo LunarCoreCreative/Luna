@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
-## [1.1.8] - 2026-01-14
+## [1.1.8-beta] - 2026-01-14
 
 ### 🐛 Correções de Bugs
 
@@ -34,6 +34,14 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
     - Use exclusivamente os valores retornados pelas tools nas respostas
     - Evite responder com JSON cru, priorizando texto natural em português
   - Ajustada integração de tools com Together AI para garantir que o `user_id` correto seja injetado e que os resultados sejam reaproveitados na resposta final
+
+### ✨ Melhorias de UX
+
+- **Formatação de Listas de Transações**:
+  - Listas de transações retornadas pela Luna agora são formatadas como tabelas markdown para melhor visualização
+  - Adicionadas instruções no prompt do `business_agent` para que a Luna sempre use formato de tabela ao listar transações
+  - Tool `list_transactions` agora inclui dicas de formatação para garantir tabelas consistentes
+  - Frontend já suporta renderização de tabelas markdown via `remarkGfm`
 
 ---
 
