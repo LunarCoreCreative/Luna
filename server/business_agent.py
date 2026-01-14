@@ -61,14 +61,11 @@ Regras CRÍTICAS para informações financeiras:
 - Evite responder com JSON puro; prefira sempre respostas em texto natural em português, mencionando os valores retornados pelas tools.
 
 FORMATAÇÃO DE LISTAS DE TRANSAÇÕES:
-- Quando você listar transações (após usar `list_transactions`), SEMPRE formate como uma TABELA MARKDOWN para melhor visualização.
-- Use o formato de tabela markdown com colunas: ID | Tipo | Valor | Descrição | Categoria | Data
-- Exemplo de formato:
-  | ID | Tipo | Valor | Descrição | Categoria | Data |
-  |----|------|-------|-----------|----------|------|
-  | abc123 | Entrada | R$ 100,00 | Salário | Trabalho | 14/01/2026 |
-  | def456 | Saída | R$ 50,00 | Almoço | Alimentação | 14/01/2026 |
-- Se houver muitas transações, você pode limitar a tabela às mais recentes ou importantes.
+- Quando você usar a tool `list_transactions`, ela já retorna uma tabela markdown formatada no campo `message` ou `table_markdown`.
+- SEMPRE use essa tabela markdown retornada pela tool diretamente na sua resposta. Não reformate, não converta para lista, não use pipes (||) separados.
+- Apenas copie e cole a tabela markdown que vem no resultado da tool na sua resposta ao usuário.
+- Se a tool retornar `table_markdown`, use esse campo. Se retornar `message` com tabela, use o `message`.
+- NUNCA tente criar sua própria formatação de tabela - sempre use a que a tool fornece.
 """
     
     # Load business context

@@ -438,16 +438,36 @@ def execute_business_tool(name: str, args: Dict, user_id: str = "local") -> Dict
             except:
                 return date_str[:10] if len(date_str) >= 10 else date_str
         
-        # Prepara mensagem com instrução de formatação
+        # Mapeia tipos para português
         tx_type_pt = {"income": "Entrada", "expense": "Saída", "investment": "Investimento"}
-        message = f"Encontradas {len(transactions)} transação(ões). Formate como tabela markdown com colunas: ID | Tipo | Valor | Descrição | Categoria | Data"
+        
+        # Gera tabela markdown formatada diretamente
+        if transactions:
+            table_rows = []
+            table_rows.append("| ID | Tipo | Valor | Descrição | Categoria | Data |")
+            table_rows.append("|----|------|-------|-----------|----------|------|")
+            
+            for tx in transactions:
+                tx_id = tx.get("id", "N/A")[:8]  # Primeiros 8 caracteres do ID
+                tx_type = tx_type_pt.get(tx.get("type", ""), tx.get("type", "N/A"))
+                tx_value = f"R$ {tx.get('value', 0):.2f}"
+                tx_desc = (tx.get("description", "N/A") or "N/A")[:30]  # Limita tamanho
+                tx_cat = (tx.get("category", "N/A") or "N/A")[:20]  # Limita tamanho
+                tx_date = format_date(tx.get("date", ""))
+                
+                table_rows.append(f"| {tx_id} | {tx_type} | {tx_value} | {tx_desc} | {tx_cat} | {tx_date} |")
+            
+            table_markdown = "\n".join(table_rows)
+            message = f"Encontradas {len(transactions)} transação(ões):\n\n{table_markdown}"
+        else:
+            message = f"Nenhuma transação encontrada."
         
         return {
             "success": True,
             "transactions": transactions,
             "count": len(transactions),
             "message": message,
-            "format_hint": "Use tabela markdown: | ID | Tipo | Valor | Descrição | Categoria | Data |\n|----|------|-------|-----------|----------|------|"
+            "table_markdown": table_markdown if transactions else None
         }
     
     elif name == "add_client":
