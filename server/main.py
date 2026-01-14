@@ -11,6 +11,7 @@ import io
 import tempfile
 import uuid
 import asyncio
+import re
 from typing import Optional
 
 # Force UTF-8 for Windows Console to avoid charmap errors with emojis
@@ -305,6 +306,16 @@ async def agent_message(request: ChatRequest):
     Coleta todos os eventos do gerador e retorna como JSON completo.
     """
     try:
+        # DEBUG: Log dos parâmetros recebidos
+        print(f"[DEBUG-AGENT-MESSAGE] Parâmetros recebidos:")
+        print(f"  - business_mode: {request.business_mode}")
+        print(f"  - health_mode: {request.health_mode}")
+        print(f"  - canvas_mode: {request.canvas_mode}")
+        print(f"  - deep_thinking: {request.deep_thinking}")
+        print(f"  - user_id: {request.user_id}")
+        print(f"  - user_name: {request.user_name}")
+        print(f"  - Número de mensagens: {len(request.messages)}")
+        
         # Escolhe o gerador apropriado
         if request.business_mode:
             generator = business_generator(request)
@@ -329,6 +340,7 @@ async def agent_message(request: ChatRequest):
                     
                     # Acumula conteúdo
                     if data.get("content"):
+                        # Usa o conteúdo já processado (já passou por format_chat_text no generator)
                         full_content += data["content"]
                     
                     # Captura thought
@@ -354,6 +366,18 @@ async def agent_message(request: ChatRequest):
         
         # Retorna conteúdo final
         final_message = full_content.strip() if full_content else ""
+        
+        # Aplica limpeza adicional (similar ao cleanContent do desktop)
+        # Remove apenas tokens de tool calls que possam ter vazado
+        if final_message:
+            # Remove tokens de tool calls explícitos
+            final_message = re.sub(r'<\s*\|\s*tool_[\s\S]*?\|\s*>', '', final_message, flags=re.IGNORECASE)
+            final_message = re.sub(r'<\|[\s\S]*?\|>', '', final_message)
+            final_message = re.sub(r'<tool_calls?_(begin|end)>', '', final_message, flags=re.IGNORECASE)
+            final_message = re.sub(r'<tool_sep>', '', final_message, flags=re.IGNORECASE)
+            # Remove múltiplas linhas em branco
+            final_message = re.sub(r'\n{3,}', '\n\n', final_message)
+            final_message = final_message.strip()
         
         # Retorna resposta estruturada
         return {

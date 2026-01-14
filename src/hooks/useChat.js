@@ -44,7 +44,38 @@ export const useChat = () => {
             }
             
             const d = await r.json();
-            if (d.success) setChats(d.chats);
+            if (d.success) {
+                let chatsList = Array.isArray(d.chats) ? [...d.chats] : [];
+
+                // Ordena por updated_at (fallback para created_at) do mais recente para o mais antigo
+                chatsList.sort((a, b) => {
+                    const aDate = new Date(a.updated_at || a.created_at || 0);
+                    const bDate = new Date(b.updated_at || b.created_at || 0);
+                    return bDate - aDate;
+                });
+
+                // Dedup especial para o modo Business:
+                // muitos registros podem ter o título fixo "Consultor Business".
+                // Mantemos apenas o chat mais recente por (title, user_id).
+                const seenBusinessKey = new Set();
+                const deduped = [];
+
+                for (const chatItem of chatsList) {
+                    if (chatItem.title === "Consultor Business") {
+                        const key = `${chatItem.title}::${chatItem.user_id || "local"}`;
+                        if (seenBusinessKey.has(key)) {
+                            // Já temos o mais recente deste par (title,user_id) → ignora duplicado
+                            continue;
+                        }
+                        seenBusinessKey.add(key);
+                        deduped.push(chatItem);
+                    } else {
+                        deduped.push(chatItem);
+                    }
+                }
+
+                setChats(deduped);
+            }
         } catch (e) {
             if (e.name === 'AbortError') {
                 console.warn("[CHAT] Timeout ao carregar chats (8s)");

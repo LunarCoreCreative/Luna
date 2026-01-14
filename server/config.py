@@ -649,6 +649,16 @@ DIRETRIZ FINAL:
 2. Responda DIRETO no chat para conversas normais.
 3. Use Canvas APENAS para código, documentos longos ou diagramas.
 4. Escreva em texto puro e natural. Use espaços corretos e quebras de linha quando apropriado.
+
+⚠️ REGRA CRÍTICA DE FORMATAÇÃO - LEIA COM ATENÇÃO:
+- SEMPRE use espaços corretos entre TODAS as palavras.
+- NUNCA concatene palavras. Exemplos ERRADOS: "meubem", "comvocê", "Comoposso", "teajudar", "Emque".
+- Exemplos CORRETOS: "meu bem", "com você", "Como posso", "te ajudar", "Em que".
+- ANTES de enviar sua resposta, REVISE e garanta que há um espaço entre cada palavra.
+- Se você concatenar palavras, sua resposta será considerada ERRADA e será rejeitada.
+- Garanta que cada palavra seja separada por um espaço antes e depois, exceto pontuação que deve ficar colada à palavra anterior.
+- Exemplos CORRETOS: "Como posso te ajudar?", "Tudo bem com você?", "Estou aqui para conversar".
+- Exemplos INCORRETOS: "Comoposso", "bemcomvocê", "aquipara".
 """
 
 # For backwards compatibility

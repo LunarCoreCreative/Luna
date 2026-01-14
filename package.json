@@ -7,16 +7,19 @@
   "type": "module",
   "main": "main.cjs",
   "scripts": {
-    "dev": "vite --port 5173 --strictPort",
+    "dev": "vite --port 5173",
     "build": "vite build",
     "build:staging": "cross-env VITE_STAGING=true vite build",
     "preview": "vite preview",
     "server": "python -m server.main",
     "electron": "electron .",
-    "electron:dev": "concurrently -n vite,electron -c cyan,green \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently -n vite,electron -c cyan,green \"vite --port 5173\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "npm run electron:dev",
     "dist": "vite build && electron-builder",
-    "dist:staging": "cross-env VITE_STAGING=true vite build && electron-builder"
+    "dist:staging": "cross-env VITE_STAGING=true vite build && electron-builder",
+    "mobile": "cd mobile && npm start",
+    "mobile:tunnel": "cd mobile && npm run start:tunnel",
+    "mobile:install": "cd mobile && npm install"
   },
   "build": {
     "appId": "com.lunarcore.luna",
@@ -54,9 +57,6 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.0.0",
-    "@capacitor/cli": "^8.0.0",
-    "@capacitor/core": "^8.0.0",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",
     "@codemirror/lang-javascript": "^6.2.4",

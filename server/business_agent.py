@@ -34,6 +34,78 @@ def safe_print(msg: str):
         print(msg.encode('ascii', 'replace').decode('ascii'))
 
 
+def clean_business_content(content: str) -> str:
+    """
+    Remove listas brutas de transações que aparecem após tabelas markdown.
+    Isso corrige o problema onde o modelo gera tabelas corretas mas depois
+    adiciona listas em formato bruto com pipes duplos (||).
+    """
+    if not content:
+        return content
+    
+    # Detecta se há tabela markdown
+    if not re.search(r'\|.*\|.*\|', content):
+        return content
+    
+    lines = content.split('\n')
+    cleaned_lines = []
+    in_table = False
+    table_start = -1
+    table_end = -1
+    
+    # Primeira passagem: identificar onde começa e termina a tabela
+    for i, line in enumerate(lines):
+        # Detecta início de tabela (linha com pipes e separador ou header)
+        if re.match(r'^\|.*\|', line) and ('----' in line or re.match(r'^\|[\s\w]+\|', line)):
+            if table_start == -1:
+                table_start = i
+                in_table = True
+        # Detecta fim da tabela
+        if in_table and re.match(r'^\|.*\|', line):
+            table_end = i
+        elif in_table and not re.match(r'^\|.*\|', line) and line.strip():
+            in_table = False
+    
+    # Segunda passagem: limpar o conteúdo
+    for i, line in enumerate(lines):
+        # Mantém todas as linhas da tabela
+        if table_start != -1 and table_start <= i <= table_end:
+            cleaned_lines.append(line)
+            continue
+        
+        # Remove linhas com pipes duplos (||) - formato bruto de transações
+        # Padrão: qualquer coisa | qualquer coisa || ID | tipo | valor | ...
+        if '||' in line:
+            continue
+        
+        # Remove linhas que começam com categoria | subcategoria | data || (formato bruto)
+        # Exemplo: "Uber | uber | 12/01/2026 || 6d76679a | ..."
+        if re.match(r'^[A-Za-zÀ-ÿ\s]+\s*\|\s*[A-Za-zÀ-ÿ\s]+\s*\|\s*\d{2}/\d{2}/\d{4}\s*\|\|', line):
+            continue
+        
+        # Remove linhas que começam com categoria | subcategoria || (formato bruto sem data)
+        if re.match(r'^[A-Za-zÀ-ÿ\s]+\s*\|\s*[A-Za-zÀ-ÿ\s]+\s*\|\|', line):
+            continue
+        
+        # Remove linhas de transação simples após tabelas (formato: Entrada | R$ ... | ...)
+        if i > table_end and table_end != -1 and re.match(r'^(Entrada|Saída)\s*\|\s*R\$\s*[0-9,.]+\s*\|', line):
+            continue
+        
+        # Remove linhas que são apenas IDs hexadecimais seguidos de pipes (parte do formato bruto)
+        if re.match(r'^[a-f0-9]{8}\s*\|\s*[^\n]*\|\|', line):
+            continue
+        
+        # Remove linhas que contêm múltiplos pipes e parecem ser listas brutas
+        # Padrão: múltiplos pipes separados por espaços (mais de 3 pipes na linha)
+        pipe_count = line.count('|')
+        if pipe_count > 3 and '||' in line:
+            continue
+        
+        cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+
 async def business_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
     """
     Agent for Business Mode using Llama 4 Maverick.
@@ -59,13 +131,6 @@ Regras CRÍTICAS para informações financeiras:
 - Após chamar uma tool, use EXCLUSIVAMENTE os valores retornados por ela para responder. Não altere nem arredonde para números diferentes.
 - Se uma tool falhar ou não estiver disponível, explique claramente o erro para o usuário e diga que não consegue acessar os dados no momento. NÃO invente números.
 - Evite responder com JSON puro; prefira sempre respostas em texto natural em português, mencionando os valores retornados pelas tools.
-
-FORMATAÇÃO DE LISTAS DE TRANSAÇÕES:
-- Quando você usar a tool `list_transactions`, ela já retorna uma tabela markdown formatada no campo `message` ou `table_markdown`.
-- SEMPRE use essa tabela markdown retornada pela tool diretamente na sua resposta. Não reformate, não converta para lista, não use pipes (||) separados.
-- Apenas copie e cole a tabela markdown que vem no resultado da tool na sua resposta ao usuário.
-- Se a tool retornar `table_markdown`, use esse campo. Se retornar `message` com tabela, use o `message`.
-- NUNCA tente criar sua própria formatação de tabela - sempre use a que a tool fornece.
 """
     
     # Load business context
@@ -151,6 +216,8 @@ FORMATAÇÃO DE LISTAS DE TRANSAÇÕES:
                 filtered = filter_tool_call_tokens(content)
                 # Remove blocos JSON malformados que possam ser tentativas de tool calls no texto
                 filtered = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered)
+                # Remove listas brutas de transações após tabelas markdown (problema específico do business mode)
+                filtered = clean_business_content(filtered)
                 
                 if filtered:
                     yield f"data: {json.dumps({'content': filtered})}\n\n"

@@ -11,10 +11,13 @@ from typing import AsyncGenerator
 
 from .config import get_system_prompt, MODEL
 from .memory import search_memories, save_memory, search_study_documents
-from .api import call_api_stream, get_vision_description
+from .api import call_api_json, get_vision_description
 from .chat import ChatRequest
 from .tools import TOOLS, execute_tool, get_tools_schema
 from . import artifacts
+
+# Use Llama 4 Maverick for normal chat (same as business mode)
+CHAT_MODEL = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
 
 # =============================================================================
 # LOGGING SEGURO (Mapeamento de caracteres para evitar crash no Windows)
@@ -542,6 +545,11 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
     msgs = [{"role": "system", "content": prompt}] + final_messages
     tools = get_tools_schema()
     
+    # DEBUG: Log do system prompt (primeiras 500 chars)
+    safe_print(f"[DEBUG-AGENT] System prompt (primeiros 500 chars): {prompt[:500]}...")
+    safe_print(f"[DEBUG-AGENT] Número de mensagens: {len(final_messages)}")
+    safe_print(f"[DEBUG-AGENT] Modelo: {CHAT_MODEL}")
+    
     full_response = ""
     max_iterations = 5
     
@@ -600,136 +608,57 @@ USE ESTAS DESCRIÇÕES PARA RESPONDER AO USUÁRIO COMO SE VOCÊ ESTIVESSE VENDO 
                 msgs[-1]["content"] += hint
                 yield f"data: {json.dumps({'status': 'Lendo página...', 'type': 'info'})}\n\n"
             
-            # Stream API response
-            async for chunk in call_api_stream(msgs, tools=current_tools, tool_choice=current_tool_choice, model=MODEL):
-                if "error" in chunk:
-                    err = chunk.get("error")
-                    yield f"data: {json.dumps({'content': f'Error: {err}'})}\n\n"
-                    return
-                if not chunk.get("choices"): continue
+            # API CALL with native tool calling (non-streaming, same as business mode)
+            yield f"data: {json.dumps({'status': 'Pensando...', 'type': 'info'})}\n\n"
+            
+            response = await call_api_json(
+                msgs, 
+                tools=current_tools,
+                tool_choice=current_tool_choice,
+                model=CHAT_MODEL,
+                max_tokens=2048,  # Reduzido de 4096 para respostas mais rápidas
+                temperature=0.4   # Aumentado ligeiramente para respostas mais diretas
+            )
+            
+            if "error" in response:
+                err = response.get("error")
+                yield f"data: {json.dumps({'content': f'Error: {err}'})}\n\n"
+                return
+            
+            if not response.get("choices"):
+                yield f"data: {json.dumps({'content': 'Resposta vazia.'})}\n\n"
+                return
+            
+            message = response["choices"][0].get("message", {})
+            
+            # Content
+            content = message.get("content") or ""
+            # DEBUG: Log do conteúdo recebido do modelo (primeiros 200 chars)
+            if content:
+                safe_print(f"[DEBUG-AGENT] Conteúdo recebido do modelo (primeiros 200 chars): {content[:200]}...")
+            if content:
+                # Filtro rigoroso de tokens de tool calls que possam vazar
+                filtered = filter_tool_call_tokens(content)
+                # Remove blocos JSON malformados que possam ser tentativas de tool calls no texto
+                filtered = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered)
                 
-                delta = chunk["choices"][0].get("delta", {})
-                
-                # 1. Thinking (DeepSeek reasoning)
-                rc = delta.get("reasoning_content")
-                if rc:
-                    # Filtro AGRESSIVO de tokens de tool calls que possam vazar no reasoning
-                    # O reasoning pode conter tokens que o modelo está "pensando" internamente
-                    # Remove tudo entre < e > (função centralizada já faz isso)
-                    filtered_rc = filter_tool_call_tokens(rc)
-                    
-                    # Remove linhas inteiras que contenham padrões de tool calls
-                    lines = filtered_rc.split('\n')
-                    cleaned_lines = []
-                    for line in lines:
-                        # Remove linhas que sejam principalmente tokens de tool calls
-                        if re.search(r'tool_(calls|call)_(begin|end|sep)', line, re.IGNORECASE):
-                            continue
-                        # Remove linhas que sejam JSON malformado de tool calls
-                        if re.match(r'^\s*\{?\s*"name"\s*:', line):
-                            continue
-                        cleaned_lines.append(line)
-                    filtered_rc = '\n'.join(cleaned_lines)
-                    
-                    # Remove blocos JSON malformados que possam ser tentativas de tool calls
-                    filtered_rc = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered_rc)
-                    
-                    # Remove espaços em branco excessivos
-                    filtered_rc = re.sub(r'\n{3,}', '\n\n', filtered_rc)
-                    
-                    if filtered_rc.strip():
-                        current_thought += filtered_rc
-                        yield f"data: {json.dumps({'thinking': filtered_rc})}\n\n"
-                
-                # 2. Tool Calls (Captura Robusta)
-                tc_deltas = delta.get("tool_calls", [])
-                for td in tc_deltas:
-                    idx = td.get("index", 0)
-                    if idx not in current_tool_calls_buffer:
-                        current_tool_calls_buffer[idx] = {"id": td.get("id"), "name": "", "arguments": ""}
-                    
-                    if td.get("id"): 
-                        current_tool_calls_buffer[idx]["id"] = td["id"]
-                    
-                    if "function" in td:
-                        f = td["function"]
-                        # Nome (Acumular com segurança)
-                        new_name = f.get("name", "")
-                        if new_name:
-                            current_tool_calls_buffer[idx]["name"] += new_name
-                        
-                        # Argumentos (Acumular com segurança)
-                        new_args = f.get("arguments", "")
-                        if new_args:
-                            current_tool_calls_buffer[idx]["arguments"] += new_args
-                        
-                        # Feedback imediato se a ferramenta for identificada
-                        fname = current_tool_calls_buffer[idx]["name"]
-                        if fname in TOOLS and (idx, fname) not in announced_tools:
-                            yield f"data: {json.dumps({'tool_call': {'name': fname, 'args': {}}})}\n\n"
-                            announced_tools.add((idx, fname))
-                        
-                        # Stream de argumentos parciais (Throttled para fluidez)
-                        if (idx, fname) in announced_tools:
-                            try:
-                                args_str = current_tool_calls_buffer[idx]["arguments"]
-                                
-                                # Logs de depuração no servidor (Alta visibilidade)
-                                if len(args_str) % 50 < 4: # Loga a cada ~50 chars para não inundar o terminal
-                                    safe_print(f"[STREAMING {fname}] Args len: {len(args_str)}")
-
-                                # Processa o JSON parcial
-                                partial = extract_partial_json(args_str)
-                                
-                                # Emissão para o Canvas (Sincronização proativa)
-                                if fname == "create_artifact" and partial.get("title"):
-                                    # Usamos um ID único para streaming para evitar keys duplicadas
-                                    # Prefixo "temp_" indica que é temporário (não tentar carregar via API)
-                                    art_id = partial.get("id") or f"temp_{iteration}_{idx}"
-                                    # Yield apenas o necessário para o streaming
-                                    yield f"data: {json.dumps({'partial_artifact': {**partial, 'id': art_id, 'is_streaming': True}})}\n\n"
-                                
-                                # Payload completo para o badge (para ver os campos surgindo)
-                                yield f"data: {json.dumps({'tool_call': {'name': fname, 'args': partial}})}\n\n"
-                            except Exception as e:
-                                safe_print(f"[DEBUG-STREAM] Falha: {str(e)}")
-                
-                # 3. Content (Together API retorna tool calls nativamente, não processamos do texto)
-                # Apenas processamos o conteúdo textual e filtramos tokens que possam vazar
-                chunk_text = delta.get("content", "")
-                if chunk_text:
-                    # Filtro rigoroso de tokens de tool calls que possam vazar
-                    # Together API não deveria retornar esses tokens, mas filtramos por segurança
-                    filtered = filter_tool_call_tokens(chunk_text)
-                    # Remove blocos JSON malformados que possam ser tentativas de tool calls no texto
-                    # Padrão: {"name": ... sem fechamento adequado
-                    filtered = re.sub(r'\{"name"\s*:\s*"[^"]*"[\s\S]*?(?=\n\n|\n[A-ZÁÉÍÓÚÇ]|$)', '', filtered)
-                    
-                    if filtered:
-                        display_text = format_chat_text(filtered)
-                        current_content += filtered
-                        yield f"data: {json.dumps({'content': display_text})}\n\n" 
-
-            # Process tool calls if any (Struct or Text-Based)
-            if current_tool_calls_buffer:
-                tool_calls = list(current_tool_calls_buffer.values())
-                
-                # Format tool_calls for API compatibility
-                formatted_tool_calls = []
-                for tc in tool_calls:
-                    formatted_tool_calls.append({
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["name"],
-                            "arguments": tc["arguments"]
-                        }
-                    })
-                
+                if filtered:
+                    # Envia filtered diretamente (igual ao business mode)
+                    # Não aplica format_chat_text aqui para manter o conteúdo original do modelo
+                    current_content = filtered
+                    yield f"data: {json.dumps({'content': filtered})}\n\n"
+            
+            # Native Tool Calls from API
+            tool_calls = message.get("tool_calls", [])
+            
+            safe_print(f"[DEBUG-AGENT] Content: {len(content)} chars, Tool calls: {len(tool_calls)}")
+            
+            if tool_calls:
+                # Add assistant message with tool calls to history
                 msgs.append({
                     "role": "assistant",
-                    "content": current_content or None, # Pode ser vazio se foi tudo tool call
-                    "tool_calls": formatted_tool_calls
+                    "content": content or None,
+                    "tool_calls": tool_calls
                 })
                 
                 for tc in tool_calls:
