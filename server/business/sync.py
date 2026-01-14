@@ -1,7 +1,7 @@
 """
 Luna Business Sync Module
 -------------------------
-Sistema de sincronização e reconciliação entre Firebase e Local Storage.
+Sistema de sincronização (apenas Firebase - sem storage local).
 """
 
 import json
@@ -24,12 +24,8 @@ except ImportError:
     FIREBASE_AVAILABLE = False
     print("[BUSINESS-SYNC] ⚠️ Firebase não disponível")
 
-# Local storage imports
-from .storage import (
-    _load_local_transactions,
-    _save_local_transactions,
-    get_user_data_dir
-)
+# Storage imports (apenas Firebase agora)
+from .storage import load_transactions, get_user_data_dir
 
 
 @dataclass
@@ -160,18 +156,12 @@ def sync_transaction_to_firebase(user_id: str, tx: Dict, retry: bool = True) -> 
 
 def reconcile_transactions(user_id: str, force: bool = False) -> SyncResult:
     """
-    Reconcilia transações entre Firebase e Local Storage.
-    
-    Estratégia:
-    1. Carrega transações do Firebase
-    2. Carrega transações locais
-    3. Compara e identifica diferenças
-    4. Sincroniza: Firebase é considerado fonte da verdade se houver conflito
-    5. Sincroniza transações locais não presentes no Firebase
+    Verifica integridade das transações no Firebase.
+    (Não há mais storage local para reconciliar)
     
     Args:
-        user_id: ID do usuário
-        force: Se True, força reconciliação mesmo se recente
+        user_id: ID do usuário (Firebase UID)
+        force: Ignorado (mantido para compatibilidade)
     
     Returns:
         SyncResult com detalhes da operação
@@ -188,129 +178,23 @@ def reconcile_transactions(user_id: str, force: bool = False) -> SyncResult:
     )
     
     try:
-        # 1. Carregar transações locais
-        local_txs = _load_local_transactions(user_id)
-        result.local_count = len(local_txs)
-        print(f"[BUSINESS-SYNC] 📦 Carregadas {result.local_count} transações locais")
+        if not FIREBASE_AVAILABLE or not user_id or user_id == "local" or len(user_id) <= 10:
+            result.errors.append("Firebase não disponível ou user_id inválido")
+            result.duration_ms = (time.time() - start_time) * 1000
+            return result
         
-        # 2. Carregar transações do Firebase (com retry)
-        firebase_txs = []
-        if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-            def load_firebase():
-                try:
-                    # Limite reduzido para evitar quota exceeded
-                    txs = get_user_transactions(user_id, limit=500)
-                    return True, txs
-                except Exception as e:
-                    return False, str(e)
-            
-            success, firebase_result, attempts = _retry_with_backoff(load_firebase)
-            
-            if success:
-                firebase_txs = firebase_result
-                result.firebase_count = len(firebase_txs)
-                print(f"[BUSINESS-SYNC] ☁️ Carregadas {result.firebase_count} transações do Firebase")
-            else:
-                result.errors.append(f"Falha ao carregar do Firebase após {attempts} tentativas: {firebase_result}")
-                print(f"[BUSINESS-SYNC] ❌ Erro ao carregar Firebase: {firebase_result}")
-                # Continua com apenas local
-        else:
-            print(f"[BUSINESS-SYNC] ⚠️ Firebase não disponível, usando apenas local")
-        
-        # 3. Criar índices por ID para comparação rápida
-        local_by_id = {tx.get("id"): tx for tx in local_txs if tx.get("id")}
-        firebase_by_id = {tx.get("id"): tx for tx in firebase_txs if tx.get("id")}
-        
-        # 4. Identificar transações apenas no Firebase (precisa adicionar localmente)
-        firebase_only = []
-        for tx_id, tx in firebase_by_id.items():
-            if tx_id not in local_by_id:
-                firebase_only.append(tx)
-        
-        # 5. Identificar transações apenas no Local (precisa sincronizar para Firebase)
-        local_only = []
-        for tx_id, tx in local_by_id.items():
-            if tx_id not in firebase_by_id:
-                local_only.append(tx)
-        
-        # 6. Identificar conflitos (mesmo ID, dados diferentes)
-        conflicts = []
-        for tx_id in set(local_by_id.keys()) & set(firebase_by_id.keys()):
-            local_tx = local_by_id[tx_id]
-            firebase_tx = firebase_by_id[tx_id]
-            
-            # Compara campos relevantes (ignora timestamps de sync)
-            local_key = (
-                local_tx.get("type"),
-                local_tx.get("value"),
-                local_tx.get("description"),
-                local_tx.get("category"),
-                local_tx.get("date", "")[:10]  # Apenas data, sem hora
-            )
-            firebase_key = (
-                firebase_tx.get("type"),
-                firebase_tx.get("value"),
-                firebase_tx.get("description"),
-                firebase_tx.get("category"),
-                firebase_tx.get("date", "")[:10]
-            )
-            
-            if local_key != firebase_key:
-                conflicts.append({
-                    "id": tx_id,
-                    "local": local_tx,
-                    "firebase": firebase_tx
-                })
-        
-        result.conflicts = conflicts
-        
-        # 7. Resolver conflitos: Firebase é fonte da verdade
-        if conflicts:
-            print(f"[BUSINESS-SYNC] ⚠️ Encontrados {len(conflicts)} conflitos, usando Firebase como fonte da verdade")
-        
-        # 8. Sincronizar: mesclar Firebase + Local (Firebase tem prioridade)
-        merged_txs = {}
-        
-        # Primeiro adiciona todas do Firebase (fonte da verdade)
-        for tx in firebase_txs:
-            tx_id = tx.get("id")
-            if tx_id:
-                merged_txs[tx_id] = tx
-        
-        # Depois adiciona as locais que não estão no Firebase
-        for tx in local_only:
-            tx_id = tx.get("id")
-            if tx_id and tx_id not in merged_txs:
-                merged_txs[tx_id] = tx
-                # Tenta sincronizar para Firebase
-                if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-                    success, error = sync_transaction_to_firebase(user_id, tx, retry=True)
-                    if success:
-                        result.synced_count += 1
-                    else:
-                        result.errors.append(f"Falha ao sincronizar tx {tx_id}: {error}")
-        
-        # 9. Salvar resultado mesclado localmente
-        merged_list = list(merged_txs.values())
-        # Ordenar por data (mais recente primeiro)
-        merged_list.sort(key=lambda x: x.get("date", ""), reverse=True)
-        
-        _save_local_transactions(user_id, merged_list)
-        
-        result.synced_count += len(firebase_only)  # Conta as que foram adicionadas do Firebase
+        # Carrega transações do Firebase (apenas fonte de dados agora)
+        transactions = load_transactions(user_id, auto_reconcile=False)
+        result.firebase_count = len(transactions)
+        result.local_count = 0  # Sem storage local
+        result.synced_count = 0  # Não há mais o que sincronizar
         result.success = True
         
-        print(f"[BUSINESS-SYNC] ✅ Reconciliação concluída:")
-        print(f"  - Local: {result.local_count} → {len(merged_list)} transações")
-        print(f"  - Firebase: {result.firebase_count} transações")
-        print(f"  - Sincronizadas: {result.synced_count} transações")
-        print(f"  - Conflitos resolvidos: {len(conflicts)}")
-        if result.errors:
-            print(f"  - Erros: {len(result.errors)}")
+        print(f"[BUSINESS-SYNC] ✅ Verificação concluída: {result.firebase_count} transações no Firebase")
         
     except Exception as e:
-        result.errors.append(f"Erro durante reconciliação: {str(e)}")
-        print(f"[BUSINESS-SYNC] ❌ Erro na reconciliação: {e}")
+        result.errors.append(f"Erro durante verificação: {str(e)}")
+        print(f"[BUSINESS-SYNC] ❌ Erro na verificação: {e}")
         import traceback
         traceback.print_exc()
     
@@ -335,7 +219,8 @@ def reconcile_transactions(user_id: str, force: bool = False) -> SyncResult:
 
 def verify_integrity(user_id: str) -> Dict:
     """
-    Verifica integridade dos dados entre Firebase e Local.
+    Verifica integridade dos dados no Firebase.
+    (Não há mais storage local para comparar)
     
     Returns:
         Dict com status de integridade e detalhes
@@ -351,12 +236,22 @@ def verify_integrity(user_id: str) -> Dict:
     }
     
     try:
-        # Carregar local
-        local_txs = _load_local_transactions(user_id)
-        result["local_count"] = len(local_txs)
-        local_by_id = {tx.get("id"): tx for tx in local_txs if tx.get("id")}
+        if not FIREBASE_AVAILABLE or not user_id or user_id == "local" or len(user_id) <= 10:
+            result["valid"] = False
+            result["errors"].append("Firebase não disponível ou user_id inválido")
+            return result
         
-        # Carregar Firebase
+        # Carrega apenas do Firebase (sem storage local)
+        transactions = load_transactions(user_id, auto_reconcile=False)
+        result["firebase_count"] = len(transactions)
+        result["local_count"] = 0  # Sem storage local
+        
+        print(f"[BUSINESS-SYNC] ✅ Integridade verificada: {result['firebase_count']} transações no Firebase")
+        
+    except Exception as e:
+        result["valid"] = False
+        result["errors"].append(f"Erro ao verificar integridade: {str(e)}")
+        print(f"[BUSINESS-SYNC] ❌ Erro na verificação: {e}")
         firebase_txs = []
         if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
             try:

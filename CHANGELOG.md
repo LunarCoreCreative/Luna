@@ -2,6 +2,41 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.8] - 2026-01-14
+
+### 🐛 Correções de Bugs
+
+- **Business Mode - Cálculos e Duplicatas**:
+  - Corrigida a lógica de cálculo de `balance`, `income`, `expenses` e `invested` usando `Decimal` para evitar erros de arredondamento com `float`
+  - Garantido que o resumo financeiro (`get_summary` / `/business/summary`) sempre use todas as transações, alinhando-se com as metas e com o que a Luna relata no chat
+  - Ajustada a verificação de integridade para considerar investimentos e usar a mesma fórmula de saldo do resumo
+  - Removidos efeitos de transações duplicadas (cache local vs Firebase) ao carregar dados
+
+### 🔧 Mudanças de Arquitetura (Business / Firebase)
+
+- **Modo Online-Only (Business)**:
+  - Removido o fallback de storage local no Business Mode; o app agora considera o Firebase como fonte única de verdade
+  - `load_transactions`, `add_transaction`, `update_transaction` e `delete_transaction` passaram a exigir um UID válido de Firebase em produção
+  - Implementada remoção automática de duplicatas por `id` ao carregar transações, evitando saldos incorretos
+  - Módulos de sincronização (`sync.py`, `duplicate_detector.py`, `periods.py`) foram simplificados para trabalhar apenas com Firebase
+
+- **Modo de Teste Seguro**:
+  - Adicionado `LUNA_TEST_MODE` para permitir testes locais usando storage JSON sem afetar produção
+  - Criados scripts de integração (`test_business_tools_integration.py`, `test_luna_with_together_ai.py`) para validar cálculos, schema de tools e integração real com Together AI
+
+### 🤖 Luna Business Agent / Tools
+
+- **Uso de Tools e Confiabilidade**:
+  - `get_balance` e demais tools de negócio agora retornam apenas o formato novo (`balance`, `income`, `expenses`, `transaction_count`, `message`), sem campos legados
+  - Adicionadas regras rígidas no prompt do `business_agent` para que a Luna:
+    - Nunca invente ou chute valores financeiros
+    - Sempre chame as tools (`get_balance`, `list_transactions`, etc.) para obter números reais
+    - Use exclusivamente os valores retornados pelas tools nas respostas
+    - Evite responder com JSON cru, priorizando texto natural em português
+  - Ajustada integração de tools com Together AI para garantir que o `user_id` correto seja injetado e que os resultados sejam reaproveitados na resposta final
+
+---
+
 ## [1.1.7] - 2025-01-29
 
 ### 🐛 Correções de Bugs
@@ -11,27 +46,6 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - Saldo e Net Worth agora sempre mostram o total acumulado (todas as transações)
   - Income/Expenses/Invested continuam sendo filtrados por período quando selecionado
   - Saldo agora está consistente entre o resumo e as metas financeiras
-
-- **Business Mode - Precisão de Cálculos e Inconsistências de Saldo**:
-  - Substituído cálculo com `float` por `Decimal` para evitar erros de arredondamento
-  - Corrigido cálculo de integridade para incluir investimentos na fórmula de saldo
-  - Implementada remoção automática de transações duplicadas ao carregar dados
-  - Adicionados logs detalhados mostrando quantas transações de cada tipo foram processadas
-  - Validação melhorada para ignorar transações com valores negativos ou tipos inválidos
-  - Cálculos agora são consistentes entre backend, Luna Advisor e verificação de integridade
-  - Resolvido problema de duplicatas entre Firebase e armazenamento local causando saldos incorretos
-
-### 🔧 Melhorias
-
-- **Precisão de Cálculos**:
-  - Uso de `Decimal` para todos os cálculos financeiros (evita erros de ponto flutuante)
-  - Arredondamento consistente com 2 casas decimais em todos os valores
-  - Validação robusta de tipos e valores de transações
-
-- **Sincronização de Dados**:
-  - Merge inteligente entre Firebase e armazenamento local
-  - Remoção automática de duplicatas baseada em ID de transação
-  - Logs informativos quando duplicatas são encontradas e removidas
 
 ---
 

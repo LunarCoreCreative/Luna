@@ -14,8 +14,8 @@ try:
 except ImportError:
     FIREBASE_AVAILABLE = False
 
-# Local storage imports
-from .storage import _load_local_transactions
+# Storage imports (apenas Firebase agora)
+from .storage import load_transactions
 from .date_utils import get_date_only, compare_dates
 
 
@@ -88,25 +88,21 @@ def check_duplicate(user_id: str, tx: Dict, exclude_id: Optional[str] = None, ch
         (is_duplicate: bool, duplicate_tx: Optional[Dict], source: Optional[str])
         source pode ser "local" ou "firebase"
     """
-    # 1. Verifica no cache local
-    local_txs = _load_local_transactions(user_id)
-    duplicate = find_duplicate_in_list(local_txs, tx, exclude_id=exclude_id)
+    # Verifica apenas no Firebase (sem storage local)
+    if not FIREBASE_AVAILABLE or not user_id or user_id == "local" or len(user_id) <= 10:
+        # Se não tem Firebase ou user_id inválido, não pode verificar
+        return False, None, None
     
-    if duplicate:
-        return True, duplicate, "local"
-    
-    # 2. Verifica no Firebase se solicitado
-    if check_firebase and FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            # Limite reduzido para evitar quota exceeded
-            firebase_txs = get_user_transactions(user_id, limit=500)
-            duplicate = find_duplicate_in_list(firebase_txs, tx, exclude_id=exclude_id)
-            
-            if duplicate:
-                return True, duplicate, "firebase"
-        except Exception as e:
-            print(f"[BUSINESS-DUP] ⚠️ Erro ao verificar Firebase: {e}")
-            # Continua sem erro, apenas não verifica Firebase
+    try:
+        # Carrega transações do Firebase (load_transactions já usa apenas Firebase)
+        transactions = load_transactions(user_id, auto_reconcile=False)
+        duplicate = find_duplicate_in_list(transactions, tx, exclude_id=exclude_id)
+        
+        if duplicate:
+            return True, duplicate, "firebase"
+    except Exception as e:
+        print(f"[BUSINESS-DUP] ⚠️ Erro ao verificar duplicatas no Firebase: {e}")
+        # Continua sem erro, apenas não verifica
     
     return False, None, None
 
@@ -127,23 +123,16 @@ def find_all_duplicates(user_id: str, check_firebase: bool = True) -> List[Dict]
             "transactions": [lista de transações duplicadas]
         }
     """
-    # Carrega todas as transações
-    all_txs = _load_local_transactions(user_id)
+    # Carrega todas as transações do Firebase (sem storage local)
+    if not FIREBASE_AVAILABLE or not user_id or user_id == "local" or len(user_id) <= 10:
+        return []
     
-    if check_firebase and FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            # Limite reduzido para evitar quota exceeded
-            firebase_txs = get_user_transactions(user_id, limit=500)
-            # Mescla, mantendo apenas uma cópia de cada ID
-            firebase_by_id = {tx.get("id"): tx for tx in firebase_txs}
-            local_by_id = {tx.get("id"): tx for tx in all_txs}
-            
-            # Adiciona transações do Firebase que não estão no local
-            for tx_id, tx in firebase_by_id.items():
-                if tx_id not in local_by_id:
-                    all_txs.append(tx)
-        except Exception as e:
-            print(f"[BUSINESS-DUP] ⚠️ Erro ao carregar Firebase: {e}")
+    try:
+        # load_transactions já usa apenas Firebase
+        all_txs = load_transactions(user_id, auto_reconcile=False)
+    except Exception as e:
+        print(f"[BUSINESS-DUP] ⚠️ Erro ao carregar transações: {e}")
+        return []
     
     # Agrupa por chave
     groups = {}
@@ -213,9 +202,9 @@ def remove_duplicates(user_id: str, keep_oldest: bool = True, dry_run: bool = Fa
             "dry_run": True
         }
     
-    # Carrega transações locais
-    local_txs = _load_local_transactions(user_id)
-    local_by_id = {tx.get("id"): tx for tx in local_txs}
+    # Valida Firebase
+    if not FIREBASE_AVAILABLE or not user_id or user_id == "local" or len(user_id) <= 10:
+        raise ValueError("Firebase não disponível ou user_id inválido para remoção de duplicatas")
     
     # Para cada grupo de duplicatas
     for group in duplicates:
@@ -235,27 +224,21 @@ def remove_duplicates(user_id: str, keep_oldest: bool = True, dry_run: bool = Fa
             keep_tx = txs[-1]
             remove_txs = txs[:-1]
         
-        # Remove duplicatas do cache local
+        # Remove duplicatas APENAS do Firebase (sem cache local)
         for tx in remove_txs:
             tx_id = tx.get("id")
-            if tx_id and tx_id in local_by_id:
-                local_txs = [t for t in local_txs if t.get("id") != tx_id]
-                removed_ids.append(tx_id)
-                removed_count += 1
-                
-                # Remove do Firebase também
-                if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-                    try:
-                        from ..firebase_config import delete_transaction_from_firebase
-                        delete_transaction_from_firebase(user_id, tx_id)
-                    except Exception as e:
-                        print(f"[BUSINESS-DUP] ⚠️ Erro ao remover do Firebase: {e}")
+            if tx_id:
+                try:
+                    from ..firebase_config import delete_transaction_from_firebase
+                    delete_transaction_from_firebase(user_id, tx_id)
+                    removed_ids.append(tx_id)
+                    removed_count += 1
+                    print(f"[BUSINESS-DUP] ✅ Removida duplicata {tx_id} do Firebase")
+                except Exception as e:
+                    print(f"[BUSINESS-DUP] ⚠️ Erro ao remover duplicata {tx_id} do Firebase: {e}")
     
-    # Salva cache local atualizado
     if removed_count > 0:
-        from .storage import _save_local_transactions
-        _save_local_transactions(user_id, local_txs)
-        print(f"[BUSINESS-DUP] ✅ Removidas {removed_count} transações duplicadas")
+        print(f"[BUSINESS-DUP] ✅ Removidas {removed_count} transações duplicadas do Firebase")
     
     return {
         "removed_count": removed_count,

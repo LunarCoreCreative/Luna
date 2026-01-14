@@ -101,7 +101,7 @@ FASE 4: Funcionalidades Avançadas (2 semanas)
 
 ### Tarefas
 
-#### T1.1 - Criar Componente ProfessionalsMode
+#### T1.1 - Criar Componente ProfessionalsMode []
 - **Arquivo**: `src/components/professionals/ProfessionalsMode.jsx`
 - **Descrição**: Componente principal separado (similar a BusinessMode)
 - **Estrutura**:

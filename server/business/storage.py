@@ -51,8 +51,13 @@ def get_user_data_dir(user_id: str) -> Path:
 def get_transactions_file(user_id: str) -> Path:
     return get_user_data_dir(user_id) / "transactions.json"
 
+# Storage local removido - app funciona apenas online com Firebase
+# Funções _load_local_transactions e _save_local_transactions disponíveis apenas em modo de teste
 def _load_local_transactions(user_id: str) -> List[Dict]:
-    """Load transactions from local JSON file."""
+    """Load transactions from local JSON file (apenas em modo de teste)."""
+    import os
+    if os.environ.get("LUNA_TEST_MODE") != "1":
+        raise RuntimeError("Storage local disponível apenas em modo de teste")
     file_path = get_transactions_file(user_id)
     if not file_path.exists():
         return []
@@ -62,7 +67,10 @@ def _load_local_transactions(user_id: str) -> List[Dict]:
         return []
 
 def _save_local_transactions(user_id: str, transactions: List[Dict]) -> None:
-    """Save transactions to local JSON file."""
+    """Save transactions to local JSON file (apenas em modo de teste)."""
+    import os
+    if os.environ.get("LUNA_TEST_MODE") != "1":
+        raise RuntimeError("Storage local disponível apenas em modo de teste")
     file_path = get_transactions_file(user_id)
     file_path.write_text(json.dumps(transactions, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -99,47 +107,53 @@ def _remove_duplicates(transactions: List[Dict]) -> List[Dict]:
 def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
     """
     Load all transactions for a user.
-    Uses Firebase if available, otherwise local storage.
-    Always syncs local cache with Firebase when available.
-    Removes duplicates automatically.
+    REQUIRES Firebase - no local storage fallback.
+    App will not work offline.
     
     Args:
-        user_id: ID do usuário
-        auto_reconcile: Se True, executa reconciliação automática se necessário
-    """
-    # Se user_id parece ser um Firebase UID (longo) e Firebase está disponível
-    if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            # Carrega transações do Firebase (limite reduzido para evitar quota exceeded)
-            firebase_txs = get_user_transactions(user_id, limit=500)
-            
-            # Carrega também do local para merge
-            local_txs = _load_local_transactions(user_id)
-            
-            # Merge: combina Firebase e local, removendo duplicatas
-            all_transactions = firebase_txs + local_txs
-            transactions = _remove_duplicates(all_transactions)
-            
-            # Se encontrou transações, sincroniza o cache local
-            if transactions:
-                print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações (Firebase: {len(firebase_txs)}, Local: {len(local_txs)})")
-                _save_local_transactions(user_id, transactions)
-                return transactions
-            else:
-                # Nenhuma transação encontrada
-                return []
-                
-        except Exception as e:
-            print(f"[BUSINESS] ❌ Firebase load failed, fallback local: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback para local mesmo em caso de erro
-            local_txs = _load_local_transactions(user_id)
-            return _remove_duplicates(local_txs)
+        user_id: ID do usuário (deve ser Firebase UID)
+        auto_reconcile: Se True, executa reconciliação automática se necessário (não usado mais)
     
-    # Fallback para storage local
-    local_txs = _load_local_transactions(user_id)
-    return _remove_duplicates(local_txs)
+    Returns:
+        Lista de transações do Firebase
+        
+    Raises:
+        ValueError: Se Firebase não estiver disponível ou user_id inválido
+    """
+    # Modo de teste: permite storage local temporariamente
+    import os
+    TEST_MODE = os.environ.get("LUNA_TEST_MODE") == "1"
+    
+    # Valida que user_id é um Firebase UID válido (ou permite local em modo de teste)
+    if not user_id or (user_id == "local" and not TEST_MODE) or (len(user_id) <= 10 and not TEST_MODE):
+        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
+    
+    if not FIREBASE_AVAILABLE and not TEST_MODE:
+        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
+    
+    # Em modo de teste, permite usar storage local
+    if TEST_MODE and (not FIREBASE_AVAILABLE or user_id.startswith("testlocal")):
+        local_txs = _load_local_transactions(user_id)
+        transactions = _remove_duplicates(local_txs)
+        print(f"[BUSINESS-TEST] ✅ Carregadas {len(transactions)} transações do storage local (modo teste)")
+        return transactions
+    
+    try:
+        # Carrega transações APENAS do Firebase
+        transactions = get_user_transactions(user_id, limit=500)
+        
+        # Remove duplicatas (caso existam no próprio Firebase)
+        transactions = _remove_duplicates(transactions)
+        
+        print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações do Firebase")
+        return transactions
+                
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Erro ao carregar transações do Firebase: {e}")
+        import traceback
+        traceback.print_exc()
+        # Não há fallback - propaga o erro
+        raise ValueError(f"Erro ao carregar transações do Firebase: {str(e)}") from e
 
 
 def add_transaction(
@@ -241,31 +255,40 @@ def add_transaction(
         # Outros erros na verificação não devem impedir a criação
         print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas (continuando): {e}")
     
-    # SEMPRE salva localmente primeiro (garantia de persistência)
-    transactions = _load_local_transactions(user_id)
-    # Evita duplicatas por ID
-    if not any(tx.get("id") == new_tx["id"] for tx in transactions):
-        transactions.append(new_tx)
-        _save_local_transactions(user_id, transactions)
-        print(f"[BUSINESS] ✅ Transação {new_tx['id']} salva no cache local")
-    else:
-        print(f"[BUSINESS] ⚠️ Transação {new_tx['id']} já existe no cache local, pulando...")
+    # Modo de teste: permite storage local temporariamente
+    import os
+    TEST_MODE = os.environ.get("LUNA_TEST_MODE") == "1"
     
-    # Depois tenta salvar no Firebase com retry automático
-    if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            from .sync import sync_transaction_to_firebase
-            firebase_success, error = sync_transaction_to_firebase(user_id, new_tx, retry=True)
-            if firebase_success:
-                print(f"[BUSINESS] ✅ Transação {new_tx['id']} também salva no Firebase")
-            else:
-                print(f"[BUSINESS] ⚠️ Falha ao salvar no Firebase após retries: {error}")
-                print(f"[BUSINESS] ⚠️ Transação está salva localmente e será sincronizada depois")
-        except Exception as e:
-            print(f"[BUSINESS] ❌ Firebase save failed: {e}")
-            import traceback
-            traceback.print_exc()
-            # Não falha a operação, já salvou localmente
+    # Valida que Firebase está disponível (ou permite modo de teste)
+    if not FIREBASE_AVAILABLE and not TEST_MODE:
+        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
+    
+    if not user_id or (user_id == "local" and not TEST_MODE) or (len(user_id) <= 10 and not TEST_MODE):
+        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
+    
+    # Em modo de teste, salva localmente primeiro
+    if TEST_MODE and (not FIREBASE_AVAILABLE or user_id.startswith("testlocal")):
+        transactions = _load_local_transactions(user_id)
+        if not any(tx.get("id") == new_tx["id"] for tx in transactions):
+            transactions.append(new_tx)
+            _save_local_transactions(user_id, transactions)
+            print(f"[BUSINESS-TEST] ✅ Transação {new_tx['id']} salva localmente (modo teste)")
+            return new_tx
+    
+    # Salva APENAS no Firebase (sem cache local)
+    try:
+        from .sync import sync_transaction_to_firebase
+        firebase_success, error = sync_transaction_to_firebase(user_id, new_tx, retry=True)
+        if firebase_success:
+            print(f"[BUSINESS] ✅ Transação {new_tx['id']} salva no Firebase")
+        else:
+            raise ValueError(f"Falha ao salvar no Firebase após retries: {error}")
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Firebase save failed: {e}")
+        import traceback
+        traceback.print_exc()
+        # Propaga o erro - sem fallback local
+        raise ValueError(f"Erro ao salvar transação no Firebase: {str(e)}") from e
     
     return new_tx
 
@@ -348,69 +371,84 @@ def get_summary(user_id: str) -> Dict:
 
 
 def delete_transaction(user_id: str, tx_id: str) -> bool:
-    """Delete a transaction by ID from Firebase and local."""
+    """
+    Delete a transaction by ID from Firebase.
+    REQUIRES Firebase - no local storage fallback.
     
-    # Delete from Firebase com retry
-    if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            from .sync import _retry_with_backoff
-            def attempt_delete():
-                try:
-                    delete_transaction_from_firebase(user_id, tx_id)
-                    return True, None
-                except Exception as e:
-                    return False, str(e)
-            
-            success, error, attempts = _retry_with_backoff(attempt_delete)
-            if not success:
-                print(f"[BUSINESS] ⚠️ Firebase delete failed após {attempts} tentativas: {error}")
-        except Exception as e:
-            print(f"[BUSINESS] Firebase delete failed: {e}")
+    Args:
+        user_id: Firebase UID do usuário
+        tx_id: ID da transação a deletar
     
-    # Delete from local
-    transactions = _load_local_transactions(user_id)
-    original_len = len(transactions)
-    transactions = [tx for tx in transactions if tx["id"] != tx_id]
+    Returns:
+        True se deletado com sucesso
+        
+    Raises:
+        ValueError: Se Firebase não estiver disponível
+    """
+    # Valida que Firebase está disponível
+    if not FIREBASE_AVAILABLE:
+        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
     
-    if len(transactions) < original_len:
-        _save_local_transactions(user_id, transactions)
-        return True
-    return False
+    if not user_id or user_id == "local" or len(user_id) <= 10:
+        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
+    
+    # Delete APENAS do Firebase
+    try:
+        from .sync import _retry_with_backoff
+        def attempt_delete():
+            try:
+                delete_transaction_from_firebase(user_id, tx_id)
+                return True, None
+            except Exception as e:
+                return False, str(e)
+        
+        success, error, attempts = _retry_with_backoff(attempt_delete)
+        if success:
+            print(f"[BUSINESS] ✅ Transação {tx_id} deletada do Firebase")
+            return True
+        else:
+            raise ValueError(f"Falha ao deletar no Firebase após {attempts} tentativas: {error}")
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Firebase delete failed: {e}")
+        raise ValueError(f"Erro ao deletar transação no Firebase: {str(e)}") from e
 
 
 def update_transaction(user_id: str, tx_id: str, updates: Dict) -> Optional[Dict]:
-    """Update a transaction by ID."""
+    """
+    Update a transaction by ID.
+    REQUIRES Firebase - no local storage fallback.
     
-    # 1. Carregar transações locais
-    transactions = _load_local_transactions(user_id)
+    Args:
+        user_id: Firebase UID do usuário
+        tx_id: ID da transação a atualizar
+        updates: Dicionário com campos a atualizar
     
-    # 2. Tentar encontrar a transação
-    tx_index = next((i for i, t in enumerate(transactions) if t["id"] == tx_id), -1)
+    Returns:
+        Transação atualizada ou None se não encontrada
+        
+    Raises:
+        ValueError: Se Firebase não estiver disponível
+    """
+    # Valida que Firebase está disponível
+    if not FIREBASE_AVAILABLE:
+        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
     
-    # 3. Se não encontrou e estamos online, tentar sincronizar do Firebase
-    if tx_index == -1 and FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        print(f"[BUSINESS] Transação {tx_id} não encontrada localmente, buscando no Firebase...")
-        try:
-            # Busca as mais recentes para tentar achar
-            fresh_txs = get_user_transactions(user_id, limit=200)
-            if fresh_txs:
-                # Atualiza cache local (sobrescreve ou merge? sobrescrever é mais seguro pra consistência de lista, mas perde dados offline não syncados.
-                # Como é um cache, vamos assumir que o Firebase é a verdade absoluta se tivermos dados.
-                _save_local_transactions(user_id, fresh_txs)
-                transactions = fresh_txs
-                # Tenta achar de novo
-                tx_index = next((i for i, t in enumerate(transactions) if t["id"] == tx_id), -1)
-        except Exception as e:
-            print(f"[BUSINESS] Erro ao sincronizar para update: {e}")
+    if not user_id or user_id == "local" or len(user_id) <= 10:
+        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
+    
+    # 1. Buscar transação no Firebase
+    try:
+        transactions = get_user_transactions(user_id, limit=200)
+        tx = next((t for t in transactions if t.get("id") == tx_id), None)
+        
+        if not tx:
+            print(f"[BUSINESS] ⚠️ Transação {tx_id} não encontrada no Firebase")
+            return None
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Erro ao buscar transação no Firebase: {e}")
+        raise ValueError(f"Erro ao buscar transação no Firebase: {str(e)}") from e
 
-    # 4. Se ainda não encontrou, falha
-    if tx_index == -1:
-        return None
-
-    # 5. Aplica atualizações no objeto em memória
-    tx = transactions[tx_index]
-    
-    # Verifica duplicatas se estiver atualizando campos que afetam a chave única
+    # 2. Verifica duplicatas se estiver atualizando campos que afetam a chave única
     fields_that_affect_key = ["date", "value", "description", "type"]
     if any(field in updates for field in fields_that_affect_key):
         try:
@@ -433,7 +471,7 @@ def update_transaction(user_id: str, tx_id: str, updates: Dict) -> Optional[Dict
             # Outros erros na verificação não devem impedir a atualização
             print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas no update (continuando): {e}")
     
-    # Se está atualizando a data, normaliza para UTC
+    # 3. Se está atualizando a data, normaliza para UTC
     if "date" in updates:
         try:
             from .date_utils import normalize_date, validate_date_format
@@ -446,30 +484,28 @@ def update_transaction(user_id: str, tx_id: str, updates: Dict) -> Optional[Dict
             print(f"[BUSINESS] ❌ Erro ao normalizar data no update: {e}")
             raise ValueError(f"Erro ao processar data: {str(e)}")
     
+    # 4. Aplica atualizações
     tx.update(updates)
     tx["updated_at"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     
-    # 6. Salva no Firebase (Cloud) com retry
-    if FIREBASE_AVAILABLE and user_id and user_id != "local" and len(user_id) > 10:
-        try:
-            from .sync import _retry_with_backoff
-            def attempt_update():
-                try:
-                    update_transaction_in_firebase(user_id, tx_id, updates)
-                    return True, None
-                except Exception as e:
-                    return False, str(e)
-            
-            success, error, attempts = _retry_with_backoff(attempt_update)
-            if not success:
-                print(f"[BUSINESS] ⚠️ Firebase update failed após {attempts} tentativas: {error}")
-        except Exception as e:
-            print(f"[BUSINESS] Firebase update failed: {e}")
-    
-    # 7. Salva no Local (Cache)
-    # Precisamos garantir que atualizamos a lista original com o objeto modificado
-    transactions[tx_index] = tx
-    _save_local_transactions(user_id, transactions)
+    # 5. Salva APENAS no Firebase (sem cache local)
+    try:
+        from .sync import _retry_with_backoff
+        def attempt_update():
+            try:
+                update_transaction_in_firebase(user_id, tx_id, updates)
+                return True, None
+            except Exception as e:
+                return False, str(e)
+        
+        success, error, attempts = _retry_with_backoff(attempt_update)
+        if success:
+            print(f"[BUSINESS] ✅ Transação {tx_id} atualizada no Firebase")
+        else:
+            raise ValueError(f"Falha ao atualizar no Firebase após {attempts} tentativas: {error}")
+    except Exception as e:
+        print(f"[BUSINESS] ❌ Firebase update failed: {e}")
+        raise ValueError(f"Erro ao atualizar transação no Firebase: {str(e)}") from e
     
     return tx
 

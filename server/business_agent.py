@@ -48,6 +48,18 @@ async def business_generator(request: ChatRequest) -> AsyncGenerator[str, None]:
         user_name=request.user_name or "Usuário",
         business_mode=True
     )
+    # Regras extras específicas para Business Mode (evitar alucinações)
+    prompt += """
+
+Regras CRÍTICAS para informações financeiras:
+- Você NUNCA deve inventar ou chutar valores numéricos de saldo, receitas, despesas, investimentos, metas ou totais.
+- Sempre que precisar de QUALQUER número financeiro atual (saldo, total de entradas/saídas, etc.), você DEVE usar as tools de negócio apropriadas:
+  - Use a tool `get_balance` para obter saldo atual, total de entradas, saídas e quantidade de transações.
+  - Use a tool `list_transactions` quando precisar listar ou conferir transações.
+- Após chamar uma tool, use EXCLUSIVAMENTE os valores retornados por ela para responder. Não altere nem arredonde para números diferentes.
+- Se uma tool falhar ou não estiver disponível, explique claramente o erro para o usuário e diga que não consegue acessar os dados no momento. NÃO invente números.
+- Evite responder com JSON puro; prefira sempre respostas em texto natural em português, mencionando os valores retornados pelas tools.
+"""
     
     # Load business context
     recent_tx = []

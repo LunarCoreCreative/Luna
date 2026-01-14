@@ -714,11 +714,12 @@ from .sync import (
 @handle_business_errors
 async def reconcile_transactions_endpoint(user_id: str = "local", force: bool = False):
     """
-    Reconcilia transações entre Firebase e Local Storage.
+    Verifica integridade das transações no Firebase.
+    (Não há mais storage local - app funciona apenas online)
     
     Args:
-        user_id: ID do usuário
-        force: Se True, força reconciliação mesmo se recente
+        user_id: ID do usuário (Firebase UID)
+        force: Ignorado (mantido para compatibilidade)
     """
     try:
         result = reconcile_transactions(user_id, force=force)
@@ -742,7 +743,7 @@ async def reconcile_transactions_endpoint(user_id: str = "local", force: bool = 
 @handle_business_errors
 async def verify_integrity_endpoint(user_id: str = "local"):
     """
-    Verifica integridade dos dados entre Firebase e Local Storage.
+    Verifica integridade dos dados no Firebase (app funciona apenas online).
     
     Returns:
         Status de integridade e detalhes de inconsistências

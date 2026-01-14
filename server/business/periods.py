@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
-from .storage import get_user_data_dir, load_transactions, _load_local_transactions
+from .storage import get_user_data_dir, load_transactions
 
 
 def get_periods_file(user_id: str) -> Path:
