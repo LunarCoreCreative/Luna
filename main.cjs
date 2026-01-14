@@ -237,43 +237,58 @@ function createWindow() {
 
     // Em dev mode, aguarda o Vite estar pronto antes de carregar
     if (isDev) {
-        const maxRetries = 30; // 30 tentativas = 15 segundos
+        const maxRetries = 60; // 60 tentativas = 30 segundos (Vite pode demorar para iniciar)
         let retries = 0;
+        let isLoaded = false;
         
         const tryLoadVite = () => {
+            if (isLoaded) return; // Evita múltiplas chamadas
+            
             const http = require('http');
-            const req = http.get('http://localhost:5173', { timeout: 500 }, (res) => {
+            const req = http.get('http://localhost:5173', { timeout: 1000 }, (res) => {
                 // Vite está pronto, carrega a URL
-                console.log('[ELECTRON] Vite está pronto, carregando aplicação...');
-                mainWindow.loadURL(startURL);
+                if (!isLoaded) {
+                    isLoaded = true;
+                    console.log('[ELECTRON] ✅ Vite está pronto, carregando aplicação...');
+                    mainWindow.loadURL(startURL);
+                }
             });
             
             req.on('error', () => {
                 retries++;
-                if (retries < maxRetries) {
-                    // Tenta novamente em 500ms
+                if (retries < maxRetries && !isLoaded) {
+                    // Tenta novamente em 500ms (só loga a cada 10 tentativas para não poluir)
+                    if (retries % 10 === 0) {
+                        console.log(`[ELECTRON] Aguardando Vite... (tentativa ${retries}/${maxRetries})`);
+                    }
                     setTimeout(tryLoadVite, 500);
-                } else {
+                } else if (!isLoaded) {
                     // Timeout - mostra erro
-                    console.error('[ELECTRON] Timeout: Vite não está respondendo na porta 5173');
-                    mainWindow.loadURL('data:text/html,<html><body style="background:#1a1a1a;color:#fff;font-family:monospace;padding:20px;"><h1>Erro: Vite não está rodando</h1><p>Certifique-se de que o Vite está rodando na porta 5173.</p><p>Execute: <code>npm run dev</code> em outro terminal.</p></body></html>');
+                    console.error('[ELECTRON] ❌ Timeout: Vite não está respondendo na porta 5173');
+                    console.error('[ELECTRON] Certifique-se de que o Vite está rodando. Execute: npm run dev');
+                    mainWindow.loadURL('data:text/html,<html><body style="background:#1a1a1a;color:#fff;font-family:monospace;padding:20px;"><h1>⚠️ Erro: Vite não está rodando</h1><p>O servidor de desenvolvimento Vite não está respondendo na porta 5173.</p><p><strong>Solução:</strong></p><ol><li>Certifique-se de que o comando <code>npm run electron:dev</code> está rodando completamente</li><li>Ou execute <code>npm run dev</code> em outro terminal primeiro</li><li>Depois execute <code>npm run electron</code></li></ol><p style="margin-top:20px;color:#888;">Esta janela será atualizada automaticamente quando o Vite estiver pronto.</p></body></html>');
+                    // Continua tentando em background (a cada 2 segundos)
+                    setTimeout(tryLoadVite, 2000);
                 }
             });
             
             req.on('timeout', () => {
                 req.destroy();
                 retries++;
-                if (retries < maxRetries) {
+                if (retries < maxRetries && !isLoaded) {
+                    if (retries % 10 === 0) {
+                        console.log(`[ELECTRON] Aguardando Vite... (tentativa ${retries}/${maxRetries})`);
+                    }
                     setTimeout(tryLoadVite, 500);
-                } else {
-                    console.error('[ELECTRON] Timeout: Vite não está respondendo');
-                    mainWindow.loadURL('data:text/html,<html><body style="background:#1a1a1a;color:#fff;font-family:monospace;padding:20px;"><h1>Erro: Vite não está rodando</h1><p>Certifique-se de que o Vite está rodando na porta 5173.</p><p>Execute: <code>npm run dev</code> em outro terminal.</p></body></html>');
+                } else if (!isLoaded) {
+                    console.error('[ELECTRON] ❌ Timeout: Vite não está respondendo');
+                    setTimeout(tryLoadVite, 2000); // Continua tentando
                 }
             });
         };
         
-        // Inicia tentativa de carregar
-        tryLoadVite();
+        // Inicia tentativa de carregar (aguarda 1 segundo primeiro para dar tempo do Vite iniciar)
+        setTimeout(tryLoadVite, 1000);
     } else {
         // Production: carrega direto
         mainWindow.loadURL(startURL);
