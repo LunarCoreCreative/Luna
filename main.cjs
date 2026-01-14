@@ -235,7 +235,49 @@ function createWindow() {
         ? 'http://localhost:5173'
         : 'http://localhost:4173'; // Use local express server
 
-    mainWindow.loadURL(startURL);
+    // Em dev mode, aguarda o Vite estar pronto antes de carregar
+    if (isDev) {
+        const maxRetries = 30; // 30 tentativas = 15 segundos
+        let retries = 0;
+        
+        const tryLoadVite = () => {
+            const http = require('http');
+            const req = http.get('http://localhost:5173', { timeout: 500 }, (res) => {
+                // Vite está pronto, carrega a URL
+                console.log('[ELECTRON] Vite está pronto, carregando aplicação...');
+                mainWindow.loadURL(startURL);
+            });
+            
+            req.on('error', () => {
+                retries++;
+                if (retries < maxRetries) {
+                    // Tenta novamente em 500ms
+                    setTimeout(tryLoadVite, 500);
+                } else {
+                    // Timeout - mostra erro
+                    console.error('[ELECTRON] Timeout: Vite não está respondendo na porta 5173');
+                    mainWindow.loadURL('data:text/html,<html><body style="background:#1a1a1a;color:#fff;font-family:monospace;padding:20px;"><h1>Erro: Vite não está rodando</h1><p>Certifique-se de que o Vite está rodando na porta 5173.</p><p>Execute: <code>npm run dev</code> em outro terminal.</p></body></html>');
+                }
+            });
+            
+            req.on('timeout', () => {
+                req.destroy();
+                retries++;
+                if (retries < maxRetries) {
+                    setTimeout(tryLoadVite, 500);
+                } else {
+                    console.error('[ELECTRON] Timeout: Vite não está respondendo');
+                    mainWindow.loadURL('data:text/html,<html><body style="background:#1a1a1a;color:#fff;font-family:monospace;padding:20px;"><h1>Erro: Vite não está rodando</h1><p>Certifique-se de que o Vite está rodando na porta 5173.</p><p>Execute: <code>npm run dev</code> em outro terminal.</p></body></html>');
+                }
+            });
+        };
+        
+        // Inicia tentativa de carregar
+        tryLoadVite();
+    } else {
+        // Production: carrega direto
+        mainWindow.loadURL(startURL);
+    }
 
     // Fix para inputs que param de funcionar no Windows
     // Função auxiliar para restaurar foco e eventos de mouse
