@@ -29,7 +29,11 @@ if (process.platform === 'win32') {
 
 // SaaS Mode: Only start Python locally in development
 const USE_LOCAL_PYTHON = isDev;
-const CLOUD_WS_URL = 'wss://luna-production-94f2.up.railway.app/ws/link'; // Luna Link tunnel
+// Detect staging environment
+const IS_STAGING = process.env.STAGING === 'true' || process.env.VITE_STAGING === 'true';
+const PRODUCTION_WS_URL = 'wss://luna-production-94f2.up.railway.app/ws/link';
+const STAGING_WS_URL = 'wss://luna-staging.up.railway.app/ws/link';
+const CLOUD_WS_URL = IS_STAGING ? STAGING_WS_URL : PRODUCTION_WS_URL; // Luna Link tunnel
 
 // Start local web server for production to support Firebase Auth (needs localhost)
 function startLocalWebServer() {
