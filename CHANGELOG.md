@@ -2,6 +2,17 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
+## [1.1.8] - 2025-01-29
+
+### 🔧 Correções de Sistema
+
+- **Auto-Updater**:
+  - Corrigido problema de detecção de atualizações no autoupdater
+  - Autoupdater agora detecta corretamente a latest release do GitHub
+  - Release oficial criada para garantir funcionamento do sistema de atualização automática
+
+---
+
 ## [1.1.7] - 2025-01-29
 
 ### 🐛 Correções de Bugs
