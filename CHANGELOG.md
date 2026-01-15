@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
-## [1.1.8-beta] - 2026-01-14
+## [1.1.7] - 2025-01-29
 
 ### 🐛 Correções de Bugs
 
@@ -11,6 +11,10 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - Garantido que o resumo financeiro (`get_summary` / `/business/summary`) sempre use todas as transações, alinhando-se com as metas e com o que a Luna relata no chat
   - Ajustada a verificação de integridade para considerar investimentos e usar a mesma fórmula de saldo do resumo
   - Removidos efeitos de transações duplicadas (cache local vs Firebase) ao carregar dados
+  - Corrigido problema onde o saldo mostrado no resumo estava sendo filtrado por período
+  - Saldo e Net Worth agora sempre mostram o total acumulado (todas as transações)
+  - Income/Expenses/Invested continuam sendo filtrados por período quando selecionado
+  - Saldo agora está consistente entre o resumo e as metas financeiras
 
 ### 🔧 Mudanças de Arquitetura (Business / Firebase)
 
@@ -42,18 +46,6 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - Adicionadas instruções no prompt do `business_agent` para que a Luna sempre use formato de tabela ao listar transações
   - Tool `list_transactions` agora inclui dicas de formatação para garantir tabelas consistentes
   - Frontend já suporta renderização de tabelas markdown via `remarkGfm`
-
----
-
-## [1.1.7] - 2025-01-29
-
-### 🐛 Correções de Bugs
-
-- **Business Mode - Saldo Incorreto ao Filtrar por Período**:
-  - Corrigido problema onde o saldo mostrado no resumo estava sendo filtrado por período
-  - Saldo e Net Worth agora sempre mostram o total acumulado (todas as transações)
-  - Income/Expenses/Invested continuam sendo filtrados por período quando selecionado
-  - Saldo agora está consistente entre o resumo e as metas financeiras
 
 ---
 
