@@ -71,7 +71,13 @@ jobs:
             
             core.setOutput('notes', releaseNotes);
 
-      - name: Create GitHub Release (Draft)
+      - name: Build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist:desktop
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag_version.outputs.tag }}
@@ -84,21 +90,11 @@ jobs:
             ### 📦 Instalação
             
             Baixe o instalador para Windows na seção de assets abaixo.
-          draft: true
-          prerelease: ${{ contains(steps.tag_version.outputs.version, '0.2.0') || contains(steps.tag_version.outputs.version, 'pre') || contains(steps.tag_version.outputs.version, 'alpha') || contains(steps.tag_version.outputs.version, 'beta') || contains(steps.tag_version.outputs.version, 'rc') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run dist:desktop -- --publish always
-
-      - name: Publish Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.tag_version.outputs.tag }}
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
           draft: false
+          prerelease: ${{ contains(steps.tag_version.outputs.version, '0.2.0') || contains(steps.tag_version.outputs.version, '0.2.1') || contains(steps.tag_version.outputs.version, 'pre') || contains(steps.tag_version.outputs.version, 'alpha') || contains(steps.tag_version.outputs.version, 'beta') || contains(steps.tag_version.outputs.version, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
