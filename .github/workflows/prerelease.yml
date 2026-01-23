@@ -66,13 +66,23 @@ jobs:
             if (-not $LAST_TAG) { $LAST_TAG = "v0.0.0" }
             $LAST_VERSION = $LAST_TAG -replace "^v", ""
             $CHANNEL = "${{ github.event.inputs.channel }}"
-            if (-not $CHANNEL) { $CHANNEL = "beta" }
+            if (-not $CHANNEL -or $CHANNEL -eq "") { $CHANNEL = "beta" }
             
             # Extrair número base (ex: 1.0.0-beta.1 -> 1.0.0)
             if ($LAST_VERSION -match "^(\d+\.\d+\.\d+)(?:-.*)?$") {
               $BASE_VERSION = $matches[1]
             } else {
-              $BASE_VERSION = "1.0.0"
+              # Se não conseguir extrair, usar versão do package.json ou padrão
+              try {
+                $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+                if ($pkg.version) {
+                  $BASE_VERSION = $pkg.version -replace "-.*$", ""
+                } else {
+                  $BASE_VERSION = "1.0.0"
+                }
+              } catch {
+                $BASE_VERSION = "1.0.0"
+              }
             }
             
             # Extrair número do pre-release (ex: beta.1 -> 1)
@@ -85,22 +95,54 @@ jobs:
             
             $VERSION = "$BASE_VERSION-$CHANNEL.$NEW_PRE_NUM"
           }
+          
+          # Garantir que a versão não está vazia
+          if (-not $VERSION -or $VERSION -eq "") {
+            Write-Error "Failed to determine version!"
+            exit 1
+          }
+          
           Write-Host "version=$VERSION" >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $VERSION"
+          Write-Host "Determined version: $VERSION"
 
       - name: Update package.json version
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $packageJson = Get-Content package.json -Raw | ConvertFrom-Json
+          
+          if (-not $version -or $version -eq "") {
+            Write-Error "Version is empty! Cannot update package.json"
+            exit 1
+          }
+          
+          Write-Host "Updating package.json to version: $version"
+          
+          # Ler package.json
+          $packageJsonPath = "package.json"
+          if (-not (Test-Path $packageJsonPath)) {
+            Write-Error "package.json not found!"
+            exit 1
+          }
+          
+          $packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+          
+          # Atualizar versão
           $packageJson.version = $version
+          
+          # Converter de volta para JSON e salvar
           $json = $packageJson | ConvertTo-Json -Depth 100
-          # Garantir que o JSON está formatado corretamente
-          $json | Set-Content package.json -Encoding UTF8
-          Write-Host "Updated package.json to version $version"
-          # Verificar se foi atualizado
-          $verify = Get-Content package.json -Raw | ConvertFrom-Json
-          Write-Host "Verified version in package.json: $($verify.version)"
+          $json | Set-Content $packageJsonPath -Encoding UTF8 -NoNewline
+          
+          Write-Host "✓ Updated package.json to version $version"
+          
+          # Verificar se foi atualizado corretamente
+          $verify = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+          if ($verify.version -ne $version) {
+            Write-Error "Version mismatch! Expected: $version, Got: $($verify.version)"
+            exit 1
+          }
+          
+          Write-Host "✓ Verified version in package.json: $($verify.version)"
 
       - name: Extract changelog
         id: changelog
@@ -164,11 +206,25 @@ jobs:
       - name: Verify package.json version
         shell: pwsh
         run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if (-not $pkg.version -or $pkg.version -eq "") {
-            Write-Error "Version is missing or empty in package.json!"
+          Write-Host "Verifying package.json version..."
+          
+          if (-not (Test-Path "package.json")) {
+            Write-Error "package.json not found!"
             exit 1
           }
+          
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          
+          if (-not $pkg.PSObject.Properties['version']) {
+            Write-Error "Version field is missing in package.json!"
+            exit 1
+          }
+          
+          if (-not $pkg.version -or $pkg.version -eq "") {
+            Write-Error "Version is empty in package.json!"
+            exit 1
+          }
+          
           Write-Host "✓ Version in package.json: $($pkg.version)"
 
       - name: Build application
