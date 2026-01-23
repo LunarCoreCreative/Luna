@@ -65,12 +65,17 @@ jobs:
           Write-Host "Extracted version: $VERSION"
 
       - name: Update package.json version
+        shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $packageJson = Get-Content package.json | ConvertFrom-Json
+          $packageJson = Get-Content package.json -Raw | ConvertFrom-Json
           $packageJson.version = $version
-          $packageJson | ConvertTo-Json -Depth 100 | Set-Content package.json
+          $json = $packageJson | ConvertTo-Json -Depth 100
+          $json | Set-Content package.json -Encoding UTF8
           Write-Host "Updated package.json to version $version"
+          # Verificar se foi atualizado
+          $verify = Get-Content package.json -Raw | ConvertFrom-Json
+          Write-Host "Verified version in package.json: $($verify.version)"
 
       - name: Extract changelog
         id: changelog
@@ -115,7 +120,18 @@ jobs:
             core.setOutput('id', release.data.id);
             core.setOutput('upload_url', release.data.upload_url);
 
+      - name: Verify package.json version
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if (-not $pkg.version -or $pkg.version -eq "") {
+            Write-Error "Version is missing or empty in package.json!"
+            exit 1
+          }
+          Write-Host "✓ Version in package.json: $($pkg.version)"
+
       - name: Build application
+        shell: pwsh
         run: npm run dist:desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
