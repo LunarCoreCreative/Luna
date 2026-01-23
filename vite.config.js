@@ -1,95 +1,65 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { copyFileSync, existsSync } from 'fs'
-import { resolve } from 'path'
+import tailwindcss from '@tailwindcss/vite'
+import path from 'path'
 
+// https://vite.dev/config/
 export default defineConfig({
-    plugins: [
-        react({
-            // Garante que o React seja sempre importado corretamente
-            jsxRuntime: 'automatic'
-        }),
-        {
-            name: 'copy-changelog',
-            writeBundle() {
-                // Copia CHANGELOG.md para dist após o build
-                try {
-                    const changelogPath = resolve(__dirname, 'CHANGELOG.md');
-                    const distPath = resolve(__dirname, 'dist', 'CHANGELOG.md');
-                    
-                    if (existsSync(changelogPath)) {
-                        copyFileSync(changelogPath, distPath);
-                        console.log('[VITE] CHANGELOG.md copiado para dist');
-                    } else {
-                        console.warn('[VITE] CHANGELOG.md não encontrado');
-                    }
-                } catch (error) {
-                    console.warn('[VITE] Erro ao copiar CHANGELOG.md:', error);
-                }
-            }
-        },
-        {
-            name: 'copy-changelog-plugin'
-            // Plugin removido - deixa Vite gerenciar ordem automaticamente
-        }
+  base: './',
+  plugins: [
+    react({
+      // Otimizar Fast Refresh
+      fastRefresh: true,
+      // Não incluir runtime no bundle principal
+      jsxRuntime: 'automatic',
+    }),
+    tailwindcss(),
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  // Otimizações de build e dev
+  optimizeDeps: {
+    // Pre-bundle de dependências pesadas
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom',
+      'framer-motion',
+      'i18next',
+      'react-i18next',
+      'lucide-react',
     ],
-    base: './',
-    build: {
-        outDir: 'dist',
-        emptyOutDir: true,
-        rollupOptions: {
-            output: {
-                // Deixa o Vite/Rollup gerenciar os chunks automaticamente
-                // Evita problemas de ordem de carregamento com React
-                manualChunks: {
-                    // Apenas Firebase separado por ser grande
-                    'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore']
-                },
-                entryFileNames: 'assets/[name]-[hash].js',
-                chunkFileNames: 'assets/[name]-[hash].js',
-                assetFileNames: 'assets/[name]-[hash].[ext]'
-            }
+    // Excluir dependências que não precisam ser pré-empacotadas ou têm exports complexos
+    exclude: ['electron'],
+  },
+  // Configurações de build para produção
+  build: {
+    // Chunking otimizado
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Separar vendor chunks
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['framer-motion', 'lucide-react'],
+          // Firebase v9+ (modular) não expõe entrypoint "firebase"
+          'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'i18n-vendor': ['i18next', 'react-i18next', 'i18next-browser-languagedetector'],
         },
-        // Otimizações de build
-        minify: 'terser',
-        terserOptions: {
-            compress: {
-                drop_console: false, // Mantém console.log para debug
-                drop_debugger: true,
-                pure_funcs: ['console.debug', 'console.trace'],
-                // Não quebra referências do React
-                keep_classnames: true,
-                keep_fnames: true,
-                // Evita problemas com React
-                passes: 2
-            },
-            format: {
-                // Mantém comentários importantes
-                comments: /^!|@preserve|@license|@cc_on/
-            },
-            mangle: {
-                // Não minifica propriedades do React
-                reserved: ['React', 'forwardRef', 'createElement', 'useState', 'useEffect']
-            }
-        },
-        // Chunk size warnings
-        chunkSizeWarningLimit: 1000,
-        // Configuração específica para build de produção
-        commonjsOptions: {
-            // Garante que o React seja tratado corretamente
-            transformMixedEsModules: true
-        }
+      },
     },
-    // Otimizações de desenvolvimento
-    optimizeDeps: {
-        include: ['react', 'react-dom', 'lucide-react'],
-        // Força o React a ser um singleton
-        esbuildOptions: {
-            target: 'esnext'
-        }
+    // Limite de avisos de chunk size
+    chunkSizeWarningLimit: 1000,
+  },
+  // Configurações do servidor de desenvolvimento
+  server: {
+    // HMR otimizado
+    hmr: {
+      overlay: true,
     },
-    resolve: {
-        // Garante que sempre resolva para a mesma instância do React
-        dedupe: ['react', 'react-dom']
-    }
+  },
+  // Cache otimizado
+  cacheDir: 'node_modules/.vite',
 })

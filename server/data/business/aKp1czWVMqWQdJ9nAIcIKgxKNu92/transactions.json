@@ -1,0 +1,393 @@
+[
+    {
+        "type": "expense",
+        "created_at": "2026-01-12T12:27:18.496923",
+        "id": "78b91629",
+        "synced_at": "2026-01-12T20:27:18.507952",
+        "updated_at": "2026-01-12T20:27:32.449813",
+        "category": "uber",
+        "description": "PIX para Raquel - Uber",
+        "date": "2026-01-12",
+        "value": 20.0,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T07:09:39.922314",
+        "id": "6d76679a",
+        "synced_at": "2026-01-11T15:09:39.922314",
+        "category": "assinaturas",
+        "description": "Cursor Assinatura",
+        "date": "2026-01-11",
+        "value": 110.0,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "income",
+        "created_at": "2026-01-11T06:59:08.283483",
+        "id": "d2b42761",
+        "synced_at": "2026-01-11T14:59:08.283483",
+        "category": "pix",
+        "description": "PIX do pai",
+        "date": "2026-01-10",
+        "value": 100,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T07:00:32.064662",
+        "id": "88054d8a",
+        "synced_at": "2026-01-11T15:00:32.064662",
+        "category": "beleza",
+        "description": "Corte e barba",
+        "date": "2026-01-10",
+        "value": 40,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T07:01:44.671891",
+        "id": "7fd0cd17",
+        "synced_at": "2026-01-11T15:01:44.671891",
+        "category": "roupas",
+        "description": "Tênis novo",
+        "date": "2026-01-10",
+        "value": 199.9,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T07:01:00.980182",
+        "id": "9e18f39c",
+        "synced_at": "2026-01-11T15:01:00.980182",
+        "updated_at": "2026-01-11T15:01:10.974818",
+        "category": "uber",
+        "description": "Uber",
+        "date": "2026-01-10",
+        "value": 27.98,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T06:31:56.195251",
+        "id": "40271af6",
+        "synced_at": "2026-01-11T14:31:56.195251",
+        "category": "tecnologia",
+        "description": "Pagamento mouse para Raquel",
+        "date": "2026-01-09",
+        "value": 50,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "income",
+        "created_at": "2026-01-11T06:35:53.450934",
+        "id": "b4d5aed8",
+        "synced_at": "2026-01-11T14:35:53.450934",
+        "updated_at": "2026-01-11T14:59:35.857996",
+        "category": "pix",
+        "description": "PIX do pai",
+        "date": "2026-01-09",
+        "value": 17.0,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T06:36:30.853408",
+        "id": "b4647d12",
+        "synced_at": "2026-01-11T14:36:30.853408",
+        "updated_at": "2026-01-11T14:37:10.765596",
+        "category": "uber",
+        "description": "Corrida de Uber",
+        "date": "2026-01-09",
+        "value": 33.97,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-09T11:59:59.063801",
+        "id": "69858b8f",
+        "synced_at": "2026-01-09T19:59:59.063801",
+        "updated_at": "2026-01-09T20:03:28.935060",
+        "category": "alimentação",
+        "description": "PIX para Raquel - Açaí",
+        "date": "2026-01-09",
+        "value": 30.0,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-11T06:34:58.409013",
+        "id": "5b3fc66f",
+        "synced_at": "2026-01-11T14:34:58.409013",
+        "updated_at": "2026-01-11T14:35:08.828086",
+        "category": "uber",
+        "description": "Uber dia 9",
+        "date": "2026-01-09",
+        "value": 17.96,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-09T03:44:41.693040",
+        "id": "fd0610e1",
+        "synced_at": "2026-01-09T11:44:41.693040",
+        "category": "alimentação",
+        "description": "Supermercado - Desodorante Nivea + Bananinha Oliveirinha",
+        "date": "2026-01-08",
+        "value": 23.17,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "income",
+        "created_at": "2026-01-09T03:48:31.797879",
+        "id": "59fd5e10",
+        "synced_at": "2026-01-09T11:48:31.797879",
+        "updated_at": "2026-01-09T20:03:55.030697",
+        "category": "outro",
+        "description": "Saldo bancário anterior",
+        "date": "2026-01-08",
+        "value": 613.47,
+        "migrated_from_legacy": true
+    },
+    {
+        "type": "expense",
+        "created_at": "2026-01-08T19:57:19.340671",
+        "id": "3343ba6d",
+        "synced_at": "2026-01-09T03:57:19.341677",
+        "updated_at": "2026-01-09T11:20:07.657987",
+        "category": "uber",
+        "description": "Uber hoje",
+        "date": "2026-01-08",
+        "value": 22.9,
+        "migrated_from_legacy": true
+    },
+    {
+        "description": "iFood – almoço",
+        "value": 26.39,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-22",
+        "credit_card_id": null,
+        "id": "9986bde5-9ab1-4f56-af5d-0e480e9cde62",
+        "created_at": "2026-01-22T10:34:35.453291"
+    },
+    {
+        "description": "Pix para Raquel",
+        "value": 122.0,
+        "type": "expense",
+        "category": "transferências",
+        "date": "2026-01-21",
+        "credit_card_id": null,
+        "id": "ff853800-6f3c-44fd-b74b-2452093a7c6f",
+        "created_at": "2026-01-22T10:35:00.101303"
+    },
+    {
+        "description": "Recebimento de salário – segunda parcela",
+        "value": 850.0,
+        "type": "income",
+        "category": "salario",
+        "date": "2026-01-21",
+        "credit_card_id": null,
+        "id": "041adb2e-4dcd-4f98-8bea-a0596015308b",
+        "created_at": "2026-01-22T10:35:27.080872"
+    },
+    {
+        "description": "Pix para Raquel",
+        "value": 26.0,
+        "type": "expense",
+        "category": "transferências",
+        "date": "2026-01-21",
+        "credit_card_id": null,
+        "id": "3a40d45a-2ed3-4605-96f2-d03b48074eab",
+        "created_at": "2026-01-22T10:35:48.511279"
+    },
+    {
+        "description": "Pix recebido do chefe",
+        "value": 50.0,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-21",
+        "credit_card_id": null,
+        "id": "d56aef7f-7114-447d-9336-b2d788038908",
+        "created_at": "2026-01-22T10:36:06.771195"
+    },
+    {
+        "description": "Uber – viagem",
+        "value": 22.93,
+        "type": "expense",
+        "category": "uber",
+        "date": "2026-01-20",
+        "credit_card_id": null,
+        "id": "3fbe27a8-0e5b-4286-b3ba-217aa376ceed",
+        "created_at": "2026-01-22T10:36:26.881137"
+    },
+    {
+        "description": "Pix recebido do chefe",
+        "value": 50.0,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-20",
+        "credit_card_id": null,
+        "id": "213abbee-5c45-4bd6-80d2-abcea57fa6f8",
+        "created_at": "2026-01-22T10:36:44.175866"
+    },
+    {
+        "description": "Pix para Raquel",
+        "value": 21.57,
+        "type": "expense",
+        "category": "transferências",
+        "date": "2026-01-20",
+        "credit_card_id": null,
+        "id": "f22abaea-5378-492d-9498-14ea828e1041",
+        "created_at": "2026-01-22T10:37:01.576972"
+    },
+    {
+        "description": "Pix recebido da Raquel",
+        "value": 3.0,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-20",
+        "credit_card_id": null,
+        "id": "875f9e78-7279-4c4e-a0ad-7c5a3dfc4964",
+        "created_at": "2026-01-22T10:37:20.254066"
+    },
+    {
+        "description": "Uber – viagem 1",
+        "value": 26.91,
+        "type": "expense",
+        "category": "transporte",
+        "date": "2026-01-17",
+        "credit_card_id": null,
+        "id": "da93ea1d-a4d1-455a-9cd9-4b10b767c5b2",
+        "created_at": "2026-01-22T10:38:32.007782"
+    },
+    {
+        "description": "Uber – viagem 2",
+        "value": 24.94,
+        "type": "expense",
+        "category": "transporte",
+        "date": "2026-01-17",
+        "credit_card_id": null,
+        "id": "cf78011e-b35d-43a5-8490-9f7b5f787b13",
+        "created_at": "2026-01-22T10:38:32.244632"
+    },
+    {
+        "description": "iFood – comida",
+        "value": 30.38,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-15",
+        "credit_card_id": null,
+        "id": "95721520-3fda-43ce-94e4-a7cf9e671372",
+        "created_at": "2026-01-22T10:41:45.751273"
+    },
+    {
+        "description": "Pix recebido da mãe",
+        "value": 15.15,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-15",
+        "credit_card_id": null,
+        "id": "33b48d85-dd9c-4b03-b096-cba20bb3ee04",
+        "created_at": "2026-01-22T10:41:46.886140"
+    },
+    {
+        "description": "Uber",
+        "value": 25.94,
+        "type": "expense",
+        "category": "transporte",
+        "date": "2026-01-14",
+        "credit_card_id": null,
+        "id": "c30e1828-dba9-4c7f-bb55-96b70c3a812a",
+        "created_at": "2026-01-22T10:42:37.213332"
+    },
+    {
+        "description": "Pix para Raquel",
+        "value": 40.0,
+        "type": "expense",
+        "category": "transferências",
+        "date": "2026-01-13",
+        "credit_card_id": null,
+        "id": "72639995-5960-4967-ae6d-f6f48f38b729",
+        "created_at": "2026-01-22T10:43:13.062213"
+    },
+    {
+        "description": "Pix para Raquel",
+        "value": 23.0,
+        "type": "expense",
+        "category": "transferências",
+        "date": "2026-01-13",
+        "credit_card_id": null,
+        "id": "0376f0f8-6ee6-493b-9590-dca402a95ffb",
+        "created_at": "2026-01-22T10:43:13.507100"
+    },
+    {
+        "description": "Pix recebido da mãe",
+        "value": 20.0,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-13",
+        "credit_card_id": null,
+        "id": "9a8a1575-2a2e-4ff5-be7d-a2e488fe3f43",
+        "created_at": "2026-01-22T10:43:13.803311"
+    },
+    {
+        "description": "iFood",
+        "value": 26.39,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-23",
+        "credit_card_id": null,
+        "id": "83c24747-a015-47f3-a80b-36fe23218281",
+        "created_at": "2026-01-23T04:45:15.992069"
+    },
+    {
+        "description": "iFood",
+        "value": 25.38,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-22",
+        "credit_card_id": null,
+        "id": "6b6a14e5-184d-48b3-b99f-824326de433f",
+        "created_at": "2026-01-23T04:45:53.164216"
+    },
+    {
+        "description": "Guardado em Notebook",
+        "value": 400.0,
+        "type": "expense",
+        "category": "caixinha",
+        "date": "2026-01-23",
+        "id": "96991fc0-f875-4fd0-9928-636b10d893a8",
+        "created_at": "2026-01-23T06:38:26.400611"
+    },
+    {
+        "description": "Venda de placa de vídeo (PIX)",
+        "value": 400.0,
+        "type": "income",
+        "category": "transferências",
+        "date": "2026-01-22",
+        "credit_card_id": null,
+        "id": "5e9c8903-4b50-4430-97df-60d2d926a982",
+        "created_at": "2026-01-23T06:39:03.426360"
+    },
+    {
+        "description": "Assinatura Cursor",
+        "value": 130.0,
+        "type": "expense",
+        "category": "software",
+        "date": "2026-01-23",
+        "credit_card_id": null,
+        "id": "1f638ec7-c4ea-45bf-995c-a114e5bf1545",
+        "created_at": "2026-01-23T06:40:44.836393"
+    },
+    {
+        "description": "ifood almoço",
+        "value": 20.0,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-23",
+        "credit_card_id": null,
+        "id": "4109a8e7-999d-4e4f-9dab-d37fe1abd0e5",
+        "created_at": "2026-01-23T06:42:05.335199"
+    }
+]

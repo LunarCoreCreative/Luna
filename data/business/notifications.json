@@ -1,0 +1,32 @@
+[
+    {
+        "id": "bill_e2bb2bea-2848-4779-a573-e6fd047539a8",
+        "type": "overdue_bill",
+        "priority": "critical",
+        "title": "Conta Atrasada: Conta de Luz Atrasada",
+        "message": "A conta de R$ 150.00 venceu em 2026-01-15.",
+        "date": "2026-01-20T12:19:51.746939",
+        "link": "/business/bills",
+        "read": false
+    },
+    {
+        "id": "budget_8cc063c8-439b-4361-98c9-b5848bf8ea2a_2026-01",
+        "type": "budget_limit",
+        "priority": "critical",
+        "title": "Orçamento Estourado: alimentação",
+        "message": "Você gastou R$ 220.00 de um limite de R$ 100.00.",
+        "date": "2026-01-20T12:19:51.765967",
+        "link": "/business/budget",
+        "read": false
+    },
+    {
+        "id": "low_balance",
+        "type": "low_balance",
+        "priority": "critical",
+        "title": "Saldo Baixo",
+        "message": "Seu saldo atual é de apenas R$ -390.00. Considere revisar seus gastos.",
+        "date": "2026-01-20T12:19:51.766413",
+        "link": "/business",
+        "read": false
+    }
+]

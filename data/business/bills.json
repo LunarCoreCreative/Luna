@@ -1,0 +1,19 @@
+[
+    {
+        "description": "Conta de Luz Atrasada",
+        "value": 150.0,
+        "due_date": "2026-01-15",
+        "category": "utilidades",
+        "status": "pending",
+        "id": "e2bb2bea-2848-4779-a573-e6fd047539a8"
+    },
+    {
+        "description": "Conta de Luz Teste",
+        "value": 150.0,
+        "due_date": "2026-01-15",
+        "category": "casa",
+        "status": "paid",
+        "id": "79668f82-6895-4cd3-b29f-912942c75ce3",
+        "paid_at": "2026-01-20T12:33:43.889708"
+    }
+]

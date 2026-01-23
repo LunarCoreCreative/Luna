@@ -1,0 +1,11 @@
+[
+    {
+        "piggy_bank_id": "6566ee90-5c52-4189-9473-155e7637c1cf",
+        "amount": 400.0,
+        "type": "deposit",
+        "description": "Depósito de R$ 400.00",
+        "date": "2026-01-23",
+        "id": "9202f83f-ac46-49fe-b54c-43712801c13e",
+        "created_at": "2026-01-23T06:38:26.403614"
+    }
+]

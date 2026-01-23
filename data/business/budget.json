@@ -1,0 +1,11 @@
+[
+    {
+        "category": "alimentação",
+        "amount": 100.0,
+        "period": "2026-01",
+        "type": "expense",
+        "id": "8cc063c8-439b-4361-98c9-b5848bf8ea2a",
+        "created_at": "2026-01-20T12:19:51.723327",
+        "updated_at": "2026-01-20T12:19:51.723327"
+    }
+]

@@ -107,12 +107,12 @@ export const logout = async () => {
 export const getUserProfile = async (uid) => {
     try {
         const docRef = doc(db, "users", uid);
-        
+
         // Adiciona timeout para evitar travamento
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout ao buscar perfil do Firestore')), 10000)
         );
-        
+
         const docSnap = await Promise.race([
             getDoc(docRef),
             timeoutPromise

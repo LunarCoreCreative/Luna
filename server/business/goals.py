@@ -1,234 +1,171 @@
-"""
-Luna Business Goals Module
---------------------------
-Sistema de metas financeiras.
-"""
-
-import json
-import uuid
-from pathlib import Path
-from datetime import datetime, timezone
 from typing import List, Dict, Optional
-from .storage import get_user_data_dir, get_summary, load_transactions
+from datetime import datetime, timezone
+from . import storage
 
-
-def get_goals_file(user_id: str) -> Path:
-    """Get path to goals file."""
-    return get_user_data_dir(user_id) / "goals.json"
-
-
-def load_goals(user_id: str) -> List[Dict]:
-    """Load all financial goals."""
-    file_path = get_goals_file(user_id)
-    if not file_path.exists():
-        return []
-    try:
-        goals = json.loads(file_path.read_text(encoding="utf-8"))
-        # Calculate progress for each goal
-        for goal in goals:
-            goal["progress"] = calculate_goal_progress(user_id, goal)
-        return goals
-    except Exception as e:
-        print(f"[BUSINESS-GOALS] Erro ao carregar metas: {e}")
-        return []
-
-
-def save_goals(user_id: str, goals: List[Dict]) -> None:
-    """Save goals to file."""
-    file_path = get_goals_file(user_id)
-    file_path.write_text(json.dumps(goals, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def add_goal(
-    user_id: str,
-    title: str,
-    target_amount: float,
-    target_date: Optional[str] = None,
-    goal_type: str = "savings",  # "savings", "expense_reduction", "income_increase"
-    description: Optional[str] = None
-) -> Dict:
+def calculate_goal_metrics(goal: Dict, summary: Dict) -> Dict:
     """
-    Add a new financial goal.
-    
-    Args:
-        user_id: User ID
-        title: Goal title
-        target_amount: Target amount
-        target_date: Target date (YYYY-MM-DD) or None for no deadline
-        goal_type: Type of goal (savings, expense_reduction, income_increase)
-        description: Optional description
-    
-    Returns:
-        Created goal
+    Calculate progress metrics for a financial goal.
+    If goal is linked to a piggy bank, use piggy bank amount instead.
     """
-    goals = load_goals(user_id)
+    goal_type = goal.get('goal_type', 'savings')
+    target_amount = goal.get('target_amount', 0)
+    current_amount = 0.0
+
+    # Check if goal is linked to a piggy bank
+    goal_id = goal.get('id')
+    if goal_id:
+        piggy_banks = storage.get_piggy_banks()
+        linked_pb = next((pb for pb in piggy_banks if pb.get('goal_id') == goal_id), None)
+        if linked_pb:
+            # Use piggy bank amount for linked goals
+            current_amount = linked_pb.get('current_amount', 0.0)
+        else:
+            # Fallback to original logic
+            if goal_type == "savings":
+                # For savings goals, we use the current balance as a proxy
+                current_amount = summary.get('balance', 0)
+            elif goal_type == "income_increase":
+                current_amount = summary.get('income', 0)
+            elif goal_type == "expense_reduction":
+                # Percentage reduction is harder to express as current_amount
+                # Let's say current_amount is how much we HAVEN'T spent from a baseline
+                # In this V2 we keep it simple: progress from income or balance
+                current_amount = summary.get('income', 0)
+    else:
+        # Original logic if no ID
+        if goal_type == "savings":
+            current_amount = summary.get('balance', 0)
+        elif goal_type == "income_increase":
+            current_amount = summary.get('income', 0)
+        elif goal_type == "expense_reduction":
+            current_amount = summary.get('income', 0)
     
-    new_goal = {
-        "id": str(uuid.uuid4())[:8],
-        "title": title.strip(),
-        "target_amount": float(target_amount),
-        "current_amount": 0.0,
-        "target_date": target_date,
-        "goal_type": goal_type,
-        "description": description.strip() if description else "",
-        "status": "active",  # "active", "completed", "cancelled"
-        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-        "updated_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    percentage = (current_amount / target_amount * 100) if target_amount > 0 else 0
+    remaining = max(0, target_amount - current_amount)
+    
+    # Calculate time metrics
+    days_left = None
+    if goal.get('target_date'):
+        try:
+            target_dt = datetime.fromisoformat(goal['target_date'].split('T')[0])
+            now_dt = datetime.now()
+            delta = target_dt - now_dt
+            days_left = max(0, delta.days)
+        except:
+            pass
+
+    return {
+        **goal,
+        "current_amount": round(current_amount, 2),
+        "percentage": min(100, round(percentage, 2)),
+        "remaining_amount": round(remaining, 2),
+        "days_left": days_left,
+        "is_completed": percentage >= 100
     }
-    
-    # Calculate initial progress
-    new_goal["progress"] = calculate_goal_progress(user_id, new_goal)
-    
-    goals.append(new_goal)
-    save_goals(user_id, goals)
-    
-    print(f"[BUSINESS-GOALS] ✅ Meta criada: {new_goal['id']} - {title}")
-    return new_goal
 
+def get_goals_with_metrics() -> List[Dict]:
+    """
+    Get all goals with their real-time progress metrics.
+    """
+    goals = storage.get_goals()
+    summary = storage.get_summary()
+    
+    return [calculate_goal_metrics(g, summary) for g in goals]
 
-def update_goal(
-    user_id: str,
-    goal_id: str,
-    title: Optional[str] = None,
-    target_amount: Optional[float] = None,
-    target_date: Optional[str] = None,
-    description: Optional[str] = None,
-    status: Optional[str] = None
-) -> Optional[Dict]:
+def update_goal_from_transaction(category: str, value: float, tx_type: str) -> Optional[Dict]:
     """
-    Update an existing goal.
-    
-    Returns:
-        Updated goal or None if not found
+    Check if a transaction contributes to any goal and update progress.
+    For savings goals, income transactions with matching category add to current_amount.
+    Returns the updated goal if matched, None otherwise.
     """
-    goals = load_goals(user_id)
+    goals = storage.get_goals()
     
-    for goal in goals:
-        if goal["id"] == goal_id:
-            if title is not None:
-                goal["title"] = title.strip()
-            if target_amount is not None:
-                goal["target_amount"] = float(target_amount)
-            if target_date is not None:
-                goal["target_date"] = target_date
-            if description is not None:
-                goal["description"] = description.strip()
-            if status is not None:
-                goal["status"] = status
-            
-            goal["updated_at"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-            goal["progress"] = calculate_goal_progress(user_id, goal)
-            
-            save_goals(user_id, goals)
-            print(f"[BUSINESS-GOALS] ✅ Meta atualizada: {goal_id}")
-            return goal
+    # Find goal linked to this category
+    matching_goal = next(
+        (g for g in goals 
+         if g.get('category', '').lower() == category.lower() and
+         g.get('goal_type') == 'savings'),
+        None
+    )
+    
+    if not matching_goal:
+        return None
+    
+    # For savings goals, we add income to current_amount
+    if tx_type == 'income':
+        current = matching_goal.get('current_amount', 0.0)
+        new_amount = current + value
+        matching_goal['current_amount'] = round(new_amount, 2)
+        
+        # Check if goal is now complete
+        target = matching_goal.get('target_amount', 0)
+        if new_amount >= target and current < target:
+            matching_goal['completed_at'] = datetime.now().isoformat()
+        
+        # Save updated goal
+        storage.update_goal(matching_goal['id'], matching_goal)
+        
+        return {
+            'goal_id': matching_goal['id'],
+            'name': matching_goal.get('name', ''),
+            'new_amount': new_amount,
+            'target': target,
+            'percentage': round((new_amount / target * 100) if target > 0 else 0, 2),
+            'just_completed': new_amount >= target and current < target
+        }
     
     return None
 
-
-def delete_goal(user_id: str, goal_id: str) -> bool:
-    """Delete a goal."""
-    goals = load_goals(user_id)
-    original_count = len(goals)
-    goals = [g for g in goals if g["id"] != goal_id]
-    
-    if len(goals) < original_count:
-        save_goals(user_id, goals)
-        print(f"[BUSINESS-GOALS] ✅ Meta removida: {goal_id}")
-        return True
-    return False
-
-
-def calculate_goal_progress(user_id: str, goal: Dict) -> Dict:
+def update_goal_from_piggy_bank(goal_id: str, amount: float, tx_type: str) -> Optional[Dict]:
     """
-    Calculate progress for a goal.
-    
-    Returns:
-        Dictionary with progress information
+    Update goal progress from a piggy bank transaction.
     """
-    goal_type = goal.get("goal_type", "savings")
-    target_amount = goal.get("target_amount", 0)
-    target_date = goal.get("target_date")
+    goals = storage.get_goals()
+    goal = next((g for g in goals if g.get('id') == goal_id), None)
     
-    # Get current financial data
-    summary = get_summary(user_id)
-    transactions = load_transactions(user_id)
+    if not goal:
+        return None
     
-    current_amount = 0.0
+    current = goal.get('current_amount', 0.0)
     
-    if goal_type == "savings":
-        # For savings goals, use current balance
-        current_amount = summary.get("balance", 0)
-    
-    elif goal_type == "expense_reduction":
-        # For expense reduction, calculate reduction from baseline
-        # This is simplified - in a real system, you'd track baseline expenses
-        current_expenses = summary.get("expenses", 0)
-        # Assume target is to reduce expenses by target_amount
-        # Progress = how much we've reduced (simplified)
-        current_amount = max(0, target_amount - current_expenses)
-    
-    elif goal_type == "income_increase":
-        # For income increase, calculate increase from baseline
-        current_income = summary.get("income", 0)
-        # Assume target is to increase income by target_amount
-        # Progress = how much we've increased (simplified)
-        current_amount = max(0, current_income - (current_income - target_amount))
-    
-    # Calculate percentage
-    if target_amount > 0:
-        percentage = min(100, (current_amount / target_amount) * 100)
+    if tx_type == 'deposit':
+        new_amount = current + amount
+    elif tx_type == 'withdrawal':
+        new_amount = max(0.0, current - amount)
     else:
-        percentage = 0
+        return None
     
-    # Check if goal is completed
-    is_completed = percentage >= 100
+    goal['current_amount'] = round(new_amount, 2)
     
-    # Calculate days remaining if target_date is set
-    days_remaining = None
-    if target_date:
-        try:
-            target = datetime.fromisoformat(target_date.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            delta = target - now
-            days_remaining = max(0, delta.days)
-        except Exception:
-            days_remaining = None
+    # Check if goal is now complete
+    target = goal.get('target_amount', 0)
+    if new_amount >= target and current < target:
+        goal['completed_at'] = datetime.now().isoformat()
+        goal['status'] = 'completed'
     
-    # Update goal status if completed
-    if is_completed and goal.get("status") == "active":
-        goal["status"] = "completed"
-        goal["updated_at"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    # Save updated goal
+    storage.update_goal(goal_id, goal)
     
     return {
-        "current_amount": current_amount,
-        "target_amount": target_amount,
-        "percentage": round(percentage, 2),
-        "is_completed": is_completed,
-        "days_remaining": days_remaining,
-        "amount_remaining": max(0, target_amount - current_amount)
+        'goal_id': goal_id,
+        'new_amount': new_amount,
+        'target': target,
+        'percentage': round((new_amount / target * 100) if target > 0 else 0, 2),
+        'just_completed': new_amount >= target and current < target
     }
 
-
-def get_goals_summary(user_id: str) -> Dict:
+def check_goal_achievements() -> List[Dict]:
     """
-    Get summary of all goals.
-    
-    Returns:
-        Dictionary with goals summary
+    Check all goals and return any that have been recently achieved.
+    Used for notification generation.
     """
-    goals = load_goals(user_id)
-    active_goals = [g for g in goals if g.get("status") == "active"]
-    completed_goals = [g for g in goals if g.get("status") == "completed"]
+    goals = storage.get_goals()
+    summary = storage.get_summary()
     
-    total_target = sum(g.get("target_amount", 0) for g in active_goals)
-    total_current = sum(g.get("progress", {}).get("current_amount", 0) for g in active_goals)
+    achieved = []
+    for goal in goals:
+        metrics = calculate_goal_metrics(goal, summary)
+        if metrics['is_completed'] and not goal.get('notified_complete'):
+            achieved.append(metrics)
     
-    return {
-        "total_goals": len(goals),
-        "active_goals": len(active_goals),
-        "completed_goals": len(completed_goals),
-        "total_target_amount": total_target,
-        "total_current_amount": total_current,
-        "overall_progress": (total_current / total_target * 100) if total_target > 0 else 0
-    }
+    return achieved

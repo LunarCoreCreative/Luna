@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Download, RefreshCw, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 /**
  * UpdateNotification Component
  * Shows update status, download progress, and install button
+ * Automatically appears when update is available (triggered by electron-updater)
  */
 export const UpdateNotification = () => {
     const [updateState, setUpdateState] = useState({
@@ -15,11 +17,16 @@ export const UpdateNotification = () => {
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {
-        if (!window.electron?.updater) return;
+        // Only work in Electron environment
+        if (typeof window === 'undefined' || !window.electronAPI?.updater) {
+            return;
+        }
 
-        const updater = window.electron.updater;
+        const updater = window.electronAPI.updater;
 
+        // Listen for update available
         updater.onUpdateAvailable((data) => {
+            console.log('[UpdateNotification] Update available:', data.version);
             setUpdateState({
                 status: 'available',
                 version: data.version,
@@ -29,6 +36,7 @@ export const UpdateNotification = () => {
             setIsVisible(true);
         });
 
+        // Listen for download progress
         updater.onUpdateProgress((data) => {
             setUpdateState(prev => ({
                 ...prev,
@@ -37,7 +45,9 @@ export const UpdateNotification = () => {
             }));
         });
 
+        // Listen for download complete
         updater.onUpdateDownloaded((data) => {
+            console.log('[UpdateNotification] Update downloaded:', data.version);
             setUpdateState({
                 status: 'ready',
                 version: data.version,
@@ -46,27 +56,30 @@ export const UpdateNotification = () => {
             });
         });
 
+        // Listen for errors
         updater.onUpdateError((data) => {
+            console.error('[UpdateNotification] Update error:', data.message);
             setUpdateState(prev => ({
                 ...prev,
                 status: 'error',
                 error: data.message
             }));
+            setIsVisible(true);
         });
 
-        // Cleanup is not needed for IPC listeners in this case
+        // Cleanup listeners on unmount (IPC listeners are managed by Electron)
     }, []);
 
     const handleDownload = () => {
-        if (window.electron?.updater) {
+        if (window.electronAPI?.updater) {
             setUpdateState(prev => ({ ...prev, status: 'downloading', progress: 0 }));
-            window.electron.updater.downloadUpdate();
+            window.electronAPI.updater.downloadUpdate();
         }
     };
 
     const handleInstall = () => {
-        if (window.electron?.updater) {
-            window.electron.updater.installUpdate();
+        if (window.electronAPI?.updater) {
+            window.electronAPI.updater.installUpdate();
         }
     };
 
@@ -75,125 +88,135 @@ export const UpdateNotification = () => {
     };
 
     const handleCheckUpdate = () => {
-        if (window.electron?.updater) {
-            setUpdateState(prev => ({ ...prev, status: 'checking' }));
-            window.electron.updater.checkForUpdates();
+        if (window.electronAPI?.updater) {
+            setUpdateState(prev => ({ ...prev, status: 'checking', error: null }));
+            window.electronAPI.updater.checkForUpdates();
         }
     };
 
+    // Don't render if not visible or idle
     if (!isVisible || updateState.status === 'idle') {
         return null;
     }
 
     return (
-        <div
-            className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300"
-            style={{ maxWidth: '320px' }}
-        >
-            <div
-                className="rounded-xl p-4 shadow-2xl border backdrop-blur-md"
-                style={{
-                    background: 'var(--bg-secondary)',
-                    borderColor: updateState.status === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(139, 92, 246, 0.3)'
-                }}
+        <AnimatePresence>
+            <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                className="fixed bottom-4 right-4 z-[9999]"
+                style={{ maxWidth: '360px' }}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                        {updateState.status === 'checking' && (
-                            <Loader2 size={16} className="text-purple-400 animate-spin" />
-                        )}
-                        {updateState.status === 'available' && (
-                            <Download size={16} className="text-purple-400" />
-                        )}
-                        {updateState.status === 'downloading' && (
-                            <RefreshCw size={16} className="text-blue-400 animate-spin" />
-                        )}
-                        {updateState.status === 'ready' && (
-                            <CheckCircle2 size={16} className="text-green-400" />
-                        )}
-                        {updateState.status === 'error' && (
-                            <AlertCircle size={16} className="text-red-400" />
-                        )}
-                        <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                            {updateState.status === 'checking' && 'Verificando...'}
-                            {updateState.status === 'available' && 'Atualização Disponível'}
-                            {updateState.status === 'downloading' && 'Baixando...'}
-                            {updateState.status === 'ready' && 'Pronto para Instalar'}
-                            {updateState.status === 'error' && 'Erro na Atualização'}
-                        </span>
-                    </div>
-                    <button
-                        onClick={handleDismiss}
-                        className="p-1 rounded-lg hover:bg-white/10 transition-colors"
-                        style={{ color: 'var(--text-secondary)' }}
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
-
-                {/* Content */}
-                {updateState.version && (
-                    <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-                        Versão {updateState.version} está disponível!
-                    </p>
-                )}
-
-                {updateState.error && (
-                    <p className="text-xs text-red-400 mb-3">
-                        {updateState.error}
-                    </p>
-                )}
-
-                {/* Progress Bar */}
-                {updateState.status === 'downloading' && (
-                    <div className="mb-3">
-                        <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-purple-500 transition-all duration-300"
-                                style={{ width: `${updateState.progress}%` }}
-                            />
+                <div
+                    className="rounded-xl p-4 shadow-2xl border backdrop-blur-md"
+                    style={{
+                        background: 'rgba(15, 23, 42, 0.95)',
+                        borderColor: updateState.status === 'error' 
+                            ? 'rgba(239, 68, 68, 0.3)' 
+                            : 'rgba(139, 92, 246, 0.3)'
+                    }}
+                >
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            {updateState.status === 'checking' && (
+                                <Loader2 size={16} className="text-violet-400 animate-spin" />
+                            )}
+                            {updateState.status === 'available' && (
+                                <Download size={16} className="text-violet-400" />
+                            )}
+                            {updateState.status === 'downloading' && (
+                                <RefreshCw size={16} className="text-blue-400 animate-spin" />
+                            )}
+                            {updateState.status === 'ready' && (
+                                <CheckCircle2 size={16} className="text-emerald-400" />
+                            )}
+                            {updateState.status === 'error' && (
+                                <AlertCircle size={16} className="text-red-400" />
+                            )}
+                            <span className="text-sm font-medium text-white">
+                                {updateState.status === 'checking' && 'Verificando atualização...'}
+                                {updateState.status === 'available' && 'Atualização Disponível'}
+                                {updateState.status === 'downloading' && 'Baixando atualização...'}
+                                {updateState.status === 'ready' && 'Pronto para Instalar'}
+                                {updateState.status === 'error' && 'Erro na Atualização'}
+                            </span>
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-1 text-right">
-                            {updateState.progress.toFixed(0)}%
-                        </p>
+                        <button
+                            onClick={handleDismiss}
+                            className="p-1 rounded-lg hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
+                        >
+                            <X size={14} />
+                        </button>
                     </div>
-                )}
 
-                {/* Actions */}
-                <div className="flex gap-2">
-                    {updateState.status === 'available' && (
-                        <button
-                            onClick={handleDownload}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-purple-500 hover:bg-purple-600 text-white"
-                        >
-                            <Download size={12} />
-                            Baixar Agora
-                        </button>
+                    {/* Content */}
+                    {updateState.version && (
+                        <p className="text-xs mb-3 text-slate-300">
+                            Versão {updateState.version} está disponível!
+                        </p>
                     )}
 
-                    {updateState.status === 'ready' && (
-                        <button
-                            onClick={handleInstall}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-green-500 hover:bg-green-600 text-white"
-                        >
-                            <RefreshCw size={12} />
-                            Reiniciar e Atualizar
-                        </button>
+                    {updateState.error && (
+                        <p className="text-xs text-red-400 mb-3">
+                            {updateState.error}
+                        </p>
                     )}
 
-                    {updateState.status === 'error' && (
-                        <button
-                            onClick={handleCheckUpdate}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-gray-600 hover:bg-gray-500 text-white"
-                        >
-                            <RefreshCw size={12} />
-                            Tentar Novamente
-                        </button>
+                    {/* Progress Bar */}
+                    {updateState.status === 'downloading' && (
+                        <div className="mb-3">
+                            <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                <motion.div
+                                    className="h-full bg-violet-500"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${updateState.progress}%` }}
+                                    transition={{ duration: 0.3 }}
+                                />
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1 text-right">
+                                {updateState.progress.toFixed(0)}%
+                            </p>
+                        </div>
                     )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                        {updateState.status === 'available' && (
+                            <button
+                                onClick={handleDownload}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-violet-600 hover:bg-violet-500 text-white"
+                            >
+                                <Download size={12} />
+                                Baixar Agora
+                            </button>
+                        )}
+
+                        {updateState.status === 'ready' && (
+                            <button
+                                onClick={handleInstall}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-emerald-600 hover:bg-emerald-500 text-white"
+                            >
+                                <RefreshCw size={12} />
+                                Reiniciar e Atualizar
+                            </button>
+                        )}
+
+                        {updateState.status === 'error' && (
+                            <button
+                                onClick={handleCheckUpdate}
+                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors bg-slate-700 hover:bg-slate-600 text-white"
+                            >
+                                <RefreshCw size={12} />
+                                Tentar Novamente
+                            </button>
+                        )}
+                    </div>
                 </div>
-            </div>
-        </div>
+            </motion.div>
+        </AnimatePresence>
     );
 };
 

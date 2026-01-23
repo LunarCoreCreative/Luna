@@ -1,0 +1,12 @@
+[
+    {
+        "id": "low_balance",
+        "type": "low_balance",
+        "priority": "critical",
+        "title": "Saldo Baixo",
+        "message": "Seu saldo atual é de apenas R$ 0.00. Considere revisar seus gastos.",
+        "date": "2026-01-20T13:06:17.642130",
+        "link": "/business",
+        "read": false
+    }
+]

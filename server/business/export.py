@@ -1,173 +1,73 @@
-"""
-Luna Business Export Module
----------------------------
-Sistema de exportação de dados para Excel e PDF.
-"""
-
-import json
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
-from pathlib import Path
 import csv
 import io
+import json
+from typing import List, Dict
+from . import storage
 
-from .storage import load_transactions, get_summary, load_clients
-from .recurring import load_recurring
-from .overdue import load_overdue
-from .tags import load_tags
-
-
-def export_to_csv(user_id: str, period: Optional[str] = None) -> str:
+def export_transactions_csv() -> str:
     """
-    Exporta transações para CSV.
-    
-    Args:
-        user_id: ID do usuário
-        period: Período opcional (YYYY-MM)
-    
-    Returns:
-        String CSV formatada
+    Generates a CSV string of all transactions.
     """
-    if period:
-        from .periods import get_transactions_by_period
-        transactions = get_transactions_by_period(user_id, period)
-    else:
-        transactions = load_transactions(user_id)
+    transactions = storage.get_transactions()
     
-    # Ordena por data (mais recente primeiro)
-    transactions.sort(key=lambda x: x.get("date", ""), reverse=True)
-    
-    # Cria buffer CSV
     output = io.StringIO()
-    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_ALL)
+    # Write BOM for Excel UTF-8 compatibility
+    output.write('\ufeff')
     
-    # Cabeçalho
-    writer.writerow([
-        "ID",
-        "Data",
-        "Tipo",
-        "Descrição",
-        "Categoria",
-        "Valor",
-        "Criado em"
-    ])
-    
-    # Dados
+    if not transactions:
+        return output.getvalue()
+        
+    # Aggregate all unique headers from all transactions
+    all_headers = set()
     for tx in transactions:
-        writer.writerow([
-            tx.get("id", ""),
-            tx.get("date", ""),
-            tx.get("type", ""),
-            tx.get("description", ""),
-            tx.get("category", ""),
-            tx.get("value", 0),
-            tx.get("created_at", "")
-        ])
+        all_headers.update(tx.keys())
+    headers = sorted(list(all_headers))
     
+    writer = csv.DictWriter(output, fieldnames=headers, delimiter=';', quoting=csv.QUOTE_MINIMAL, extrasaction='ignore')
+    writer.writeheader()
+    for tx in transactions:
+        writer.writerow(tx)
+        
     return output.getvalue()
 
-
-def export_to_excel_json(user_id: str, period: Optional[str] = None) -> Dict[str, Any]:
+def export_full_report_json() -> str:
     """
-    Exporta dados para formato JSON compatível com Excel.
-    
-    Args:
-        user_id: ID do usuário
-        period: Período opcional (YYYY-MM)
-    
-    Returns:
-        Dicionário com dados formatados para Excel
+    Generates a full JSON report containing all business data (backup-like).
     """
-    if period:
-        from .periods import get_transactions_by_period, get_period_summary
-        transactions = get_transactions_by_period(user_id, period)
-        summary = get_period_summary(user_id, period)
-    else:
-        transactions = load_transactions(user_id)
-        summary = get_summary(user_id)
-    
-    # Ordena por data
-    transactions.sort(key=lambda x: x.get("date", ""), reverse=True)
-    
-    # Formata dados para Excel
-    excel_data = {
-        "metadata": {
-            "export_date": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-            "user_id": user_id,
-            "period": period,
-            "total_transactions": len(transactions)
-        },
-        "summary": {
-            "balance": summary.get("balance", 0),
-            "income": summary.get("income", 0),
-            "expenses": summary.get("expenses", 0),
-            "invested": summary.get("invested", 0)
-        },
-        "transactions": []
+    data = {
+        "summary": storage.get_summary(),
+        "transactions": storage.get_transactions(),
+        "recurring": storage.get_recurring(),
+        "bills": storage.get_bills(),
+        "budget": storage.get_budget(),
+        "goals": storage.get_goals(),
+        "cards": storage.get_cards(),
+        "notifications": storage.get_notifications(),
+        "tags": [] 
     }
     
-    # Formata transações
-    for tx in transactions:
-        excel_data["transactions"].append({
-            "ID": tx.get("id", ""),
-            "Data": tx.get("date", ""),
-            "Tipo": tx.get("type", ""),
-            "Descrição": tx.get("description", ""),
-            "Categoria": tx.get("category", ""),
-            "Valor": tx.get("value", 0),
-            "Criado em": tx.get("created_at", "")
-        })
+    # Import tags here to avoid circular dependencies if any
+    from . import tags
+    data["tags"] = tags.load_tags()
     
-    return excel_data
+    return json.dumps(data, indent=4, ensure_ascii=False)
 
-
-def export_full_report_json(user_id: str, period: Optional[str] = None) -> Dict[str, Any]:
+def get_report_summary() -> Dict:
     """
-    Exporta relatório completo em formato JSON.
-    
-    Args:
-        user_id: ID do usuário
-        period: Período opcional (YYYY-MM)
-    
-    Returns:
-        Dicionário com relatório completo
+    Generates a dictionary summary for reporting purposes.
     """
-    if period:
-        from .periods import get_transactions_by_period, get_period_summary
-        transactions = get_transactions_by_period(user_id, period)
-        summary = get_period_summary(user_id, period)
-    else:
-        transactions = load_transactions(user_id)
-        summary = get_summary(user_id)
+    summary = storage.get_summary()
+    transactions = storage.get_transactions()
     
-    clients = load_clients(user_id)
-    recurring = load_recurring(user_id)
-    overdue = load_overdue(user_id)
-    tags = load_tags(user_id)
+    # Simple stats
+    total_txs = len(transactions)
+    income_txs = len([t for t in transactions if t.get('type') == 'income'])
+    expense_txs = len([t for t in transactions if t.get('type') == 'expense'])
     
-    # Ordena transações
-    transactions.sort(key=lambda x: x.get("date", ""), reverse=True)
-    
-    report = {
-        "metadata": {
-            "export_date": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-            "user_id": user_id,
-            "period": period,
-            "version": "1.0"
-        },
-        "summary": summary,
-        "transactions": transactions,
-        "clients": clients,
-        "recurring_items": recurring,
-        "overdue_bills": overdue,
-        "tags": tags,
-        "statistics": {
-            "total_transactions": len(transactions),
-            "total_clients": len(clients),
-            "total_recurring_items": len(recurring),
-            "total_overdue_bills": len(overdue),
-            "total_tags": len(tags)
-        }
+    return {
+        **summary,
+        "total_transactions": total_txs,
+        "income_count": income_txs,
+        "expense_count": expense_txs,
+        "generated_at": storage.datetime.now().isoformat()
     }
-    
-    return report

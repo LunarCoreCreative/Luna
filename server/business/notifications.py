@@ -1,282 +1,160 @@
-"""
-Luna Business Notifications Module
------------------------------------
-Sistema de notificações para o modo business.
-"""
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+from . import storage
+from . import budget
+from . import credit_cards
+from . import goals
+from .models import Notification
 
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional
-from .storage import load_transactions, get_summary
-from .overdue import load_overdue
-from .recurring import load_recurring
-
-
-def get_notifications(user_id: str) -> List[Dict[str, Any]]:
+def generate_notifications() -> List[Notification]:
     """
-    Retorna todas as notificações ativas para o usuário.
-    
-    Args:
-        user_id: ID do usuário
-    
-    Returns:
-        Lista de notificações ordenadas por prioridade
+    Analyzes current data and generates or updates notifications.
+    Returns the list of active notifications.
     """
-    notifications = []
+    notifications = storage.get_notifications()
+    new_notifications = []
     
-    # 1. Notificações de contas vencendo
-    overdue_notifications = get_overdue_notifications(user_id)
-    notifications.extend(overdue_notifications)
-    
-    # 2. Alertas de saldo baixo
-    balance_notifications = get_balance_alerts(user_id)
-    notifications.extend(balance_notifications)
-    
-    # 3. Lembretes de pagamentos recorrentes
-    recurring_notifications = get_recurring_reminders(user_id)
-    notifications.extend(recurring_notifications)
-    
-    # Ordena por prioridade (critical > warning > info) e data
-    priority_order = {"critical": 0, "warning": 1, "info": 2}
-    notifications.sort(
-        key=lambda n: (
-            priority_order.get(n.get("priority", "info"), 2),
-            n.get("timestamp", "")
-        )
-    )
-    
-    return notifications
-
-
-def get_overdue_notifications(user_id: str) -> List[Dict[str, Any]]:
-    """
-    Retorna notificações de contas vencendo ou vencidas.
-    
-    Args:
-        user_id: ID do usuário
-    
-    Returns:
-        Lista de notificações de contas vencidas
-    """
-    notifications = []
-    bills = load_overdue(user_id)
-    
-    today = datetime.now(timezone.utc).date()
-    
+    # 1. Check Overdue Bills
+    bills = storage.get_bills()
+    today = datetime.now()
     for bill in bills:
-        if bill.get("status") != "paid":
-            due_date_str = bill.get("due_date", "")
-            if due_date_str:
-                try:
-                    # Tenta parsear data (formato YYYY-MM-DD)
-                    due_date = datetime.fromisoformat(due_date_str.replace('Z', '+00:00')).date()
-                    days_overdue = (today - due_date).days
-                    
-                    if days_overdue > 0:
-                        # Conta vencida
-                        priority = "critical" if days_overdue > 7 else "warning"
-                        notifications.append({
-                            "id": f"overdue_{bill['id']}",
-                            "type": "overdue_bill",
-                            "priority": priority,
-                            "title": f"Conta vencida: {bill.get('description', 'Sem descrição')}",
-                            "message": f"Conta vencida há {days_overdue} dia(s). Valor: R$ {bill.get('value', 0):.2f}",
-                            "timestamp": bill.get("due_date", ""),
-                            "data": {
-                                "bill_id": bill.get("id"),
-                                "value": bill.get("value"),
-                                "days_overdue": days_overdue
-                            }
-                        })
-                    elif days_overdue == 0:
-                        # Conta vence hoje
-                        notifications.append({
-                            "id": f"overdue_today_{bill['id']}",
-                            "type": "overdue_bill",
-                            "priority": "warning",
-                            "title": f"Conta vence hoje: {bill.get('description', 'Sem descrição')}",
-                            "message": f"Conta vence hoje. Valor: R$ {bill.get('value', 0):.2f}",
-                            "timestamp": bill.get("due_date", ""),
-                            "data": {
-                                "bill_id": bill.get("id"),
-                                "value": bill.get("value"),
-                                "days_overdue": 0
-                            }
-                        })
-                    elif days_overdue >= -3:
-                        # Conta vence em até 3 dias
-                        days_until = abs(days_overdue)
-                        notifications.append({
-                            "id": f"overdue_soon_{bill['id']}",
-                            "type": "overdue_bill",
-                            "priority": "info",
-                            "title": f"Conta vence em {days_until} dia(s)",
-                            "message": f"{bill.get('description', 'Sem descrição')} vence em {days_until} dia(s). Valor: R$ {bill.get('value', 0):.2f}",
-                            "timestamp": bill.get("due_date", ""),
-                            "data": {
-                                "bill_id": bill.get("id"),
-                                "value": bill.get("value"),
-                                "days_until": days_until
-                            }
-                        })
-                except (ValueError, AttributeError) as e:
-                    print(f"[BUSINESS-NOTIFICATIONS] Erro ao processar data de vencimento: {e}")
-                    continue
-    
-    return notifications
+        if bill.get('status') == 'pending':
+            due_date = datetime.strptime(bill['due_date'], "%Y-%m-%d")
+            diff = (due_date - today).days
+            
+            notif_id = f"bill_{bill['id']}"
+            if diff < 0:
+                # Overdue
+                add_or_update_notification(
+                    new_notifications, notifications,
+                    id=notif_id,
+                    type='overdue_bill',
+                    priority='critical',
+                    title=f"Conta Atrasada: {bill['description']}",
+                    message=f"A conta de R$ {bill['value']:.2f} venceu em {bill['due_date']}.",
+                    link="/business/bills"
+                )
+            elif diff <= 2:
+                # Due soon
+                add_or_update_notification(
+                    new_notifications, notifications,
+                    id=notif_id,
+                    type='overdue_bill',
+                    priority='warning',
+                    title=f"Conta Próxima ao Vencimento: {bill['description']}",
+                    message=f"A conta de R$ {bill['value']:.2f} vence em {diff} dias.",
+                    link="/business/bills"
+                )
 
-
-def get_balance_alerts(user_id: str, low_balance_threshold: float = 1000.0) -> List[Dict[str, Any]]:
-    """
-    Retorna alertas de saldo baixo.
-    
-    Args:
-        user_id: ID do usuário
-        low_balance_threshold: Limite mínimo de saldo (padrão: R$ 1000)
-    
-    Returns:
-        Lista de notificações de saldo baixo
-    """
-    notifications = []
-    
-    try:
-        summary = get_summary(user_id)
-        balance = summary.get("balance", 0)
+    # 2. Check Budget Thresholds
+    budgets_with_metrics = budget.get_budgets_with_usage()
+    for b in budgets_with_metrics:
+        percent = (b['actual'] / b['amount']) * 100 if b['amount'] > 0 else 0
+        notif_id = f"budget_{b['id']}_{b['period']}"
         
-        if balance < low_balance_threshold:
-            priority = "critical" if balance < (low_balance_threshold * 0.3) else "warning"
-            
-            notifications.append({
-                "id": "low_balance",
-                "type": "low_balance",
-                "priority": priority,
-                "title": "Saldo baixo",
-                "message": f"Seu saldo atual é R$ {balance:.2f}, abaixo do limite recomendado de R$ {low_balance_threshold:.2f}",
-                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-                "data": {
-                    "current_balance": balance,
-                    "threshold": low_balance_threshold
-                }
-            })
-    except Exception as e:
-        print(f"[BUSINESS-NOTIFICATIONS] Erro ao verificar saldo: {e}")
-    
-    return notifications
+        if percent >= 100:
+            add_or_update_notification(
+                new_notifications, notifications,
+                id=notif_id,
+                type='budget_limit',
+                priority='critical',
+                title=f"Orçamento Estourado: {b['category']}",
+                message=f"Você gastou R$ {b['actual']:.2f} de um limite de R$ {b['amount']:.2f}.",
+                link="/business/budget"
+            )
+        elif percent >= 80:
+            add_or_update_notification(
+                new_notifications, notifications,
+                id=notif_id,
+                type='budget_limit',
+                priority='warning',
+                title=f"Limite de Orçamento: {b['category']}",
+                message=f"Você já atingiu {percent:.1f}% do seu limite de R$ {b['amount']:.2f}.",
+                link="/business/budget"
+            )
 
+    # 3. Check Credit Card Due Dates
+    cards = credit_cards.get_cards_with_metrics()
+    for card in cards:
+        if card.get('days_until_due', 99) <= 3:
+            notif_id = f"card_{card['id']}_{card['next_due_date']}"
+            add_or_update_notification(
+                new_notifications, notifications,
+                id=notif_id,
+                type='card_due',
+                priority='warning',
+                title=f"Fatura de Cartão Próxima: {card['name']}",
+                message=f"Sua fatura de R$ {card['current_bill']:.2f} vence em {card['days_until_due']} dias.",
+                link="/business/cards"
+            )
 
-def get_recurring_reminders(user_id: str, days_ahead: int = 3) -> List[Dict[str, Any]]:
-    """
-    Retorna lembretes de pagamentos recorrentes que estão próximos.
+    # 4. Low Balance Warning
+    summary = storage.get_summary()
+    balance = summary.get('balance', 0)
+    if balance < 500:
+        priority = 'critical' if balance < 100 else 'warning'
+        add_or_update_notification(
+            new_notifications, notifications,
+            id="low_balance",
+            type='low_balance',
+            priority=priority,
+            title="Saldo Baixo",
+            message=f"Seu saldo atual é de apenas R$ {balance:.2f}. Considere revisar seus gastos.",
+            link="/business"
+        )
+
+    # 5. Recurring Pending
+    # (Simplified: check if any recurring with due_day == today and not generated)
+    recurring = storage.get_recurring()
+    current_month = today.strftime("%Y-%m")
+    for item in recurring:
+        if item.get('active') and item.get('due_day') == today.day:
+            if item.get('last_generated') != current_month:
+                notif_id = f"recurring_{item['id']}_{current_month}"
+                add_or_update_notification(
+                    new_notifications, notifications,
+                    id=notif_id,
+                    type='recurring_pending',
+                    priority='info',
+                    title=f"Pagamento Recorrente Hoje: {item['description']}",
+                    message=f"Lembre-se de registrar o pagamento de R$ {item['value']:.2f}.",
+                    link="/business/recurring"
+                )
+
+    # 6. Goal Achievements
+    achieved_goals = goals.check_goal_achievements()
+    for goal in achieved_goals:
+        notif_id = f"goal_achieved_{goal['id']}"
+        add_or_update_notification(
+            new_notifications, notifications,
+            id=notif_id,
+            type='goal_achieved',
+            priority='info',
+            title=f"Meta Atingida: {goal['name']}",
+            message=f"Parabéns! Você atingiu sua meta de R$ {goal['target_amount']:.2f}!",
+            link="/business/goals"
+        )
+
+    # Filter out old notifications that are no longer valid (e.g. bill paid)
+    # But keep those that were marked as read if they are still "active"
+    # Actually, if the condition is no longer met, the notification should probably go away.
+    # We only save current "active" notifications.
     
-    Args:
-        user_id: ID do usuário
-        days_ahead: Quantos dias antes avisar (padrão: 3)
+    storage._save_json('notifications', [n.dict() for n in new_notifications])
+    return new_notifications
+
+def add_or_update_notification(new_list, existing_list, **kwargs):
+    notif_id = kwargs['id']
+    # Check if exists in existing list to preserve 'read' status
+    existing = next((n for n in existing_list if n['id'] == notif_id), None)
     
-    Returns:
-        Lista de notificações de lembretes recorrentes
-    """
-    notifications = []
-    
-    try:
-        recurring_items = load_recurring(user_id)
-        today = datetime.now(timezone.utc)
-        current_day = today.day
-        current_month = today.month
-        current_year = today.year
+    if existing:
+        # Update existing
+        kwargs['read'] = existing.get('read', False)
+        kwargs['date'] = existing.get('date', datetime.now().isoformat())
+    else:
+        # New one
+        kwargs['read'] = False
+        kwargs['date'] = datetime.now().isoformat()
         
-        # Carrega transações para verificar se já foram criadas
-        transactions = load_transactions(user_id)
-        current_month_str = today.strftime("%Y-%m")
-        
-        # Cria set de transações recorrentes já criadas neste mês
-        created_recurring = set()
-        for tx in transactions:
-            tx_date = tx.get("date", "")
-            if tx_date.startswith(current_month_str):
-                description = tx.get("description", "")
-                if "[Fixo]" in description:
-                    created_recurring.add(description)
-        
-        for item in recurring_items:
-            day_of_month = item.get("day_of_month", 1)
-            safe_day = min(day_of_month, 28)  # Evita problemas com meses de 28-31 dias
-            
-            # Calcula data esperada
-            expected_date = datetime(current_year, current_month, safe_day, tzinfo=timezone.utc)
-            
-            # Verifica se já foi criada
-            expected_desc = f"[Fixo] {item.get('title', '')}"
-            if expected_desc in created_recurring:
-                continue  # Já foi criada, não precisa notificar
-            
-            # Calcula dias até o vencimento
-            days_until = (expected_date - today).days
-            
-            # Se está dentro do período de aviso
-            if 0 <= days_until <= days_ahead:
-                if days_until == 0:
-                    # Vence hoje
-                    notifications.append({
-                        "id": f"recurring_today_{item.get('id')}",
-                        "type": "recurring_reminder",
-                        "priority": "warning",
-                        "title": f"Pagamento recorrente vence hoje: {item.get('title', '')}",
-                        "message": f"{item.get('title', '')} - R$ {item.get('value', 0):.2f} vence hoje",
-                        "timestamp": expected_date.isoformat().replace('+00:00', 'Z'),
-                        "data": {
-                            "recurring_id": item.get("id"),
-                            "title": item.get("title"),
-                            "value": item.get("value"),
-                            "day_of_month": day_of_month
-                        }
-                    })
-                else:
-                    # Vence em alguns dias
-                    notifications.append({
-                        "id": f"recurring_soon_{item.get('id')}",
-                        "type": "recurring_reminder",
-                        "priority": "info",
-                        "title": f"Pagamento recorrente em {days_until} dia(s)",
-                        "message": f"{item.get('title', '')} - R$ {item.get('value', 0):.2f} vence em {days_until} dia(s)",
-                        "timestamp": expected_date.isoformat().replace('+00:00', 'Z'),
-                        "data": {
-                            "recurring_id": item.get("id"),
-                            "title": item.get("title"),
-                            "value": item.get("value"),
-                            "day_of_month": day_of_month,
-                            "days_until": days_until
-                        }
-                    })
-    except Exception as e:
-        print(f"[BUSINESS-NOTIFICATIONS] Erro ao verificar lembretes recorrentes: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    return notifications
-
-
-def get_notification_count(user_id: str) -> Dict[str, int]:
-    """
-    Retorna contagem de notificações por tipo e prioridade.
-    
-    Args:
-        user_id: ID do usuário
-    
-    Returns:
-        Dicionário com contagens
-    """
-    notifications = get_notifications(user_id)
-    
-    counts = {
-        "total": len(notifications),
-        "critical": len([n for n in notifications if n.get("priority") == "critical"]),
-        "warning": len([n for n in notifications if n.get("priority") == "warning"]),
-        "info": len([n for n in notifications if n.get("priority") == "info"]),
-        "by_type": {}
-    }
-    
-    # Conta por tipo
-    for notification in notifications:
-        notif_type = notification.get("type", "unknown")
-        counts["by_type"][notif_type] = counts["by_type"].get(notif_type, 0) + 1
-    
-    return counts
+    new_list.append(Notification(**kwargs))

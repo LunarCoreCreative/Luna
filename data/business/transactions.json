@@ -1,0 +1,49 @@
+[
+    {
+        "description": "Supermercado Caro",
+        "value": 120.0,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-20",
+        "id": "0569fcd5-f0e9-40c3-8f37-fe4ed9947c98",
+        "created_at": "2026-01-20T12:19:51.732069"
+    },
+    {
+        "description": "Custom TX Unique",
+        "value": 10.0,
+        "type": "expense",
+        "category": "personal_tag",
+        "id": "d343407b-9a95-4e44-8ed3-c2198fd9fd35",
+        "created_at": "2026-01-20T12:24:52.622974"
+    },
+    {
+        "description": "Custom TX Unique",
+        "value": 10.0,
+        "type": "expense",
+        "category": "personal_tag",
+        "id": "db222eb3-71c0-4e65-a6fa-a459197f365c",
+        "created_at": "2026-01-20T12:25:16.707209"
+    },
+    {
+        "description": "Pagamento: Conta de Luz Teste",
+        "value": 150.0,
+        "type": "expense",
+        "category": "casa",
+        "date": "2026-01-20",
+        "credit_card_id": null,
+        "metadata": {
+            "bill_id": "79668f82-6895-4cd3-b29f-912942c75ce3"
+        },
+        "id": "752f90ce-3efb-44fd-9f16-9472cbbbd235",
+        "created_at": "2026-01-20T12:33:43.897322"
+    },
+    {
+        "description": "Test Integration",
+        "value": 100,
+        "type": "expense",
+        "category": "alimentação",
+        "date": "2026-01-20",
+        "id": "a22e4f98-6672-4f5c-968b-ecb01e3b7435",
+        "created_at": "2026-01-20T12:47:19.991043"
+    }
+]

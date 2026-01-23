@@ -1,0 +1,107 @@
+[
+    {
+        "id": "mensalidade",
+        "label": "Mensalidade",
+        "color": "#22c55e"
+    },
+    {
+        "id": "despesa",
+        "label": "Despesa",
+        "color": "#ef4444"
+    },
+    {
+        "id": "material",
+        "label": "Material",
+        "color": "#3b82f6"
+    },
+    {
+        "id": "salario",
+        "label": "Salário",
+        "color": "#f59e0b"
+    },
+    {
+        "id": "servico",
+        "label": "Serviço",
+        "color": "#a855f7"
+    },
+    {
+        "id": "outro",
+        "label": "Outro",
+        "color": "#6b7280"
+    },
+    {
+        "id": "uber",
+        "label": "Uber",
+        "color": "#3DDC84"
+    },
+    {
+        "id": "planointernet",
+        "label": "PlanoInternet",
+        "color": "#22c55e"
+    },
+    {
+        "id": "assinaturas",
+        "label": "Assinaturas",
+        "color": "#14b8a6"
+    },
+    {
+        "id": "alimentação",
+        "label": "Alimentação",
+        "color": "#ef4444"
+    },
+    {
+        "id": "tecnologia",
+        "label": "Tecnologia",
+        "color": "#f59e0b"
+    },
+    {
+        "id": "transporte",
+        "label": "transporte",
+        "color": "#007bff"
+    },
+    {
+        "id": "pix",
+        "label": "Pix",
+        "color": "#06b6d4"
+    },
+    {
+        "id": "roupas",
+        "label": "Roupas",
+        "color": "#a855f7"
+    },
+    {
+        "id": "beleza",
+        "label": "Beleza",
+        "color": "#ec4899"
+    },
+    {
+        "id": "transferências",
+        "label": "Transferências",
+        "color": "#8b5cf6"
+    },
+    {
+        "id": "salário",
+        "label": "Salário",
+        "color": "#f97316"
+    },
+    {
+        "id": "caixinha",
+        "label": "Caixinha",
+        "color": "#84cc16"
+    },
+    {
+        "id": "venda",
+        "label": "Venda",
+        "color": "#eab308"
+    },
+    {
+        "id": "software",
+        "label": "Software",
+        "color": "#f43f5e"
+    },
+    {
+        "id": "fixo",
+        "label": "Fixo",
+        "color": "#10b981"
+    }
+]

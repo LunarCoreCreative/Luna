@@ -1,383 +1,108 @@
-/**
- * Luna Auth Context
- * =================
- * Gerencia o estado de autenticação em toda a aplicação.
- */
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-import { createContext, useContext, useState, useEffect } from 'react';
-import { auth, onAuthChange, getUserProfile, updateUserProfile, logout as firebaseLogout } from '../firebase';
-import { API_CONFIG } from '../config/api';
-
-// =============================================================================
-// CONTEXTO
-// =============================================================================
-
-const AuthContext = createContext(null);
-
-// =============================================================================
-// PROVIDER
-// =============================================================================
+const AuthContext = createContext({});
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [isCreator, setIsCreator] = useState(false);
-    
-    // Health Profile State
-    const [healthProfile, setHealthProfile] = useState(null);
-    const [loadingHealthProfile, setLoadingHealthProfile] = useState(false);
-
-    // NEW: Sistema de Energia & Planos
-    const [plan, setPlan] = useState('spark'); // 'spark' | 'nexus' | 'eclipse'
-    const [energy, setEnergy] = useState({
-        current: 50,
-        max: 50,
-        nextRefill: null // Timestamp em ms para recarga (apenas se zerar)
-    });
-
-    // UID do criador - IMUTÁVEL
-    const CREATOR_UID = "aKp1czWVMqWQdJ9nAIcIKgxKNu92";
-
-    // =========================================================================
-    // ENERGY SYSTEM LOGIC (COOLDOWN MODE)
-    // =========================================================================
-
-    const checkCooldown = () => {
-        const stored = localStorage.getItem('luna_energy_local');
-        let localData = stored ? JSON.parse(stored) : { current: 50, max: 50, nextRefill: null };
-        const now = Date.now();
-
-        // Se estava zerado e o tempo de refill passou
-        if (localData.current <= 0 && localData.nextRefill && now >= localData.nextRefill) {
-            localData = { current: 50, max: 50, nextRefill: null };
-            console.log("[ENERGY] Cooldown acabou! Energia recarregada.");
-        }
-        // Se ainda está no periodo de espera
-        else if (localData.current <= 0 && localData.nextRefill) {
-            console.log("[ENERGY] Ainda em cooldown. Faltam:", (localData.nextRefill - now) / 1000 / 60, "minutos");
-        }
-
-        setEnergy(localData);
-        localStorage.setItem('luna_energy_local', JSON.stringify(localData));
-    };
-
-    // =========================================================================
-    // HEALTH PROFILE FUNCTIONS
-    // =========================================================================
-
-    const loadHealthProfile = async (userId) => {
-        if (!userId) return;
-        
-        try {
-            setLoadingHealthProfile(true);
-            
-            // Adiciona timeout para evitar travamento
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos timeout
-            
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile?user_id=${userId}`, {
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.profile) {
-                setHealthProfile(data.profile);
-            } else {
-                setHealthProfile(null);
-            }
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn("[AUTH] Timeout ao carregar perfil de saúde (8s)");
-            } else {
-                console.error("[AUTH] Erro ao carregar perfil de saúde:", error);
-            }
-            setHealthProfile(null);
-        } finally {
-            setLoadingHealthProfile(false);
-        }
-    };
+    const [loading, setLoading] = useState(false); // SEMPRE false - nunca bloquear UI
+    const { t } = useTranslation();
 
     useEffect(() => {
-        const unsubscribe = onAuthChange(async (firebaseUser) => {
-            if (firebaseUser) {
-                setUser(firebaseUser);
+        let isMounted = true;
 
-                // ===== LOG DO UID - COPIE ESTE VALOR! =====
-                console.log("========================================");
-                console.log("[AUTH] UID:", firebaseUser.uid);
-                console.log("[AUTH] Email:", firebaseUser.email);
-                console.log("========================================");
+        // Carregar Firebase de forma LAZY para não bloquear o startup
+        // Usar requestIdleCallback para não interferir no render inicial
+        const initAuth = () => {
+            import('@/lib/firebase').then(({ onAuthChange, getUserProfile, auth }) => {
+                if (!isMounted) return;
 
-                // Buscar perfil do Firestore
-                const userProfile = await getUserProfile(firebaseUser.uid);
-                setProfile(userProfile);
-
-                // Carregar ou Inicializar Plano/Energia do perfil
-                if (userProfile?.plan) setPlan(userProfile.plan);
-
-
-                // Se for plano pago, energia visualmente infinita
-                if (['nexus', 'eclipse'].includes(userProfile?.plan)) {
-                    setEnergy({ current: 9999, max: 9999, nextRefill: null });
+                // Verificar cache local imediatamente (muito rápido)
+                if (auth?.currentUser) {
+                    console.log('[AuthContext] User found in cache:', auth.currentUser.uid);
+                    setUser(auth.currentUser);
+                    // Carregar perfil em background (não bloqueia)
+                    getUserProfile(auth.currentUser.uid)
+                        .then(profile => {
+                            if (isMounted) {
+                                console.log('[AuthContext] Profile loaded:', profile ? 'Found' : 'Not found');
+                                setProfile(profile);
+                            }
+                        })
+                        .catch((err) => {
+                            console.error('[AuthContext] Error loading profile:', err);
+                        });
                 } else {
-                    // Lógica de Cooldown para Spark (Check Inicial)
-                    checkCooldown();
+                    console.log('[AuthContext] No user in cache');
                 }
 
-                // Verificar se é o criador
-                setIsCreator(CREATOR_UID ? firebaseUser.uid === CREATOR_UID : false);
-
-                // Se for criador, auto-upgrade para Eclipse (Tier Máximo para testes)
-                if ((CREATOR_UID ? firebaseUser.uid === CREATOR_UID : false) && userProfile?.plan !== 'eclipse') {
-                    setPlan('eclipse');
-                    updateUserProfile(firebaseUser.uid, { plan: 'eclipse' });
-                }
-
-                console.log("[AUTH] Usuário autenticado:", firebaseUser.email);
-
-                // ===== CARREGAR PERFIL DE SAÚDE =====
-                // Carrega em background, não bloqueia o boot
-                loadHealthProfile(firebaseUser.uid).catch(err => {
-                    console.warn("[AUTH] Erro ao carregar perfil de saúde (não bloqueante):", err);
+                // Escutar mudanças de auth (não bloqueia render)
+                const unsubscribe = onAuthChange(async (firebaseUser) => {
+                    if (!isMounted) return;
+                    
+                    console.log('[AuthContext] Auth state changed:', firebaseUser ? `User: ${firebaseUser.uid}` : 'No user');
+                    setUser(firebaseUser);
+                    
+                    if (firebaseUser) {
+                        // Carregar perfil em background
+                        getUserProfile(firebaseUser.uid)
+                            .then(profile => {
+                                if (isMounted) {
+                                    console.log('[AuthContext] Profile loaded from Firestore:', profile ? 'Found' : 'Not found');
+                                    setProfile(profile);
+                                }
+                            })
+                            .catch((err) => {
+                                console.error('[AuthContext] Error loading profile from Firestore:', err);
+                            });
+                    } else {
+                        setProfile(null);
+                    }
                 });
 
-                // ===== LUNA LINK: Conectar ao servidor cloud =====
-                // Só funciona em ambiente Electron (app desktop)
-                if (typeof window !== 'undefined' && window.electron?.lunaLink) {
-                    try {
-                        const idToken = await firebaseUser.getIdToken();
-                        window.electron.lunaLink.connect(idToken);
-                        console.log("[AUTH] Luna Link connection requested.");
-                    } catch (e) {
-                        console.warn("[AUTH] Could not connect Luna Link:", e.message);
-                    }
-                }
-            } else {
-                setUser(null);
-                setProfile(null);
-                setHealthProfile(null);
-                setIsCreator(false);
-                // Reset para defaults anônimos se necessário, ou manter estado local
-                setPlan('spark');
-                checkCooldown(); // Verifica cooldown do usuário anônimo
+                return () => {
+                    if (unsubscribe) unsubscribe();
+                };
+            }).catch(err => {
+                console.error('[AuthContext] Erro ao carregar Firebase:', err);
+            });
+        };
 
-                // Disconnect Luna Link when logged out
-                if (typeof window !== 'undefined' && window.electron?.lunaLink) {
-                    window.electron.lunaLink.disconnect();
-                }
-            }
-            setLoading(false);
-        });
+        // Usar requestIdleCallback se disponível (melhor performance)
+        // Senão, usar setTimeout com delay mínimo
+        if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(initAuth, { timeout: 100 });
+        } else {
+            setTimeout(initAuth, 0);
+        }
 
-        return () => unsubscribe();
+        return () => {
+            isMounted = false;
+        };
     }, []);
-
-    const updateHealthProfile = async (type) => {
-        if (!user) return { success: false, error: "Usuário não autenticado" };
-        
-        try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                // Recarregar perfil atualizado
-                await loadHealthProfile(user.uid);
-                return { success: true, profile: data.profile };
-            } else {
-                return { success: false, error: data.error || "Erro ao atualizar perfil" };
-            }
-        } catch (error) {
-            console.error("[AUTH] Erro ao atualizar perfil de saúde:", error);
-            return { success: false, error: error.message };
-        }
-    };
-
-    const linkToEvaluator = async (code) => {
-        if (!user) return { success: false, error: "Usuário não autenticado" };
-        
-        try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/health/profile/link`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code, user_id: user.uid })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                // Recarregar perfil atualizado
-                await loadHealthProfile(user.uid);
-                return { success: true, evaluator: data.evaluator };
-            } else {
-                return { success: false, error: data.error || "Erro ao vincular ao avaliador" };
-            }
-        } catch (error) {
-            console.error("[AUTH] Erro ao vincular ao avaliador:", error);
-            return { success: false, error: error.message };
-        }
-    };
 
     const logout = async () => {
         try {
-            await firebaseLogout();
-            setUser(null);
-            setProfile(null);
-            setHealthProfile(null);
-            setIsCreator(false);
-            setPlan('spark');
-            localStorage.removeItem('luna_energy_local'); // Limpa cache local ao sair
-        } catch (error) {
-            console.error("[AUTH] Erro no logout:", error);
-        }
-    };
-
-    const updateProfile = async (updates) => {
-        if (!user) return false;
-        const success = await updateUserProfile(user.uid, updates);
-        if (success) {
-            // Atualizar estado local do perfil
-            setProfile(prev => ({ ...prev, ...updates }));
-            return true;
-        }
-        return false;
-    };
-
-    // =========================================================================
-    // ENERGY SYSTEM LOGIC
-    // =========================================================================
-
-    const consumeEnergy = (cost) => {
-        if (plan === 'nexus' || plan === 'eclipse') return true; // Infinito
-
-        // Verificar cooldown
-        checkCooldown(); // Atualiza estado antes de checar
-
-        if (energy.current >= cost) {
-            let newCurrent = energy.current - cost;
-            let nextRefill = energy.nextRefill;
-
-            // Se zerou, ativa cooldown de 3 horas
-            if (newCurrent <= 0) {
-                newCurrent = 0;
-                // 3 horas = 3 * 60 * 60 * 1000 ms = 10800000 ms
-                nextRefill = Date.now() + 10800000;
-                console.log("[ENERGY] Energia esgotada! Iniciando cooldown de 3h.");
+            const { logout: firebaseLogout } = await import('@/lib/firebase');
+            const result = await firebaseLogout();
+            if (result.success) {
+                setUser(null);
+                setProfile(null);
             }
-
-            const newState = { ...energy, current: newCurrent, nextRefill };
-            setEnergy(newState);
-            localStorage.setItem('luna_energy_local', JSON.stringify(newState));
-            return true;
-        }
-
-        return false;
-    };
-
-    const upgradePlan = async (newPlan = 'nexus') => {
-        setPlan(newPlan);
-        setEnergy({ current: 9999, max: 9999, nextRefill: null });
-        if (user) {
-            await updateUserProfile(user.uid, { plan: newPlan });
-        }
-        return true;
-    };
-
-    const createCheckout = async (planType) => {
-        if (!user) return { error: "Usuário não autenticado" };
-
-        try {
-            // Pegar o token de ID do Firebase para autenticar no backend
-            const token = await user.getIdToken();
-
-            const response = await fetch("http://localhost:8001/payments/create-checkout", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token, plan_type: planType })
-            });
-
-            const data = await response.json();
-            return data;
+            return result;
         } catch (error) {
-            console.error("[AUTH] Erro ao criar checkout:", error);
-            return { error: error.message };
-        }
-    };
-
-    const syncPlan = async () => {
-        if (!user) return { success: false, error: "Usuário não autenticado" };
-
-        try {
-            const token = await user.getIdToken();
-            const response = await fetch(`http://localhost:8001/payments/sync?token=${token}`);
-            const data = await response.json();
-
-            if (data.success && data.plan) {
-                setPlan(data.plan);
-                // Forçar recarga de energia se for premium
-                if (['nexus', 'eclipse'].includes(data.plan)) {
-                    setEnergy({ current: 9999, max: 9999, nextRefill: null });
-                }
-            }
-            return data;
-        } catch (error) {
-            console.error("[AUTH] Erro ao sincronizar plano:", error);
+            console.error('[AuthContext] Erro no logout:', error);
             return { success: false, error: error.message };
         }
     };
 
-    const value = {
-        user,
-        profile,
-        loading,
-        isCreator,
-        isAuthenticated: !!user,
-        logout,
-        updateProfile,
-        // Energy & Plans
-        plan,
-        energy,
-        consumeEnergy,
-        upgradePlan,
-        createCheckout,
-        syncPlan,
-        // Health Profile
-        healthProfile,
-        loadingHealthProfile,
-        loadHealthProfile,
-        updateHealthProfile,
-        linkToEvaluator
-    };
-
+    // SEMPRE renderizar children - nunca mostrar loading screen
     return (
-        <AuthContext.Provider value={value}>
+        <AuthContext.Provider value={{ user, profile, loading, logout }}>
             {children}
         </AuthContext.Provider>
     );
 };
 
-// =============================================================================
-// HOOK
-// =============================================================================
-
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth deve ser usado dentro de AuthProvider');
-    }
-    return context;
-};
-
-export default AuthContext;
+export const useAuth = () => useContext(AuthContext);

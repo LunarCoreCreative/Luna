@@ -1,555 +1,635 @@
-"""
-Luna Business Module
---------------------
-Storage and utilities for business management features.
-Uses Firebase as primary storage with local JSON fallback.
-"""
-
 import json
-from pathlib import Path
-from datetime import datetime, timezone
+import os
 from typing import List, Dict, Optional
-from decimal import Decimal, ROUND_HALF_UP
-import uuid
+from datetime import datetime
+from .models import Transaction, RecurringItem, OverdueBill, Budget, Goal, CreditCard, Notification, PiggyBank, PiggyBankTransaction
 
 # =============================================================================
-# FIREBASE IMPORTS (com fallback)
+# MULTI-TENANT USER CONTEXT
 # =============================================================================
 
-try:
-    from ..firebase_config import (
-        save_transaction_to_firebase,
-        get_user_transactions,
-        delete_transaction_from_firebase,
-        update_transaction_in_firebase,
-        get_business_summary_from_firebase
-    )
-    FIREBASE_AVAILABLE = True
-except ImportError:
-    FIREBASE_AVAILABLE = False
-    print("[BUSINESS] ⚠️ Firebase não disponível, usando storage local.")
+# Base data directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DATA_DIR = os.path.join(BASE_DIR, 'data', 'business')
+if not os.path.exists(BASE_DATA_DIR):
+    os.makedirs(BASE_DATA_DIR, exist_ok=True)
 
-# =============================================================================
-# LOCAL STORAGE PATHS (Fallback)
-# =============================================================================
+# Current user context (thread-local would be better for production)
+_current_user_id: Optional[str] = None
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data" / "business"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+def set_user_context(uid: str):
+    """Set the current user context for all storage operations."""
+    global _current_user_id
+    _current_user_id = uid
+    # Ensure user directory exists
+    user_dir = get_user_data_dir()
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir, exist_ok=True)
+    print(f"[Storage] User context set to: {uid}")
 
-def get_user_data_dir(user_id: str) -> Path:
-    """Get user-specific data directory."""
-    if not user_id:
-        user_id = "local"
-    user_dir = DATA_DIR / user_id
-    user_dir.mkdir(parents=True, exist_ok=True)
-    return user_dir
+def get_current_user_id() -> str:
+    """Get current user ID, defaulting to 'local' for non-authenticated users."""
+    return _current_user_id or 'local'
 
-# =============================================================================
-# TRANSACTIONS
-# =============================================================================
+def get_user_data_dir() -> str:
+    """Get the data directory for the current user."""
+    return os.path.join(BASE_DATA_DIR, get_current_user_id())
 
-def get_transactions_file(user_id: str) -> Path:
-    return get_user_data_dir(user_id) / "transactions.json"
+def _get_files() -> Dict[str, str]:
+    """Get file paths for the current user context."""
+    user_dir = get_user_data_dir()
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir, exist_ok=True)
+    
+    return {
+        'transactions': os.path.join(user_dir, 'transactions.json'),
+        'recurring': os.path.join(user_dir, 'recurring.json'),
+        'bills': os.path.join(user_dir, 'bills.json'),
+        'budget': os.path.join(user_dir, 'budget.json'),
+        'goals': os.path.join(user_dir, 'goals.json'),
+        'cards': os.path.join(user_dir, 'credit_cards.json'),
+        'notifications': os.path.join(user_dir, 'notifications.json'),
+        'tags': os.path.join(user_dir, 'tags.json'),
+        'piggy_banks': os.path.join(user_dir, 'piggy_banks.json'),
+        'piggy_bank_transactions': os.path.join(user_dir, 'piggy_bank_transactions.json')
+    }
 
-# Storage local removido - app funciona apenas online com Firebase
-# Funções _load_local_transactions e _save_local_transactions disponíveis apenas em modo de teste
-def _load_local_transactions(user_id: str) -> List[Dict]:
-    """Load transactions from local JSON file (apenas em modo de teste)."""
-    import os
-    if os.environ.get("LUNA_TEST_MODE") != "1":
-        raise RuntimeError("Storage local disponível apenas em modo de teste")
-    file_path = get_transactions_file(user_id)
-    if not file_path.exists():
+# Legacy compatibility
+def get_data_dir() -> str:
+    """Get the current user's data directory. Used by other modules."""
+    return get_user_data_dir()
+
+# Legacy compatibility - keeping it as a functional equivalent
+DATA_DIR = property(lambda self: get_user_data_dir()) # This won't work for top-level imports
+
+
+def _load_json(file_key: str) -> List[Dict]:
+    files = _get_files()
+    path = files.get(file_key)
+    if not path or not os.path.exists(path):
         return []
     try:
-        return json.loads(file_path.read_text(encoding="utf-8"))
-    except:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+            # Normalization logic for Recurring Items
+            if file_key == 'recurring' and isinstance(data, list):
+                for item in data:
+                    # title -> description
+                    if 'title' in item and 'description' not in item:
+                        item['description'] = item['title']
+                    # day_of_month -> due_day
+                    if 'day_of_month' in item and 'due_day' not in item:
+                        item['due_day'] = item['day_of_month']
+                    # Ensure type exists
+                    if 'type' not in item:
+                        item['type'] = 'expense'
+            
+            return data
+    except Exception as e:
+        print(f"Error loading {file_key}: {e}")
         return []
 
-def _save_local_transactions(user_id: str, transactions: List[Dict]) -> None:
-    """Save transactions to local JSON file (apenas em modo de teste)."""
-    import os
-    if os.environ.get("LUNA_TEST_MODE") != "1":
-        raise RuntimeError("Storage local disponível apenas em modo de teste")
-    file_path = get_transactions_file(user_id)
-    file_path.write_text(json.dumps(transactions, ensure_ascii=False, indent=2), encoding="utf-8")
+def _save_json(file_key: str, data: List[Dict]):
+    files = _get_files()
+    path = files.get(file_key)
+    if not path:
+        print(f"Unknown file key: {file_key}")
+        return
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving {file_key}: {e}")
 
+# --- TRANSACTIONS ---
 
-def _remove_duplicates(transactions: List[Dict]) -> List[Dict]:
-    """
-    Remove transações duplicadas baseado no ID.
-    Mantém a primeira ocorrência de cada ID único.
-    """
-    seen_ids = set()
-    unique_transactions = []
-    duplicates_count = 0
+def add_transaction(data: Dict) -> Transaction:
+    from . import tags
+    from . import budget
+    from . import goals
+    
+    transactions = _load_json('transactions')
+    
+    # Ensure category is set
+    category = data.get('category', 'geral')
+    tags.get_or_create_tag(category)
+    
+    # Assign ID if not present
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+        
+    transactions.append(data)
+    _save_json('transactions', transactions)
+    
+    # === SMART INTEGRATIONS ===
+    tx_type = data.get('type', 'expense')
+    value = float(data.get('value', 0))
+    
+    # 1. Check budget impact for expenses
+    if tx_type == 'expense':
+        try:
+            budget.check_budget_impact(category, value, tx_type)
+        except Exception as e:
+            print(f"[Integration] Budget check error: {e}")
+    
+    # 2. Update goal progress for income linked to savings goals
+    if tx_type == 'income':
+        try:
+            goals.update_goal_from_transaction(category, value, tx_type)
+        except Exception as e:
+            print(f"[Integration] Goal update error: {e}")
+    
+    return Transaction(**data)
+
+def get_transactions(filters: Optional[Dict] = None) -> List[Dict]:
+    transactions = _load_json('transactions')
+    # Sort by date desc
+    transactions.sort(key=lambda x: x.get('date', ''), reverse=True)
+    
+    if filters:
+        if 'type' in filters and filters['type'] != 'all':
+            transactions = [t for t in transactions if t['type'] == filters['type']]
+        if 'limit' in filters:
+            transactions = transactions[:int(filters['limit'])]
+            
+    return transactions
+
+def delete_transaction(transaction_id: str) -> bool:
+    transactions = _load_json('transactions')
+    original_len = len(transactions)
+    transactions = [t for t in transactions if t.get('id') != transaction_id]
+    
+    if len(transactions) < original_len:
+        _save_json('transactions', transactions)
+        return True
+    return False
+
+def update_transaction(transaction_id: str, updates: Dict) -> Optional[Transaction]:
+    transactions = _load_json('transactions')
+    updated = False
+    updated_tx = None
     
     for tx in transactions:
-        tx_id = tx.get("id")
-        if not tx_id:
-            # Se não tem ID, mantém (pode ser problema, mas não é duplicata)
-            unique_transactions.append(tx)
-            continue
-        
-        if tx_id not in seen_ids:
-            seen_ids.add(tx_id)
-            unique_transactions.append(tx)
-        else:
-            duplicates_count += 1
-            print(f"[BUSINESS] ⚠️ Transação duplicada removida: ID {tx_id}")
-    
-    if duplicates_count > 0:
-        print(f"[BUSINESS] 🔍 Removidas {duplicates_count} transações duplicadas")
-    
-    return unique_transactions
+        if tx.get('id') == transaction_id:
+            from . import tags
+            # Update fields, forbidding id change
+            for k, v in updates.items():
+                if k != 'id' and k != 'created_at':
+                     tx[k] = v
+                     if k == 'category':
+                         tags.get_or_create_tag(v)
+            updated = True
+            updated_tx = tx
+            break
+            
+    if updated:
+        _save_json('transactions', transactions)
+        return Transaction(**updated_tx)
+    return None
 
-
-def load_transactions(user_id: str, auto_reconcile: bool = True) -> List[Dict]:
+def get_summary(period: Optional[str] = None) -> Dict:
     """
-    Load all transactions for a user.
-    REQUIRES Firebase - no local storage fallback.
-    App will not work offline.
-    
-    Args:
-        user_id: ID do usuário (deve ser Firebase UID)
-        auto_reconcile: Se True, executa reconciliação automática se necessário (não usado mais)
-    
-    Returns:
-        Lista de transações do Firebase
-        
-    Raises:
-        ValueError: Se Firebase não estiver disponível ou user_id inválido
+    Get financial summary. If period is specified (YYYY-MM), 
+    returns data for that month only. Balance is always all-time.
     """
-    # Modo de teste: permite storage local temporariamente
-    import os
-    TEST_MODE = os.environ.get("LUNA_TEST_MODE") == "1"
+    transactions = _load_json('transactions')
     
-    # Valida que user_id é um Firebase UID válido (ou permite local em modo de teste)
-    if not user_id or (user_id == "local" and not TEST_MODE) or (len(user_id) <= 10 and not TEST_MODE):
-        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
+    # All-time balance
+    all_time_balance = 0.0
+    for t in transactions:
+        val = t.get('value', 0)
+        if t['type'] == 'income':
+            all_time_balance += val
+        elif t['type'] == 'expense':
+            all_time_balance -= val
+        elif t['type'] == 'investment':
+            all_time_balance -= val
     
-    if not FIREBASE_AVAILABLE and not TEST_MODE:
-        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
+    # Period-specific income/expenses
+    if period:
+        period_txs = [t for t in transactions if t.get('date', '').startswith(period)]
+    else:
+        # Default to current month
+        from datetime import datetime
+        current_period = datetime.now().strftime("%Y-%m")
+        period_txs = [t for t in transactions if t.get('date', '').startswith(current_period)]
     
-    # Em modo de teste, permite usar storage local
-    if TEST_MODE and (not FIREBASE_AVAILABLE or user_id.startswith("testlocal")):
-        local_txs = _load_local_transactions(user_id)
-        transactions = _remove_duplicates(local_txs)
-        print(f"[BUSINESS-TEST] ✅ Carregadas {len(transactions)} transações do storage local (modo teste)")
-        return transactions
+    income = 0.0
+    expenses = 0.0
     
-    try:
-        # Carrega transações APENAS do Firebase
-        transactions = get_user_transactions(user_id, limit=500)
-        
-        # Remove duplicatas (caso existam no próprio Firebase)
-        transactions = _remove_duplicates(transactions)
-        
-        print(f"[BUSINESS] ✅ Carregadas {len(transactions)} transações do Firebase")
-        return transactions
-                
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Erro ao carregar transações do Firebase: {e}")
-        import traceback
-        traceback.print_exc()
-        # Não há fallback - propaga o erro
-        raise ValueError(f"Erro ao carregar transações do Firebase: {str(e)}") from e
-
-
-def add_transaction(
-    user_id: str,
-    type: str,  # "income" or "expense"
-    value: float,
-    description: str,
-    category: str = "geral",
-    date: Optional[str] = None,
-    recurring_id: Optional[str] = None,  # ID do item recorrente que gerou esta transação
-    credit_card_id: Optional[str] = None,  # ID do cartão de crédito (se aplicável)
-    interest_rate: Optional[float] = None,  # Taxa de juros anual (%) - apenas para investimentos
-    investment_type: Optional[str] = None  # "investment" (investimento real) ou "savings" (caixinha/poupança)
-) -> Dict:
-    """Add a new transaction. Saves to Firebase + local cache."""
-    
-    # Valida e converte valor usando módulo de validação
-    try:
-        from .validation import validate_value
-        is_valid, validated_value, error = validate_value(value, "value")
-        if not is_valid:
-            print(f"[BUSINESS] ❌ Valor inválido: {value}, erro: {error}")
-            raise ValueError(error)
-        value = validated_value
-    except ValueError:
-        # Re-raise ValueError (já tem mensagem de erro)
-        raise
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Erro ao validar valor: {value}, erro: {e}")
-        raise ValueError(f"Erro ao processar valor: {str(e)}")
-    
-    # Normaliza data para UTC (ISO 8601)
-    try:
-        from .date_utils import normalize_date, validate_date_format
-        if date:
-            # Valida formato antes de normalizar
-            is_valid, error = validate_date_format(date)
-            if not is_valid:
-                raise ValueError(f"Data inválida: {error}")
-            tx_date = normalize_date(date, default_to_now=False)
-        else:
-            tx_date = normalize_date(None, default_to_now=True)
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Erro ao normalizar data: {e}")
-        raise ValueError(f"Erro ao processar data: {str(e)}")
-    
-    # Valida descrição e categoria
-    from .validation import validate_description, validate_category
-    
-    is_valid_desc, cleaned_description, desc_error = validate_description(description)
-    if not is_valid_desc:
-        raise ValueError(desc_error)
-    
-    is_valid_cat, cleaned_category, cat_error = validate_category(category)
-    if not is_valid_cat:
-        raise ValueError(cat_error)
-    
-    new_tx = {
-        "id": str(uuid.uuid4())[:8],
-        "type": type,
-        "value": abs(value),  # Já validado e garantido positivo
-        "description": cleaned_description,  # Já validado e limpo
-        "category": cleaned_category,  # Já validado e limpo
-        "date": tx_date,
-        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    for t in period_txs:
+        val = t.get('value', 0)
+        if t['type'] == 'income':
+            income += val
+        elif t['type'] == 'expense':
+            expenses += val
+            
+    return {
+        "balance": round(all_time_balance, 2),
+        "income": round(income, 2),
+        "expenses": round(expenses, 2),
+        "transaction_count": len(period_txs),
+        "period": period or datetime.now().strftime("%Y-%m")
     }
+
+# --- RECURRING ---
+
+def get_recurring() -> List[Dict]:
+    return _load_json('recurring')
+
+def add_recurring(data: Dict) -> RecurringItem:
+    from . import tags
+    items = _load_json('recurring')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    # Auto-create tag for category
+    category = data.get('category', 'fixo')
+    tags.get_or_create_tag(category)
+    items.append(data)
+    _save_json('recurring', items)
+    return RecurringItem(**data)
+
+def delete_recurring(item_id: str) -> bool:
+    items = _load_json('recurring')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != item_id]
+    if len(items) < original_len:
+        _save_json('recurring', items)
+        return True
+    return False
+
+def update_recurring(item_id: str, updates: Dict) -> Optional[RecurringItem]:
+    from . import tags
+    items = _load_json('recurring')
+    updated = False
+    updated_tx = None
+    for i in items:
+        if i.get('id') == item_id:
+            for k, v in updates.items():
+                if k != 'id':
+                    i[k] = v
+                    # Auto-create tag when category changes
+                    if k == 'category':
+                        tags.get_or_create_tag(v)
+            updated = True
+            updated_tx = i
+            break
+    if updated:
+        _save_json('recurring', items)
+        return RecurringItem(**updated_tx)
+    return None
+
+# --- OVERDUE BILLS ---
+
+def get_bills() -> List[Dict]:
+    return _load_json('bills')
+
+def add_bill(data: Dict) -> OverdueBill:
+    from . import tags
+    bills = _load_json('bills')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    # Auto-create tag for category
+    category = data.get('category', 'geral')
+    tags.get_or_create_tag(category)
+    bills.append(data)
+    _save_json('bills', bills)
+    return OverdueBill(**data)
+
+def update_bill(bill_id: str, updates: Dict) -> Optional[OverdueBill]:
+    from . import tags
+    bills = _load_json('bills')
+    updated = False
+    updated_bill = None
     
-    # Adiciona recurring_id se fornecido (para rastreamento de transações recorrentes)
-    if recurring_id:
-        new_tx["recurring_id"] = str(recurring_id)
+    for bill in bills:
+        if bill.get('id') == bill_id:
+            # Update fields
+            for k, v in updates.items():
+                if k != 'id':
+                    bill[k] = v
+                    # Auto-create tag when category changes
+                    if k == 'category':
+                        tags.get_or_create_tag(v)
+            updated = True
+            updated_bill = bill
+            break
     
-    # Adiciona credit_card_id se fornecido
-    if credit_card_id:
-        new_tx["credit_card_id"] = str(credit_card_id)
-    
-    # Adiciona campos de investimento se for tipo investment
-    if type == "investment":
-        if interest_rate is not None:
-            new_tx["interest_rate"] = float(interest_rate)
-        if investment_type:
-            new_tx["investment_type"] = str(investment_type)
-    
-    print(f"[BUSINESS] 📝 Adicionando transação: {new_tx['id']} - {new_tx['type']} - R$ {new_tx['value']:.2f}")
-    
-    # Verifica duplicatas antes de salvar
-    try:
-        from .duplicate_detector import check_duplicate
-        is_dup, dup_tx, source = check_duplicate(user_id, new_tx, exclude_id=None, check_firebase=True)
+    if updated:
+        _save_json('bills', bills)
+        return OverdueBill(**updated_bill)
+    return None
+
+# --- BUDGET ---
+
+def get_budget() -> List[Dict]:
+    return _load_json('budget')
+
+def add_budget(data: Dict) -> Budget:
+    items = _load_json('budget')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+    if 'updated_at' not in data:
+        data['updated_at'] = datetime.now().isoformat()
         
-        if is_dup:
-            dup_id = dup_tx.get("id", "unknown") if dup_tx else "unknown"
-            error_msg = f"Transação duplicada detectada (ID existente: {dup_id}, fonte: {source}). Transação com mesma data ({new_tx['date'][:10]}), valor (R$ {new_tx['value']:.2f}) e descrição ('{new_tx['description']}') já existe."
-            print(f"[BUSINESS] ❌ {error_msg}")
-            raise ValueError(error_msg)
-    except ValueError:
-        # Re-raise ValueError (duplicata detectada)
-        raise
-    except Exception as e:
-        # Outros erros na verificação não devem impedir a criação
-        print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas (continuando): {e}")
-    
-    # Modo de teste: permite storage local temporariamente
-    import os
-    TEST_MODE = os.environ.get("LUNA_TEST_MODE") == "1"
-    
-    # Valida que Firebase está disponível (ou permite modo de teste)
-    if not FIREBASE_AVAILABLE and not TEST_MODE:
-        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
-    
-    if not user_id or (user_id == "local" and not TEST_MODE) or (len(user_id) <= 10 and not TEST_MODE):
-        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
-    
-    # Em modo de teste, salva localmente primeiro
-    if TEST_MODE and (not FIREBASE_AVAILABLE or user_id.startswith("testlocal")):
-        transactions = _load_local_transactions(user_id)
-        if not any(tx.get("id") == new_tx["id"] for tx in transactions):
-            transactions.append(new_tx)
-            _save_local_transactions(user_id, transactions)
-            print(f"[BUSINESS-TEST] ✅ Transação {new_tx['id']} salva localmente (modo teste)")
-            return new_tx
-    
-    # Salva APENAS no Firebase (sem cache local)
-    try:
-        from .sync import sync_transaction_to_firebase
-        firebase_success, error = sync_transaction_to_firebase(user_id, new_tx, retry=True)
-        if firebase_success:
-            print(f"[BUSINESS] ✅ Transação {new_tx['id']} salva no Firebase")
-        else:
-            raise ValueError(f"Falha ao salvar no Firebase após retries: {error}")
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Firebase save failed: {e}")
-        import traceback
-        traceback.print_exc()
-        # Propaga o erro - sem fallback local
-        raise ValueError(f"Erro ao salvar transação no Firebase: {str(e)}") from e
-    
-    return new_tx
+    items.append(data)
+    _save_json('budget', items)
+    return Budget(**data)
 
+def delete_budget(budget_id: str) -> bool:
+    items = _load_json('budget')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != budget_id]
+    if len(items) < original_len:
+        _save_json('budget', items)
+        return True
+    return False
 
-def get_summary(user_id: str) -> Dict:
-    """
-    Calculate financial summary from Firebase or local.
-    Uses Decimal for precise calculations to avoid floating-point errors.
-    """
+def update_budget(budget_id: str, updates: Dict) -> Optional[Budget]:
+    items = _load_json('budget')
+    updated = False
+    updated_obj = None
+    for i in items:
+        if i.get('id') == budget_id:
+            for k, v in updates.items():
+                if k not in ['id', 'created_at']:
+                    i[k] = v
+            i['updated_at'] = datetime.now().isoformat()
+            updated = True
+            updated_obj = i
+            break
+    if updated:
+        _save_json('budget', items)
+        return Budget(**updated_obj)
+    return None
+
+# --- GOALS ---
+
+def get_goals() -> List[Dict]:
+    return _load_json('goals')
+
+def add_goal(data: Dict) -> Goal:
+    items = _load_json('goals')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+    if 'updated_at' not in data:
+        data['updated_at'] = datetime.now().isoformat()
+        
+    items.append(data)
+    _save_json('goals', items)
+    return Goal(**data)
+
+def delete_goal(goal_id: str) -> bool:
+    items = _load_json('goals')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != goal_id]
+    if len(items) < original_len:
+        _save_json('goals', items)
+        return True
+    return False
+
+def update_goal(goal_id: str, updates: Dict) -> Optional[Goal]:
+    items = _load_json('goals')
+    updated = False
+    updated_obj = None
+    for i in items:
+        if i.get('id') == goal_id:
+            for k, v in updates.items():
+                if k not in ['id', 'created_at']:
+                    i[k] = v
+            i['updated_at'] = datetime.now().isoformat()
+            updated = True
+            updated_obj = i
+            break
+    if updated:
+        _save_json('goals', items)
+        return Goal(**updated_obj)
+    return None
+
+# --- CREDIT CARDS ---
+
+def get_cards() -> List[Dict]:
+    return _load_json('cards')
+
+def add_card(data: Dict) -> CreditCard:
+    items = _load_json('cards')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())[:8]
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+        
+    items.append(data)
+    _save_json('cards', items)
+    return CreditCard(**data)
+
+def delete_card(card_id: str) -> bool:
+    items = _load_json('cards')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != card_id]
+    if len(items) < original_len:
+        _save_json('cards', items)
+        return True
+    return False
+
+def update_card(card_id: str, updates: Dict) -> Optional[CreditCard]:
+    items = _load_json('cards')
+    updated = False
+    updated_obj = None
+    for i in items:
+        if i.get('id') == card_id:
+            for k, v in updates.items():
+                if k not in ['id', 'created_at']:
+                    i[k] = v
+            updated = True
+            updated_obj = i
+            break
+    if updated:
+        _save_json('cards', items)
+        return CreditCard(**updated_obj)
+    return None
+
+# --- NOTIFICATIONS ---
+
+def get_notifications() -> List[Dict]:
+    return _load_json('notifications')
+
+def add_notification(data: Dict) -> Notification:
+    items = _load_json('notifications')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'date' not in data:
+        data['date'] = datetime.now().isoformat()
+    items.append(data)
+    _save_json('notifications', items)
+    return Notification(**data)
+
+def mark_notification_as_read(notification_id: str) -> bool:
+    items = _load_json('notifications')
+    updated = False
+    for i in items:
+        if i.get('id') == notification_id:
+            i['read'] = True
+            updated = True
+            break
+    if updated:
+        _save_json('notifications', items)
+        return True
+    return False
+
+def clear_notifications() -> bool:
+    _save_json('notifications', [])
+    return True
+
+def delete_notification(notification_id: str) -> bool:
+    items = _load_json('notifications')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != notification_id]
+    if len(items) < original_len:
+        _save_json('notifications', items)
+        return True
+    return False
+
+# --- PIGGY BANKS (CAIXINHAS) ---
+
+def get_piggy_banks() -> List[Dict]:
+    return _load_json('piggy_banks')
+
+def add_piggy_bank(data: Dict) -> PiggyBank:
+    items = _load_json('piggy_banks')
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+    if 'updated_at' not in data:
+        data['updated_at'] = datetime.now().isoformat()
+    if 'current_amount' not in data:
+        data['current_amount'] = 0.0
+        
+    items.append(data)
+    _save_json('piggy_banks', items)
+    return PiggyBank(**data)
+
+def delete_piggy_bank(piggy_bank_id: str) -> bool:
+    items = _load_json('piggy_banks')
+    original_len = len(items)
+    items = [i for i in items if i.get('id') != piggy_bank_id]
+    if len(items) < original_len:
+        _save_json('piggy_banks', items)
+        # Also delete related transactions
+        transactions = _load_json('piggy_bank_transactions')
+        transactions = [t for t in transactions if t.get('piggy_bank_id') != piggy_bank_id]
+        _save_json('piggy_bank_transactions', transactions)
+        return True
+    return False
+
+def update_piggy_bank(piggy_bank_id: str, updates: Dict) -> Optional[PiggyBank]:
+    items = _load_json('piggy_banks')
+    updated = False
+    updated_obj = None
+    for i in items:
+        if i.get('id') == piggy_bank_id:
+            for k, v in updates.items():
+                if k not in ['id', 'created_at', 'current_amount']:  # current_amount is managed by transactions
+                    i[k] = v
+            i['updated_at'] = datetime.now().isoformat()
+            updated = True
+            updated_obj = i
+            break
+    if updated:
+        _save_json('piggy_banks', items)
+        return PiggyBank(**updated_obj)
+    return None
+
+def get_piggy_bank_transactions(piggy_bank_id: Optional[str] = None) -> List[Dict]:
+    transactions = _load_json('piggy_bank_transactions')
+    if piggy_bank_id:
+        transactions = [t for t in transactions if t.get('piggy_bank_id') == piggy_bank_id]
+    # Sort by date desc
+    transactions.sort(key=lambda x: x.get('date', ''), reverse=True)
+    return transactions
+
+def add_piggy_bank_transaction(data: Dict) -> PiggyBankTransaction:
+    transactions = _load_json('piggy_bank_transactions')
+    piggy_banks = _load_json('piggy_banks')
     
-    # Carrega transações (já sincroniza Firebase com local)
-    transactions = load_transactions(user_id)
+    if 'id' not in data:
+        import uuid
+        data['id'] = str(uuid.uuid4())
+    if 'created_at' not in data:
+        data['created_at'] = datetime.now().isoformat()
+        
+    transactions.append(data)
+    _save_json('piggy_bank_transactions', transactions)
     
-    print(f"[BUSINESS] 📊 Calculando summary para {len(transactions)} transações")
+    # Update piggy bank current_amount
+    piggy_bank_id = data.get('piggy_bank_id')
+    amount = float(data.get('amount', 0))
+    tx_type = data.get('type', 'deposit')
     
-    # Usa Decimal para cálculos precisos
-    income = Decimal('0.00')
-    expenses = Decimal('0.00')
-    invested = Decimal('0.00')
+    for pb in piggy_banks:
+        if pb.get('id') == piggy_bank_id:
+            if tx_type == 'deposit':
+                pb['current_amount'] = pb.get('current_amount', 0.0) + amount
+            elif tx_type == 'withdrawal':
+                pb['current_amount'] = max(0.0, pb.get('current_amount', 0.0) - amount)
+            pb['updated_at'] = datetime.now().isoformat()
+            break
     
-    # Contadores para debug
-    income_count = 0
-    expense_count = 0
-    investment_count = 0
-    invalid_count = 0
+    _save_json('piggy_banks', piggy_banks)
     
+    return PiggyBankTransaction(**data)
+
+def delete_piggy_bank_transaction(transaction_id: str) -> bool:
+    transactions = _load_json('piggy_bank_transactions')
+    piggy_banks = _load_json('piggy_banks')
+    
+    # Find the transaction to reverse its effect
+    tx_to_delete = None
     for tx in transactions:
-        try:
-            # Converte para Decimal para precisão
-            tx_value_str = str(tx.get("value", 0))
-            tx_value = Decimal(tx_value_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            tx_type = tx.get("type", "").lower().strip()
-            
-            # Valida valor
-            if tx_value < 0:
-                print(f"[BUSINESS] ⚠️ Transação {tx.get('id')} tem valor negativo: {tx_value}, ignorando")
-                invalid_count += 1
-                continue
-            
-            if tx_type == "income":
-                income += tx_value
-                income_count += 1
-            elif tx_type == "expense":
-                expenses += tx_value
-                expense_count += 1
-            elif tx_type == "investment":
-                invested += tx_value
-                investment_count += 1
-            else:
-                print(f"[BUSINESS] ⚠️ Transação {tx.get('id')} tem tipo inválido: '{tx_type}', ignorando")
-                invalid_count += 1
-                continue
-        except (ValueError, TypeError, Exception) as e:
-            print(f"[BUSINESS] ⚠️ Erro ao processar transação {tx.get('id', 'unknown')}: {e}, tx={tx}")
-            invalid_count += 1
-            continue
+        if tx.get('id') == transaction_id:
+            tx_to_delete = tx
+            break
     
-    # Balance is cash on hand (Income - Expenses - Outflows to Investment)
-    balance = income - expenses - invested
+    if not tx_to_delete:
+        return False
     
-    # Net Worth is Balance + Invested Assets
-    net_worth = balance + invested
+    # Reverse the transaction effect on the piggy bank
+    piggy_bank_id = tx_to_delete.get('piggy_bank_id')
+    amount = float(tx_to_delete.get('amount', 0))
+    tx_type = tx_to_delete.get('type', 'deposit')
     
-    # Converte para float com 2 casas decimais
-    def to_float(decimal_val):
-        return float(decimal_val.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+    for pb in piggy_banks:
+        if pb.get('id') == piggy_bank_id:
+            if tx_type == 'deposit':
+                pb['current_amount'] = max(0.0, pb.get('current_amount', 0.0) - amount)
+            elif tx_type == 'withdrawal':
+                pb['current_amount'] = pb.get('current_amount', 0.0) + amount
+            pb['updated_at'] = datetime.now().isoformat()
+            break
     
-    summary = {
-        "balance": to_float(balance),
-        "income": to_float(income),
-        "expenses": to_float(expenses),
-        "invested": to_float(invested),
-        "net_worth": to_float(net_worth),
-        "transaction_count": len(transactions)
-    }
+    # Remove transaction
+    original_len = len(transactions)
+    transactions = [t for t in transactions if t.get('id') != transaction_id]
     
-    print(f"[BUSINESS] 📊 Summary calculado: Balance={summary['balance']}, Income={summary['income']} ({income_count} transações), Expenses={summary['expenses']} ({expense_count} transações), Invested={summary['invested']} ({investment_count} transações), Net Worth={summary['net_worth']}, Invalid={invalid_count}")
-    
-    return summary
-
-
-def delete_transaction(user_id: str, tx_id: str) -> bool:
-    """
-    Delete a transaction by ID from Firebase.
-    REQUIRES Firebase - no local storage fallback.
-    
-    Args:
-        user_id: Firebase UID do usuário
-        tx_id: ID da transação a deletar
-    
-    Returns:
-        True se deletado com sucesso
-        
-    Raises:
-        ValueError: Se Firebase não estiver disponível
-    """
-    # Valida que Firebase está disponível
-    if not FIREBASE_AVAILABLE:
-        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
-    
-    if not user_id or user_id == "local" or len(user_id) <= 10:
-        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
-    
-    # Delete APENAS do Firebase
-    try:
-        from .sync import _retry_with_backoff
-        def attempt_delete():
-            try:
-                delete_transaction_from_firebase(user_id, tx_id)
-                return True, None
-            except Exception as e:
-                return False, str(e)
-        
-        success, error, attempts = _retry_with_backoff(attempt_delete)
-        if success:
-            print(f"[BUSINESS] ✅ Transação {tx_id} deletada do Firebase")
-            return True
-        else:
-            raise ValueError(f"Falha ao deletar no Firebase após {attempts} tentativas: {error}")
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Firebase delete failed: {e}")
-        raise ValueError(f"Erro ao deletar transação no Firebase: {str(e)}") from e
-
-
-def update_transaction(user_id: str, tx_id: str, updates: Dict) -> Optional[Dict]:
-    """
-    Update a transaction by ID.
-    REQUIRES Firebase - no local storage fallback.
-    
-    Args:
-        user_id: Firebase UID do usuário
-        tx_id: ID da transação a atualizar
-        updates: Dicionário com campos a atualizar
-    
-    Returns:
-        Transação atualizada ou None se não encontrada
-        
-    Raises:
-        ValueError: Se Firebase não estiver disponível
-    """
-    # Valida que Firebase está disponível
-    if not FIREBASE_AVAILABLE:
-        raise ValueError("Firebase não está disponível. App requer conexão com Firebase para funcionar.")
-    
-    if not user_id or user_id == "local" or len(user_id) <= 10:
-        raise ValueError(f"user_id inválido para modo online-only: {user_id}. Firebase UID requerido.")
-    
-    # 1. Buscar transação no Firebase
-    try:
-        transactions = get_user_transactions(user_id, limit=200)
-        tx = next((t for t in transactions if t.get("id") == tx_id), None)
-        
-        if not tx:
-            print(f"[BUSINESS] ⚠️ Transação {tx_id} não encontrada no Firebase")
-            return None
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Erro ao buscar transação no Firebase: {e}")
-        raise ValueError(f"Erro ao buscar transação no Firebase: {str(e)}") from e
-
-    # 2. Verifica duplicatas se estiver atualizando campos que afetam a chave única
-    fields_that_affect_key = ["date", "value", "description", "type"]
-    if any(field in updates for field in fields_that_affect_key):
-        try:
-            from .duplicate_detector import check_duplicate
-            # Cria transação temporária com valores atualizados
-            test_tx = tx.copy()
-            test_tx.update(updates)
-            # Verifica duplicatas excluindo a própria transação
-            is_dup, dup_tx, source = check_duplicate(user_id, test_tx, exclude_id=tx_id, check_firebase=True)
-            
-            if is_dup:
-                dup_id = dup_tx.get("id", "unknown") if dup_tx else "unknown"
-                error_msg = f"Atualização criaria transação duplicada (ID existente: {dup_id}, fonte: {source})."
-                print(f"[BUSINESS] ❌ {error_msg}")
-                raise ValueError(error_msg)
-        except ValueError:
-            # Re-raise ValueError (duplicata detectada)
-            raise
-        except Exception as e:
-            # Outros erros na verificação não devem impedir a atualização
-            print(f"[BUSINESS] ⚠️ Erro ao verificar duplicatas no update (continuando): {e}")
-    
-    # 3. Se está atualizando a data, normaliza para UTC
-    if "date" in updates:
-        try:
-            from .date_utils import normalize_date, validate_date_format
-            date_value = updates["date"]
-            is_valid, error = validate_date_format(date_value)
-            if not is_valid:
-                raise ValueError(f"Data inválida: {error}")
-            updates["date"] = normalize_date(date_value, default_to_now=False)
-        except Exception as e:
-            print(f"[BUSINESS] ❌ Erro ao normalizar data no update: {e}")
-            raise ValueError(f"Erro ao processar data: {str(e)}")
-    
-    # 4. Aplica atualizações
-    tx.update(updates)
-    tx["updated_at"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-    
-    # 5. Salva APENAS no Firebase (sem cache local)
-    try:
-        from .sync import _retry_with_backoff
-        def attempt_update():
-            try:
-                update_transaction_in_firebase(user_id, tx_id, updates)
-                return True, None
-            except Exception as e:
-                return False, str(e)
-        
-        success, error, attempts = _retry_with_backoff(attempt_update)
-        if success:
-            print(f"[BUSINESS] ✅ Transação {tx_id} atualizada no Firebase")
-        else:
-            raise ValueError(f"Falha ao atualizar no Firebase após {attempts} tentativas: {error}")
-    except Exception as e:
-        print(f"[BUSINESS] ❌ Firebase update failed: {e}")
-        raise ValueError(f"Erro ao atualizar transação no Firebase: {str(e)}") from e
-    
-    return tx
-
-
-# =============================================================================
-# CLIENTS (mantém local por enquanto)
-# =============================================================================
-
-def get_clients_file(user_id: str) -> Path:
-    return get_user_data_dir(user_id) / "clients.json"
-
-def load_clients(user_id: str) -> List[Dict]:
-    """Load all clients for a user."""
-    file_path = get_clients_file(user_id)
-    if not file_path.exists():
-        return []
-    try:
-        return json.loads(file_path.read_text(encoding="utf-8"))
-    except:
-        return []
-
-def save_clients(user_id: str, clients: List[Dict]) -> None:
-    """Save clients to file."""
-    file_path = get_clients_file(user_id)
-    file_path.write_text(json.dumps(clients, ensure_ascii=False, indent=2), encoding="utf-8")
-
-def add_client(user_id: str, name: str, contact: str = "") -> Dict:
-    """Add a new client."""
-    clients = load_clients(user_id)
-    
-    new_client = {
-        "id": str(uuid.uuid4())[:8],
-        "name": name,
-        "contact": contact,
-        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-    }
-    
-    clients.append(new_client)
-    save_clients(user_id, clients)
-    
-    return new_client
-
-def search_clients(user_id: str, query: str) -> List[Dict]:
-    """Search clients by name."""
-    clients = load_clients(user_id)
-    query_lower = query.lower()
-    return [c for c in clients if query_lower in c["name"].lower()]
+    if len(transactions) < original_len:
+        _save_json('piggy_bank_transactions', transactions)
+        _save_json('piggy_banks', piggy_banks)
+        return True
+    return False

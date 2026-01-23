@@ -1,0 +1,19 @@
+[
+    {
+        "id": "ecb26d9d",
+        "name": "Nubank",
+        "limit": 7000.0,
+        "due_day": 10,
+        "last_four": "",
+        "brand": "visa",
+        "color": "#8B5CF6",
+        "status": "active",
+        "notes": "",
+        "created_at": "2026-01-13T08:50:17.416383",
+        "used_limit": 0.0,
+        "current_bill": 0.0,
+        "available_limit": 7000.0,
+        "days_until_due": 28,
+        "next_due_date": "2026-02-10"
+    }
+]

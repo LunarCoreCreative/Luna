@@ -1,0 +1,14 @@
+[
+    {
+        "name": "Notebook",
+        "description": "",
+        "target_amount": 6000.0,
+        "color": "#8B5CF6",
+        "icon": "💻",
+        "goal_id": "14c2442a",
+        "id": "6566ee90-5c52-4189-9473-155e7637c1cf",
+        "created_at": "2026-01-23T06:36:03.051633",
+        "updated_at": "2026-01-23T06:38:26.404107",
+        "current_amount": 400.0
+    }
+]

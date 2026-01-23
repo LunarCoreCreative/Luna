@@ -1,0 +1,92 @@
+[
+    {
+        "id": "6f303d41",
+        "value": 1380.0,
+        "type": "income",
+        "category": "salario",
+        "created_at": "2026-01-08T17:52:16.042903",
+        "last_generated": "2026-01-05",
+        "description": "Primeira Parcela",
+        "due_day": 5
+    },
+    {
+        "id": "601c08f0",
+        "value": 920.0,
+        "type": "income",
+        "category": "salario",
+        "created_at": "2026-01-08T17:52:38.728247",
+        "last_generated": null,
+        "description": "Segunda Parcela",
+        "due_day": 20
+    },
+    {
+        "id": "540a80a2",
+        "value": 820.0,
+        "type": "expense",
+        "category": "despesa",
+        "created_at": "2026-01-08T18:43:16.915351",
+        "last_generated": "2026-01-05",
+        "description": "Aluguel Mãe",
+        "due_day": 5
+    },
+    {
+        "id": "61e0a5d4",
+        "value": 15.0,
+        "type": "expense",
+        "category": "planointernet",
+        "created_at": "2026-01-09T03:52:40.465926",
+        "last_generated": "2026-01-05",
+        "description": "Plano de Internet",
+        "due_day": 5
+    },
+    {
+        "id": "b0dda5e2",
+        "value": 15.0,
+        "type": "expense",
+        "category": "planointernet",
+        "created_at": "2026-01-09T03:53:25.722534",
+        "last_generated": null,
+        "description": "Plano de Internet",
+        "due_day": 20
+    },
+    {
+        "id": "5aab838a",
+        "value": 19.99,
+        "type": "expense",
+        "category": "assinaturas",
+        "created_at": "2026-01-09T03:56:42.900507",
+        "last_generated": null,
+        "description": "Crunchyroll",
+        "due_day": 20
+    },
+    {
+        "id": "c1eb1de2",
+        "value": 11.95,
+        "type": "expense",
+        "category": "assinaturas",
+        "created_at": "2026-01-09T03:57:00.497237",
+        "last_generated": null,
+        "description": "Spotify",
+        "due_day": 20
+    },
+    {
+        "id": "9b2df75c",
+        "value": 20.9,
+        "type": "expense",
+        "category": "assinaturas",
+        "created_at": "2026-01-09T03:58:37.039284",
+        "last_generated": null,
+        "description": "Netflix",
+        "due_day": 20
+    },
+    {
+        "id": "fe102fba",
+        "value": 110.0,
+        "type": "expense",
+        "category": "fixo",
+        "created_at": "2026-01-11T07:05:21.565168",
+        "last_generated": null,
+        "description": "Cursor Ai Pro",
+        "due_day": 20
+    }
+]

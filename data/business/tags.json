@@ -1,0 +1,47 @@
+[
+    {
+        "id": "mensalidade",
+        "label": "Mensalidade",
+        "color": "#22c55e"
+    },
+    {
+        "id": "despesa",
+        "label": "Despesa",
+        "color": "#ef4444"
+    },
+    {
+        "id": "material",
+        "label": "Material",
+        "color": "#3b82f6"
+    },
+    {
+        "id": "salario",
+        "label": "Salário",
+        "color": "#f59e0b"
+    },
+    {
+        "id": "servico",
+        "label": "Serviço",
+        "color": "#a855f7"
+    },
+    {
+        "id": "geral",
+        "label": "Geral",
+        "color": "#6b7280"
+    },
+    {
+        "id": "alimentação",
+        "label": "Alimentação",
+        "color": "#ec4899"
+    },
+    {
+        "id": "personal_tag",
+        "label": "Personal_tag",
+        "color": "#14b8a6"
+    },
+    {
+        "id": "casa",
+        "label": "Casa",
+        "color": "#8b5cf6"
+    }
+]
