@@ -42,7 +42,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const core = require('@actions/core');
             const version = '${{ steps.tag_version.outputs.version }}';
             let releaseNotes = `Release ${version} - Refatoração e limpeza do projeto`;
             
