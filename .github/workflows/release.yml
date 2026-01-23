@@ -42,8 +42,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const core = require('@actions/core');
             const version = '${{ steps.tag_version.outputs.version }}';
-            let releaseNotes = `Release ${version}`;
+            let releaseNotes = `Release ${version} - Refatoração e limpeza do projeto`;
             
             try {
               if (fs.existsSync('CHANGELOG.md')) {
@@ -58,7 +59,7 @@ jobs:
               console.log('CHANGELOG.md not found, using default release notes');
             }
             
-            return releaseNotes;
+            core.setOutput('notes', releaseNotes);
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -68,13 +69,13 @@ jobs:
           body: |
             ## Release ${{ steps.tag_version.outputs.version }}
             
-            ${{ steps.changelog.outputs.result }}
+            ${{ steps.changelog.outputs.notes }}
             
             ### 📦 Instalação
             
             Baixe o instalador para Windows na seção de assets abaixo.
           draft: false
-          prerelease: ${{ contains(github.ref, 'pre') || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          prerelease: ${{ contains(github.ref_name, '0.2.0') || contains(github.ref_name, 'pre') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
