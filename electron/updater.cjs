@@ -8,12 +8,11 @@ const { ipcMain, app } = require('electron');
 
 let mainWindow = null;
 
-// Configure updater (match legacy behavior)
-autoUpdater.autoDownload = false; // user-controlled
+// Configure updater
+autoUpdater.autoDownload = false; // User-controlled download
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.channel = 'latest';
-autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases
-autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases
+autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases (beta, alpha, etc)
 
 // Basic logger (avoid requiring electron-log)
 autoUpdater.logger = {

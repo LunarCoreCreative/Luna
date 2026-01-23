@@ -1,25 +1,27 @@
-name: Release
+name: Pre-Release (Beta/Alpha)
 
 on:
   push:
-    tags:
-      - 'v*'
     branches:
-      - main
+      - staging
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 1.0.0)'
+        description: 'Version to release (e.g., 1.0.0-beta.1)'
         required: true
         type: string
-      prerelease:
-        description: 'Mark as pre-release?'
+      channel:
+        description: 'Release channel (beta, alpha, rc)'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - beta
+          - alpha
+          - rc
+        default: beta
 
 jobs:
-  release:
+  prerelease:
     runs-on: windows-latest
     
     steps:
@@ -48,17 +50,39 @@ jobs:
           cd server
           pip install -r requirements.txt
 
-      - name: Extract version from tag or input
+      - name: Determine version
         id: version
         shell: pwsh
         run: |
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $VERSION = "${{ github.event.inputs.version }}"
           } else {
-            $VERSION = "${{ github.ref }}" -replace "refs/tags/v", ""
+            # Auto-incrementar pre-release baseado na última tag
+            $LAST_TAG = git describe --tags --abbrev=0 2>$null
+            if (-not $LAST_TAG) { $LAST_TAG = "v0.0.0" }
+            $LAST_VERSION = $LAST_TAG -replace "^v", ""
+            $CHANNEL = "${{ github.event.inputs.channel }}"
+            if (-not $CHANNEL) { $CHANNEL = "beta" }
+            
+            # Extrair número base (ex: 1.0.0-beta.1 -> 1.0.0)
+            if ($LAST_VERSION -match "^(\d+\.\d+\.\d+)(?:-.*)?$") {
+              $BASE_VERSION = $matches[1]
+            } else {
+              $BASE_VERSION = "1.0.0"
+            }
+            
+            # Extrair número do pre-release (ex: beta.1 -> 1)
+            if ($LAST_VERSION -match "[a-z]+\.(\d+)$") {
+              $PRE_NUM = [int]$matches[1]
+            } else {
+              $PRE_NUM = 0
+            }
+            $NEW_PRE_NUM = $PRE_NUM + 1
+            
+            $VERSION = "$BASE_VERSION-$CHANNEL.$NEW_PRE_NUM"
           }
           Write-Host "version=$VERSION" >> $env:GITHUB_OUTPUT
-          Write-Host "Extracted version: $VERSION"
+          Write-Host "Version: $VERSION"
 
       - name: Update package.json version
         run: |
@@ -72,7 +96,6 @@ jobs:
         id: changelog
         run: |
           if (Test-Path CHANGELOG.md) {
-            # Extrair seção do changelog para a versão atual
             $version = "${{ steps.version.outputs.version }}"
             $content = Get-Content CHANGELOG.md -Raw
             if ($content -match "(?s)## \[$version\].*?(?=##|$)") {
@@ -81,13 +104,28 @@ jobs:
               $changelog | Out-File -FilePath changelog_release.txt -Encoding utf8
               Write-Host "Changelog extracted"
             } else {
-              Write-Host "No changelog entry found for version $version"
-              "## $version`n`nRelease notes." | Out-File -FilePath changelog_release.txt -Encoding utf8
+              # Usar seção "Não Publicado" se disponível
+              if ($content -match "(?s)## \[Não Publicado\].*?(?=##|$)") {
+                $changelog = $matches[0].Trim()
+                $changelog = $changelog -replace "## \[Não Publicado\]", "## $version (Pre-Release)"
+                $changelog | Out-File -FilePath changelog_release.txt -Encoding utf8
+                Write-Host "Using 'Não Publicado' section"
+              } else {
+                Write-Host "No changelog entry found"
+                "## $version (Pre-Release)`n`nPre-release build from staging branch." | Out-File -FilePath changelog_release.txt -Encoding utf8
+              }
             }
           } else {
-            Write-Host "CHANGELOG.md not found, using default"
-            "## ${{ steps.version.outputs.version }}`n`nRelease notes." | Out-File -FilePath changelog_release.txt -Encoding utf8
+            Write-Host "CHANGELOG.md not found"
+            "## ${{ steps.version.outputs.version }} (Pre-Release)`n`nPre-release build from staging branch." | Out-File -FilePath changelog_release.txt -Encoding utf8
           }
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Pre-release v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release (Draft)
         id: create_release
@@ -96,16 +134,15 @@ jobs:
           script: |
             const fs = require('fs');
             const changelog = fs.readFileSync('changelog_release.txt', 'utf8');
-            const isPrerelease = ${{ github.event.inputs.prerelease || false }};
             
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${{ steps.version.outputs.version }}`,
-              name: `Release v${{ steps.version.outputs.version }}`,
+              name: `Pre-Release v${{ steps.version.outputs.version }}`,
               body: changelog,
               draft: true,
-              prerelease: isPrerelease
+              prerelease: true
             });
             
             core.setOutput('id', release.data.id);
@@ -158,7 +195,7 @@ jobs:
               });
             }
 
-      - name: Publish release
+      - name: Publish pre-release
         uses: actions/github-script@v7
         with:
           script: |
@@ -168,5 +205,6 @@ jobs:
               repo: context.repo.repo,
               release_id: releaseId,
               draft: false,
-              make_latest: ${{ !github.event.inputs.prerelease }}
+              prerelease: true,
+              make_latest: false
             });

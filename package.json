@@ -119,7 +119,8 @@
       "provider": "github",
       "owner": "LunarCoreCreative",
       "repo": "Luna",
-      "releaseType": "release"
+      "releaseType": "release",
+      "private": false
     }
   }
 }
