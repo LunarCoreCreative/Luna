@@ -44,53 +44,40 @@ if ($status) {
 # 3. Atualizar package.json
 Write-Host ""
 Write-Host "Atualizando package.json..." -ForegroundColor Yellow
-$pkg = Get-Content package.json -Raw | ConvertFrom-Json
+
+# Ler o arquivo original preservando formatação
+$originalContent = Get-Content package.json -Raw
+$pkg = $originalContent | ConvertFrom-Json
 $oldVersion = $pkg.version
-$pkg.version = $Version
 
-# Usar formatação mais compacta e preservar estrutura
-$jsonSettings = @{
-    Depth = 100
-    Compress = $false
-    EscapeHandling = [Newtonsoft.Json.EscapeHandling]::Default
-} -ErrorAction SilentlyContinue
+# Usar substituição regex para preservar formatação original
+# Procurar por "version": "qualquer-coisa" e substituir apenas a versão
+$pattern = '("version"\s*:\s*")[^"]*(")'
+$replacement = "`$1$Version`$2"
+$updatedContent = $originalContent -replace $pattern, $replacement
 
-# Tentar usar formatação melhor
-try {
-    # Ler o arquivo original para preservar formatação
-    $originalContent = Get-Content package.json -Raw
-    $json = $pkg | ConvertTo-Json -Depth 100
+# Se a substituição funcionou, salvar
+if ($updatedContent -ne $originalContent) {
+    $updatedContent | Set-Content package.json -Encoding UTF8 -NoNewline
     
-    # Substituir apenas a linha da versão usando regex
-    $updatedContent = $originalContent -replace "(`"version`":\s*)`"[^`"]*`"", "`$1`"$Version`""
-    
-    # Se a substituição não funcionou, usar o JSON convertido mas formatado melhor
-    if ($updatedContent -eq $originalContent) {
-        # Usar node para formatar o JSON corretamente
-        $tempJson = $pkg | ConvertTo-Json -Depth 100
-        $tempJson | Out-File -FilePath "package.json.tmp" -Encoding UTF8 -NoNewline
-        
-        # Tentar usar node para formatar (se disponível)
-        if (Get-Command node -ErrorAction SilentlyContinue) {
-            node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json.tmp', 'utf8')); fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n', 'utf8');" 2>$null
-            Remove-Item "package.json.tmp" -ErrorAction SilentlyContinue
+    # Verificar se o JSON ainda é válido
+    try {
+        $test = Get-Content package.json -Raw | ConvertFrom-Json
+        if ($test.version -eq $Version) {
+            Write-Host "Versao atualizada: $oldVersion -> $Version" -ForegroundColor Green
         } else {
-            # Fallback: usar o JSON convertido mas com formatação manual melhor
-            $json = $pkg | ConvertTo-Json -Depth 100
-            # Remover espaços excessivos e formatar melhor
-            $json = $json -replace '  +', '  '  # Normalizar espaços
-            $json | Set-Content package.json -Encoding UTF8
+            throw "Versao nao foi atualizada corretamente"
         }
-    } else {
-        $updatedContent | Set-Content package.json -Encoding UTF8 -NoNewline
+    } catch {
+        Write-Error "Erro ao atualizar package.json: $_"
+        Write-Host "Restaurando package.json original..." -ForegroundColor Yellow
+        $originalContent | Set-Content package.json -Encoding UTF8 -NoNewline
+        exit 1
     }
-} catch {
-    # Fallback simples
-    $json = $pkg | ConvertTo-Json -Depth 100
-    $json | Set-Content package.json -Encoding UTF8
+} else {
+    Write-Error "Nao foi possivel encontrar a linha de versao no package.json"
+    exit 1
 }
-
-Write-Host "Versao atualizada: $oldVersion -> $Version" -ForegroundColor Green
 
 # 4. Verificar se CHANGELOG tem entrada para esta versão
 Write-Host ""
