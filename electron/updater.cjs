@@ -14,6 +14,14 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.channel = 'latest';
 autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases (beta, alpha, etc)
 
+// Configurar provider do GitHub explicitamente
+// O electron-updater usa a configuração do package.json, mas podemos forçar aqui também
+if (app.isPackaged) {
+    // Em produção, garantir que está usando GitHub provider
+    const { GitHubProvider } = require('electron-updater/out/providers/GitHubProvider');
+    // A configuração vem do package.json build.publish
+}
+
 // Basic logger (avoid requiring electron-log)
 autoUpdater.logger = {
     info: (message) => console.log('[UPDATER]', message),
@@ -35,6 +43,17 @@ function setupAutoUpdater(window) {
     console.log('[UPDATER] Initializing auto-updater...');
     console.log('[UPDATER] Current version:', currentVersion);
     console.log('[UPDATER] Provider:', autoUpdater.provider?.constructor?.name || 'default');
+    console.log('[UPDATER] Allow prerelease:', autoUpdater.allowPrerelease);
+    console.log('[UPDATER] Channel:', autoUpdater.channel);
+    
+    // Log da configuração do provider se disponível
+    if (autoUpdater.provider) {
+        console.log('[UPDATER] Provider config:', {
+            owner: autoUpdater.provider?.owner || 'N/A',
+            repo: autoUpdater.provider?.repo || 'N/A',
+            channel: autoUpdater.provider?.channel || 'N/A'
+        });
+    }
 
     // Check for updates shortly after UI is ready
     setTimeout(() => {
@@ -79,7 +98,22 @@ function setupAutoUpdater(window) {
     });
 
     autoUpdater.on('error', (err) => {
-        sendToRenderer('update:error', { message: err.message });
+        console.error('[UPDATER] Error details:', {
+            message: err.message,
+            stack: err.stack,
+            code: err.code,
+            errno: err.errno
+        });
+        
+        // Mensagem mais amigável para o usuário
+        let userMessage = err.message;
+        if (err.message && err.message.includes('No published versions')) {
+            userMessage = 'Nenhuma versão publicada encontrada no GitHub. Verifique se há releases disponíveis.';
+        } else if (err.message && err.message.includes('404')) {
+            userMessage = 'Repositório ou release não encontrado. Verifique a configuração.';
+        }
+        
+        sendToRenderer('update:error', { message: userMessage, originalError: err.message });
     });
 
     // IPC commands from renderer

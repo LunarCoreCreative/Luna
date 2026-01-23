@@ -120,7 +120,8 @@
       "owner": "LunarCoreCreative",
       "repo": "Luna",
       "releaseType": "release",
-      "private": false
+      "private": false,
+      "vPrefixedTagName": true
     }
   }
 }
