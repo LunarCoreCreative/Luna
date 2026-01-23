@@ -102,16 +102,36 @@ jobs:
             exit 1
           }
           
-          Write-Host "version=$VERSION" >> $env:GITHUB_OUTPUT
+          # Escrever no output do GitHub Actions
+          Write-Host "version=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Determined version: $VERSION"
+          Write-Host "Version written to GITHUB_OUTPUT: version=$VERSION"
 
       - name: Update package.json version
         shell: pwsh
         run: |
+          # Ler a versão do output do step anterior
           $version = "${{ steps.version.outputs.version }}"
           
-          if (-not $version -or $version -eq "") {
+          Write-Host "Raw version from step output: '$version'"
+          
+          # Se estiver vazio, tentar ler do arquivo de output do GitHub
+          if (-not $version -or $version -eq "" -or $version -eq " ") {
+            Write-Host "Version is empty, trying alternative method..."
+            # Tentar ler do GITHUB_OUTPUT diretamente
+            if (Test-Path $env:GITHUB_OUTPUT) {
+              $outputContent = Get-Content $env:GITHUB_OUTPUT -Raw
+              Write-Host "GITHUB_OUTPUT content: $outputContent"
+              if ($outputContent -match "version=(.+)") {
+                $version = $matches[1].Trim()
+                Write-Host "Extracted version from GITHUB_OUTPUT: $version"
+              }
+            }
+          }
+          
+          if (-not $version -or $version -eq "" -or $version -eq " ") {
             Write-Error "Version is empty! Cannot update package.json"
+            Write-Host "Debug: steps.version.outputs.version = '${{ steps.version.outputs.version }}'"
             exit 1
           }
           
@@ -131,7 +151,7 @@ jobs:
           
           # Converter de volta para JSON e salvar
           $json = $packageJson | ConvertTo-Json -Depth 100
-          $json | Set-Content $packageJsonPath -Encoding UTF8 -NoNewline
+          $json | Set-Content $packageJsonPath -Encoding UTF8
           
           Write-Host "✓ Updated package.json to version $version"
           
