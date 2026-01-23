@@ -12,6 +12,8 @@ let mainWindow = null;
 autoUpdater.autoDownload = false; // user-controlled
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.channel = 'latest';
+autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases
+autoUpdater.allowPrerelease = true; // Permitir detectar pre-releases
 
 // Basic logger (avoid requiring electron-log)
 autoUpdater.logger = {
