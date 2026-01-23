@@ -293,38 +293,82 @@ jobs:
             const releaseId = ${{ steps.create_release.outputs.id }};
             const version = '${{ steps.version.outputs.version }}';
             
+            // Função para deletar asset existente se houver
+            async function deleteExistingAsset(releaseId, assetName) {
+              try {
+                const assets = await github.rest.repos.listReleaseAssets({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: releaseId
+                });
+                
+                const existingAsset = assets.data.find(asset => asset.name === assetName);
+                if (existingAsset) {
+                  console.log(`Deleting existing asset: ${assetName} (ID: ${existingAsset.id})`);
+                  await github.rest.repos.deleteReleaseAsset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    asset_id: existingAsset.id
+                  });
+                  console.log(`✓ Deleted existing asset: ${assetName}`);
+                }
+              } catch (error) {
+                console.log(`No existing asset to delete or error: ${error.message}`);
+              }
+            }
+            
             // Upload installer
             const installerPath = `./release/Luna-${version}-Setup.exe`;
+            const installerName = `Luna-${version}-Setup.exe`;
+            
             if (fs.existsSync(installerPath)) {
+              console.log(`Uploading installer: ${installerName}`);
+              
+              // Deletar asset existente se houver
+              await deleteExistingAsset(releaseId, installerName);
+              
               const installerData = fs.readFileSync(installerPath);
               await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: releaseId,
-                name: `Luna-${version}-Setup.exe`,
+                name: installerName,
                 data: installerData,
                 headers: {
                   'content-type': 'application/octet-stream',
                   'content-length': installerData.length
                 }
               });
+              console.log(`✓ Uploaded installer: ${installerName}`);
+            } else {
+              console.log(`Installer not found: ${installerPath}`);
             }
             
             // Upload latest.yml
             const latestYmlPath = './release/latest.yml';
+            const latestYmlName = 'latest.yml';
+            
             if (fs.existsSync(latestYmlPath)) {
+              console.log(`Uploading latest.yml`);
+              
+              // Deletar asset existente se houver
+              await deleteExistingAsset(releaseId, latestYmlName);
+              
               const latestYmlData = fs.readFileSync(latestYmlPath);
               await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: releaseId,
-                name: 'latest.yml',
+                name: latestYmlName,
                 data: latestYmlData,
                 headers: {
                   'content-type': 'text/yaml',
                   'content-length': latestYmlData.length
                 }
               });
+              console.log(`✓ Uploaded latest.yml`);
+            } else {
+              console.log(`latest.yml not found: ${latestYmlPath}`);
             }
 
       - name: Publish pre-release
