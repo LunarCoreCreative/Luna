@@ -58,54 +58,86 @@ jobs:
         id: version
         shell: pwsh
         run: |
+          Write-Host "Determining version..."
+          Write-Host "Event name: ${{ github.event_name }}"
+          
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $VERSION = "${{ github.event.inputs.version }}"
+            Write-Host "Using input version: $VERSION"
           } else {
             # Auto-incrementar pre-release baseado na última tag
+            Write-Host "Auto-determining version from tags..."
             $LAST_TAG = git describe --tags --abbrev=0 2>$null
-            if (-not $LAST_TAG) { $LAST_TAG = "v0.0.0" }
+            Write-Host "Last tag: $LAST_TAG"
+            
+            if (-not $LAST_TAG) { 
+              $LAST_TAG = "v0.0.0"
+              Write-Host "No tags found, using default: $LAST_TAG"
+            }
+            
             $LAST_VERSION = $LAST_TAG -replace "^v", ""
+            Write-Host "Last version: $LAST_VERSION"
+            
             $CHANNEL = "${{ github.event.inputs.channel }}"
-            if (-not $CHANNEL -or $CHANNEL -eq "") { $CHANNEL = "beta" }
+            if (-not $CHANNEL -or $CHANNEL -eq "") { 
+              $CHANNEL = "beta"
+            }
+            Write-Host "Channel: $CHANNEL"
             
             # Extrair número base (ex: 1.0.0-beta.1 -> 1.0.0)
             if ($LAST_VERSION -match "^(\d+\.\d+\.\d+)(?:-.*)?$") {
               $BASE_VERSION = $matches[1]
+              Write-Host "Base version from tag: $BASE_VERSION"
             } else {
               # Se não conseguir extrair, usar versão do package.json ou padrão
+              Write-Host "Could not extract base version from tag, trying package.json..."
               try {
                 $pkg = Get-Content package.json -Raw | ConvertFrom-Json
                 if ($pkg.version) {
                   $BASE_VERSION = $pkg.version -replace "-.*$", ""
+                  Write-Host "Base version from package.json: $BASE_VERSION"
                 } else {
                   $BASE_VERSION = "1.0.0"
+                  Write-Host "Using default base version: $BASE_VERSION"
                 }
               } catch {
                 $BASE_VERSION = "1.0.0"
+                Write-Host "Error reading package.json, using default: $BASE_VERSION"
               }
             }
             
             # Extrair número do pre-release (ex: beta.1 -> 1)
             if ($LAST_VERSION -match "[a-z]+\.(\d+)$") {
               $PRE_NUM = [int]$matches[1]
+              Write-Host "Previous pre-release number: $PRE_NUM"
             } else {
               $PRE_NUM = 0
+              Write-Host "No previous pre-release found, starting at 0"
             }
             $NEW_PRE_NUM = $PRE_NUM + 1
+            Write-Host "New pre-release number: $NEW_PRE_NUM"
             
             $VERSION = "$BASE_VERSION-$CHANNEL.$NEW_PRE_NUM"
+            Write-Host "Calculated version: $VERSION"
           }
           
           # Garantir que a versão não está vazia
-          if (-not $VERSION -or $VERSION -eq "") {
-            Write-Error "Failed to determine version!"
+          if (-not $VERSION -or $VERSION -eq "" -or $VERSION.Trim() -eq "") {
+            Write-Error "Failed to determine version! VERSION variable is empty."
             exit 1
           }
           
-          # Escrever no output do GitHub Actions
-          Write-Host "version=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Determined version: $VERSION"
-          Write-Host "Version written to GITHUB_OUTPUT: version=$VERSION"
+          # Escrever no output do GitHub Actions (formato correto para PowerShell)
+          $outputLine = "version=$VERSION"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $outputLine
+          Write-Host "✓ Written to GITHUB_OUTPUT: $outputLine"
+          Write-Host "✓ Determined version: $VERSION"
+          
+          # Verificar se foi escrito corretamente
+          if (Test-Path $env:GITHUB_OUTPUT) {
+            $outputContent = Get-Content $env:GITHUB_OUTPUT -Raw
+            Write-Host "GITHUB_OUTPUT file content: $outputContent"
+          }
 
       - name: Update package.json version
         shell: pwsh
