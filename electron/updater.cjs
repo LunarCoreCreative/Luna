@@ -58,9 +58,33 @@ function setupAutoUpdater(window) {
     // Check for updates shortly after UI is ready
     setTimeout(() => {
         console.log('[UPDATER] Checking for updates...');
-        autoUpdater.checkForUpdates().catch((err) => {
+        console.log('[UPDATER] Current app version:', currentVersion);
+        
+        autoUpdater.checkForUpdates().then((result) => {
+            console.log('[UPDATER] Check result:', result);
+            if (result && result.updateInfo) {
+                console.log('[UPDATER] Update info:', {
+                    version: result.updateInfo.version,
+                    releaseDate: result.updateInfo.releaseDate,
+                    releaseName: result.updateInfo.releaseName
+                });
+            }
+        }).catch((err) => {
             console.error('[UPDATER] Check failed:', err.message);
             console.error('[UPDATER] Error details:', err);
+            
+            // Se o erro for "No published versions", não é crítico - pode ser que não há versões mais novas
+            if (err.message && err.message.includes('No published versions')) {
+                console.log('[UPDATER] No published versions found - this is normal if you have the latest version');
+                // Não enviar erro para o renderer neste caso, apenas logar
+                return;
+            }
+            
+            // Para outros erros, enviar para o renderer
+            sendToRenderer('update:error', { 
+                message: err.message,
+                canRetry: true
+            });
         });
     }, 3000);
 
@@ -78,6 +102,9 @@ function setupAutoUpdater(window) {
     });
 
     autoUpdater.on('update-not-available', (info) => {
+        console.log('[UPDATER] No update available. Current version is up to date.');
+        console.log('[UPDATER] Info:', info);
+        // Não enviar erro, apenas informar que está atualizado
         sendToRenderer('update:not-available', { version: info.version });
     });
 
@@ -105,12 +132,20 @@ function setupAutoUpdater(window) {
             errno: err.errno
         });
         
-        // Mensagem mais amigável para o usuário
-        let userMessage = err.message;
+        // Se for "No published versions", não é um erro crítico
+        // Pode significar que não há versões mais novas ou que a release ainda não foi publicada
         if (err.message && err.message.includes('No published versions')) {
-            userMessage = 'Nenhuma versão publicada encontrada no GitHub. Verifique se há releases disponíveis.';
-        } else if (err.message && err.message.includes('404')) {
+            console.log('[UPDATER] No published versions - this may be normal if you have the latest version');
+            // Não enviar erro para o usuário neste caso, apenas logar
+            return;
+        }
+        
+        // Mensagem mais amigável para o usuário apenas para erros reais
+        let userMessage = err.message;
+        if (err.message && err.message.includes('404')) {
             userMessage = 'Repositório ou release não encontrado. Verifique a configuração.';
+        } else if (err.message && err.message.includes('network') || err.message && err.message.includes('timeout')) {
+            userMessage = 'Erro de conexão ao verificar atualizações. Verifique sua internet.';
         }
         
         sendToRenderer('update:error', { message: userMessage, originalError: err.message });

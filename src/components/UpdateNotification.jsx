@@ -59,6 +59,14 @@ export const UpdateNotification = () => {
         // Listen for errors
         updater.onUpdateError((data) => {
             console.error('[UpdateNotification] Update error:', data.message);
+            
+            // Não mostrar erro se for "No published versions" - é normal se já tem a versão mais recente
+            if (data.message && data.message.includes('No published versions')) {
+                console.log('[UpdateNotification] No published versions - user likely has latest version');
+                // Não mostrar notificação neste caso
+                return;
+            }
+            
             setUpdateState(prev => ({
                 ...prev,
                 status: 'error',
