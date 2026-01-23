@@ -31,9 +31,20 @@ jobs:
       - name: Extract Version from Tag
         id: tag_version
         run: |
-          $tag = "${{ github.ref }}"
-          $version = $tag -replace "refs/tags/v", ""
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref }}"
+            $version = $tag -replace "refs/tags/v", ""
+          } else {
+            # Se for workflow_dispatch, pegar a tag mais recente
+            $latestTag = git describe --tags --abbrev=0 2>$null
+            if ($latestTag) {
+              $version = $latestTag -replace "v", ""
+            } else {
+              $version = "0.2.0"
+            }
+          }
           echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "tag=v$version" >> $env:GITHUB_OUTPUT
           echo "Version: $version"
 
       - name: Read CHANGELOG
@@ -60,11 +71,16 @@ jobs:
             
             core.setOutput('notes', releaseNotes);
 
-      - name: Create GitHub Release
+      - name: Build and Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist:desktop -- --publish always
+
+      - name: Update Release Notes
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ steps.tag_version.outputs.version }}
+          tag_name: ${{ steps.tag_version.outputs.tag }}
           body: |
             ## Release ${{ steps.tag_version.outputs.version }}
             
@@ -73,12 +89,6 @@ jobs:
             ### 📦 Instalação
             
             Baixe o instalador para Windows na seção de assets abaixo.
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '0.2.0') || contains(github.ref_name, 'pre') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          prerelease: ${{ contains(steps.tag_version.outputs.version, '0.2.0') || contains(steps.tag_version.outputs.version, 'pre') || contains(steps.tag_version.outputs.version, 'alpha') || contains(steps.tag_version.outputs.version, 'beta') || contains(steps.tag_version.outputs.version, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist:desktop -- --publish always
