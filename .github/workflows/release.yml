@@ -58,11 +58,31 @@ jobs:
         run: |
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $VERSION = "${{ github.event.inputs.version }}"
+            Write-Host "Using workflow_dispatch input: $VERSION"
           } else {
-            $VERSION = "${{ github.ref }}" -replace "refs/tags/v", ""
+            $ref = "${{ github.ref }}"
+            Write-Host "Git ref: $ref"
+            if ($ref -match "refs/tags/v(.+)") {
+              $VERSION = $matches[1]
+              Write-Host "Extracted from tag: $VERSION"
+            } elseif ($ref -match "refs/tags/(.+)") {
+              $VERSION = $matches[1]
+              Write-Host "Extracted from tag (no v prefix): $VERSION"
+            } else {
+              Write-Error "Could not extract version from ref: $ref"
+              exit 1
+            }
           }
-          Write-Host "version=$VERSION" >> $env:GITHUB_OUTPUT
-          Write-Host "Extracted version: $VERSION"
+          
+          if (-not $VERSION -or $VERSION.Trim() -eq "") {
+            Write-Error "Version is empty after extraction!"
+            exit 1
+          }
+          
+          $VERSION = $VERSION.Trim()
+          Write-Host "Final version: $VERSION"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$VERSION"
+          Write-Host "Version written to GITHUB_OUTPUT"
 
       - name: Update package.json version
         shell: pwsh
@@ -159,7 +179,8 @@ jobs:
             if ($test.version -eq $version) {
               Write-Host "✓ Version updated successfully: '$oldVersion' -> '$version'"
             } else {
-              throw "Version mismatch! Expected: '$version', Got: '$($test.version)'"
+              $errorMsg = "Version mismatch! Expected: '{0}', Got: '{1}'" -f $version, $test.version
+              throw $errorMsg
             }
           } catch {
             Write-Error "Error validating package.json: $_"
