@@ -6,7 +6,10 @@ param(
     [switch]$Prerelease,
     
     [Parameter(Mandatory=$false)]
-    [string]$Channel = "beta"
+    [string]$Channel = "beta",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Force
 )
 
 Write-Host "Iniciando release manual: $Version" -ForegroundColor Cyan
@@ -16,28 +19,46 @@ $branch = git branch --show-current
 if ($Prerelease -and $branch -ne "staging") {
     Write-Warning "Pre-release deve ser feita no branch staging!"
     Write-Host "Branch atual: $branch" -ForegroundColor Yellow
-    $continue = Read-Host "Continuar mesmo assim? (s/N)"
-    if ($continue -ne "s" -and $continue -ne "S") {
-        exit 1
+    if (-not $Force) {
+        $continue = Read-Host "Continuar mesmo assim? (s/N)"
+        if ($continue -ne "s" -and $continue -ne "S") {
+            exit 1
+        }
+    } else {
+        Write-Host "Continuando com -Force..." -ForegroundColor Gray
     }
 }
 if (-not $Prerelease -and $branch -ne "main") {
     Write-Warning "Release estavel deve ser feita no branch main!"
     Write-Host "Branch atual: $branch" -ForegroundColor Yellow
-    $continue = Read-Host "Continuar mesmo assim? (s/N)"
-    if ($continue -ne "s" -and $continue -ne "S") {
-        exit 1
+    if (-not $Force) {
+        $continue = Read-Host "Continuar mesmo assim? (s/N)"
+        if ($continue -ne "s" -and $continue -ne "S") {
+            exit 1
+        }
+    } else {
+        Write-Host "Continuando com -Force..." -ForegroundColor Gray
     }
 }
 
 # 2. Verificar se há mudanças não commitadas
 $status = git status --porcelain
 if ($status) {
-    Write-Warning "Ha mudancas nao commitadas!"
-    Write-Host $status -ForegroundColor Yellow
-    $continue = Read-Host "Continuar mesmo assim? (s/N)"
-    if ($continue -ne "s" -and $continue -ne "S") {
-        exit 1
+    # Filtrar apenas arquivos rastreados (ignorar untracked files como _legacy/)
+    $trackedChanges = $status | Where-Object { $_ -match '^\s*[MADRC]' }
+    if ($trackedChanges) {
+        Write-Warning "Ha mudancas nao commitadas em arquivos rastreados!"
+        Write-Host $trackedChanges -ForegroundColor Yellow
+        if (-not $Force) {
+            $continue = Read-Host "Continuar mesmo assim? (s/N)"
+            if ($continue -ne "s" -and $continue -ne "S") {
+                exit 1
+            }
+        } else {
+            Write-Host "Continuando com -Force..." -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "Apenas arquivos nao rastreados encontrados, continuando..." -ForegroundColor Gray
     }
 }
 
