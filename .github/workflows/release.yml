@@ -68,16 +68,64 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $packageJson = Get-Content package.json -Raw | ConvertFrom-Json
-          $packageJson.version = $version
-          $json = $packageJson | ConvertTo-Json -Depth 100
-          # Salvar sem BOM
+          Write-Host "Updating package.json to version: $version"
+          
+          # Ler o arquivo original preservando formatação
+          $packageJsonPath = "package.json"
+          if (-not (Test-Path $packageJsonPath)) {
+            Write-Error "package.json not found!"
+            exit 1
+          }
+          
+          # Ler como JSON para obter versão atual
+          $pkg = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+          $oldVersion = $pkg.version
+          Write-Host "Current version: $oldVersion"
+          
+          # Ler linhas do arquivo para preservar formatação
+          $lines = Get-Content $packageJsonPath
+          $found = $false
+          $updatedLines = @()
+          
+          foreach ($line in $lines) {
+            # Procurar linha que contém "version"
+            if ($line -match '^\s*"version"\s*:\s*"([^"]+)"') {
+              # Substituir apenas a versão usando [regex]::Replace
+              $newLine = [regex]::Replace($line, '("version"\s*:\s*")[^"]*(")', {
+                param($match)
+                return $match.Groups[1].Value + $version + $match.Groups[2].Value
+              })
+              $updatedLines += $newLine
+              $found = $true
+              Write-Host "Line found: $line"
+              Write-Host "Line updated: $newLine"
+            } else {
+              $updatedLines += $line
+            }
+          }
+          
+          if (-not $found) {
+            Write-Error "Could not find version line in package.json"
+            exit 1
+          }
+          
+          # Salvar arquivo atualizado SEM BOM
+          $content = $updatedLines -join "`n"
           $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText((Resolve-Path package.json), $json, $utf8NoBom)
-          Write-Host "Updated package.json to version $version"
-          # Verificar se foi atualizado
-          $verify = Get-Content package.json -Raw | ConvertFrom-Json
-          Write-Host "Verified version in package.json: $($verify.version)"
+          [System.IO.File]::WriteAllText((Resolve-Path $packageJsonPath), $content, $utf8NoBom)
+          
+          # Verificar se o JSON ainda é válido
+          try {
+            $test = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+            if ($test.version -eq $version) {
+              Write-Host "✓ Version updated: $oldVersion -> $version"
+            } else {
+              throw "Version mismatch! Expected: $version, Got: $($test.version)"
+            }
+          } catch {
+            Write-Error "Error validating package.json: $_"
+            exit 1
+          }
 
       - name: Extract changelog
         id: changelog
