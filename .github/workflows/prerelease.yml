@@ -242,11 +242,37 @@ jobs:
           script: |
             const fs = require('fs');
             const changelog = fs.readFileSync('changelog_release.txt', 'utf8');
+            const tagName = `v${{ steps.version.outputs.version }}`;
             
+            // Verificar se já existe um release com essa tag
+            let existingRelease = null;
+            try {
+              const releases = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              
+              existingRelease = releases.data.find(r => r.tag_name === tagName);
+              if (existingRelease) {
+                console.log(`Found existing release with tag ${tagName} (ID: ${existingRelease.id})`);
+                console.log(`Deleting existing release...`);
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: existingRelease.id
+                });
+                console.log(`✓ Deleted existing release`);
+              }
+            } catch (error) {
+              // Se não encontrar, continua normalmente
+              console.log(`No existing release found or error checking: ${error.message}`);
+            }
+            
+            // Criar novo release
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `v${{ steps.version.outputs.version }}`,
+              tag_name: tagName,
               name: `Pre-Release v${{ steps.version.outputs.version }}`,
               body: changelog,
               draft: true,
@@ -396,11 +422,43 @@ jobs:
         with:
           script: |
             const releaseId = ${{ steps.create_release.outputs.id }};
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId,
-              draft: false,
-              prerelease: true,
-              make_latest: false
-            });
+            
+            try {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: releaseId,
+                draft: false,
+                prerelease: true,
+                make_latest: false
+              });
+              console.log(`✓ Pre-release published successfully`);
+            } catch (error) {
+              console.error(`Error publishing pre-release: ${error.message}`);
+              // Se o erro for sobre tag já existente, tentar buscar o release existente
+              if (error.status === 422 && error.response?.data?.errors?.some(e => e.code === 'already_exists')) {
+                console.log(`Release with this tag already exists, trying to find and update it...`);
+                const tagName = `v${{ steps.version.outputs.version }}`;
+                const releases = await github.rest.repos.listReleases({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                });
+                const existingRelease = releases.data.find(r => r.tag_name === tagName);
+                if (existingRelease) {
+                  console.log(`Found existing release, updating it...`);
+                  await github.rest.repos.updateRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: existingRelease.id,
+                    draft: false,
+                    prerelease: true,
+                    make_latest: false
+                  });
+                  console.log(`✓ Updated existing pre-release successfully`);
+                } else {
+                  throw error;
+                }
+              } else {
+                throw error;
+              }
+            }
