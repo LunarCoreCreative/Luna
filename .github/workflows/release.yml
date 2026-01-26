@@ -68,6 +68,27 @@ jobs:
             } elseif ($ref -match "refs/tags/(.+)") {
               $VERSION = $matches[1]
               Write-Host "Extracted from tag (no v prefix): $VERSION"
+            } elseif ($ref -match "refs/heads/(.+)") {
+              # Se for um push no branch, tentar ler a versão do package.json
+              Write-Host "Branch push detected, reading version from package.json"
+              if (Test-Path "package.json") {
+                try {
+                  $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+                  if ($pkg.version) {
+                    $VERSION = $pkg.version
+                    Write-Host "Using version from package.json: $VERSION"
+                  } else {
+                    Write-Error "package.json exists but version field is empty"
+                    exit 1
+                  }
+                } catch {
+                  Write-Error "Failed to read package.json: $_"
+                  exit 1
+                }
+              } else {
+                Write-Error "package.json not found and cannot extract version from branch ref"
+                exit 1
+              }
             } else {
               Write-Error "Could not extract version from ref: $ref"
               exit 1
