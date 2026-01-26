@@ -68,7 +68,21 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          Write-Host "Updating package.json to version: $version"
+          Write-Host "Raw version from step: '$version'"
+          Write-Host "Version length: $($version.Length)"
+          
+          # Validar versão antes de continuar
+          if (-not $version -or $version.Trim() -eq "") {
+            Write-Error "Version is empty! Cannot update package.json"
+            Write-Host "Debug info:"
+            Write-Host "  github.event_name: ${{ github.event_name }}"
+            Write-Host "  github.ref: ${{ github.ref }}"
+            Write-Host "  steps.version.outputs.version: ${{ steps.version.outputs.version }}"
+            exit 1
+          }
+          
+          $version = $version.Trim()
+          Write-Host "Updating package.json to version: '$version'"
           
           # Ler o arquivo original preservando formatação
           $packageJsonPath = "package.json"
@@ -80,7 +94,7 @@ jobs:
           # Ler como JSON para obter versão atual
           $pkg = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
           $oldVersion = $pkg.version
-          Write-Host "Current version: $oldVersion"
+          Write-Host "Current version in package.json: '$oldVersion'"
           
           # Ler linhas do arquivo para preservar formatação
           $lines = Get-Content $packageJsonPath
@@ -88,17 +102,33 @@ jobs:
           $updatedLines = @()
           
           foreach ($line in $lines) {
-            # Procurar linha que contém "version"
-            if ($line -match '^\s*"version"\s*:\s*"([^"]+)"') {
+            # Procurar linha que contém "version" - aceitar diferentes formatos (com ou sem espaços extras)
+            if ($line -match '^\s*"version"\s*:\s*"([^"]*)"') {
+              Write-Host "Found version line: '$line'"
               # Substituir apenas a versão usando [regex]::Replace
+              # O padrão precisa capturar espaços opcionais entre : e "
               $newLine = [regex]::Replace($line, '("version"\s*:\s*")[^"]*(")', {
                 param($match)
-                return $match.Groups[1].Value + $version + $match.Groups[2].Value
-              })
+                $result = $match.Groups[1].Value + $version + $match.Groups[2].Value
+                Write-Host "Replacing with: '$result'"
+                return $result
+              }, [System.Text.RegularExpressions.RegexOptions]::None)
               $updatedLines += $newLine
               $found = $true
-              Write-Host "Line found: $line"
-              Write-Host "Line updated: $newLine"
+              Write-Host "Original line: '$line'"
+              Write-Host "Updated line: '$newLine'"
+            } elseif ($line -match '^\s*"version"\s*:') {
+              # Se encontrou a linha mas o padrão não bateu, tentar substituição mais genérica
+              Write-Host "Found version line (alternative format): '$line'"
+              $newLine = $line -replace '("version"\s*:\s*")[^"]*(")', "`$1$version`$2"
+              if ($newLine -ne $line) {
+                $updatedLines += $newLine
+                $found = $true
+                Write-Host "Original line: '$line'"
+                Write-Host "Updated line: '$newLine'"
+              } else {
+                $updatedLines += $line
+              }
             } else {
               $updatedLines += $line
             }
@@ -106,6 +136,9 @@ jobs:
           
           if (-not $found) {
             Write-Error "Could not find version line in package.json"
+            Write-Host "Searched for pattern: '^\s*\"version\"\s*:\s*\"([^\"]*)\"'"
+            Write-Host "First 20 lines of package.json:"
+            $lines[0..19] | ForEach-Object { Write-Host "  $_" }
             exit 1
           }
           
@@ -114,16 +147,24 @@ jobs:
           $utf8NoBom = New-Object System.Text.UTF8Encoding $false
           [System.IO.File]::WriteAllText((Resolve-Path $packageJsonPath), $content, $utf8NoBom)
           
+          Write-Host "File saved. Verifying..."
+          
           # Verificar se o JSON ainda é válido
           try {
             $test = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+            Write-Host "Parsed JSON successfully"
+            Write-Host "Version in file: '$($test.version)'"
+            Write-Host "Expected version: '$version'"
+            
             if ($test.version -eq $version) {
-              Write-Host "✓ Version updated: $oldVersion -> $version"
+              Write-Host "✓ Version updated successfully: '$oldVersion' -> '$version'"
             } else {
-              throw "Version mismatch! Expected: $version, Got: $($test.version)"
+              throw "Version mismatch! Expected: '$version', Got: '$($test.version)'"
             }
           } catch {
             Write-Error "Error validating package.json: $_"
+            Write-Host "First 200 chars of updated file:"
+            $content.Substring(0, [Math]::Min(200, $content.Length)) | Write-Host
             exit 1
           }
 
