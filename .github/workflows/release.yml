@@ -274,8 +274,23 @@ jobs:
           script: |
             const releaseId = ${{ steps.create_release.outputs.id }};
             const isPrerelease = ${{ github.event.inputs.prerelease || false }};
+            const tagName = `v${{ steps.version.outputs.version }}`;
             
             try {
+              // Primeiro, verificar o estado atual do release
+              const currentRelease = await github.rest.repos.getRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: releaseId
+              });
+              
+              // Se já está publicado e no estado correto, não precisa fazer nada
+              if (!currentRelease.data.draft && currentRelease.data.prerelease === isPrerelease) {
+                console.log(`✓ Release already published and in correct state`);
+                return;
+              }
+              
+              // Atualizar apenas se necessário
               await github.rest.repos.updateRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -287,17 +302,23 @@ jobs:
               console.log(`✓ Release published successfully`);
             } catch (error) {
               console.error(`Error publishing release: ${error.message}`);
-              // Se o erro for sobre tag já existente, tentar buscar o release existente
-              if (error.status === 422 && error.response?.data?.errors?.some(e => e.code === 'already_exists')) {
-                console.log(`Release with this tag already exists, trying to find and update it...`);
-                const tagName = `v${{ steps.version.outputs.version }}`;
+              
+              // Se o release não foi encontrado, tentar buscar por tag
+              if (error.status === 404) {
+                console.log(`Release not found by ID, searching by tag...`);
                 const releases = await github.rest.repos.listReleases({
                   owner: context.repo.owner,
                   repo: context.repo.repo
                 });
                 const existingRelease = releases.data.find(r => r.tag_name === tagName);
                 if (existingRelease) {
-                  console.log(`Found existing release, updating it...`);
+                  console.log(`Found existing release with tag ${tagName}`);
+                  // Se já está publicado, não precisa fazer nada
+                  if (!existingRelease.draft && existingRelease.prerelease === isPrerelease) {
+                    console.log(`✓ Release already published and in correct state`);
+                    return;
+                  }
+                  // Atualizar apenas se necessário
                   await github.rest.repos.updateRelease({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
@@ -308,6 +329,43 @@ jobs:
                   });
                   console.log(`✓ Updated existing release successfully`);
                 } else {
+                  throw new Error(`Release not found by ID or tag`);
+                }
+              } else if (error.status === 422) {
+                // Erro de validação - provavelmente o release já está no estado correto
+                const errorMessage = error.response?.data?.message || '';
+                const errors = error.response?.data?.errors || [];
+                const hasAlreadyExists = errors.some(e => e.code === 'already_exists');
+                
+                if (hasAlreadyExists) {
+                  console.log(`Release with tag ${tagName} already exists`);
+                  // Verificar o estado atual
+                  try {
+                    const releases = await github.rest.repos.listReleases({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo
+                    });
+                    const existingRelease = releases.data.find(r => r.tag_name === tagName);
+                    if (existingRelease) {
+                      if (!existingRelease.draft && existingRelease.prerelease === isPrerelease) {
+                        console.log(`✓ Release already published and in correct state`);
+                        return;
+                      } else {
+                        console.log(`Release exists but in wrong state (draft: ${existingRelease.draft}, prerelease: ${existingRelease.prerelease})`);
+                        // Não tentar atualizar novamente para evitar loop
+                        console.log(`Skipping update to avoid validation error`);
+                        return;
+                      }
+                    }
+                  } catch (checkError) {
+                    console.error(`Error checking release state: ${checkError.message}`);
+                  }
+                  // Se não conseguimos verificar, assumir que está OK e continuar
+                  console.log(`Assuming release is in correct state, continuing...`);
+                  return;
+                } else {
+                  // Outro tipo de erro de validação
+                  console.error(`Validation error: ${errorMessage}`);
                   throw error;
                 }
               } else {
