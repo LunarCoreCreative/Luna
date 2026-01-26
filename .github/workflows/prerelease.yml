@@ -181,9 +181,10 @@ jobs:
           # Atualizar versão
           $packageJson.version = $version
           
-          # Converter de volta para JSON e salvar
+          # Converter de volta para JSON e salvar SEM BOM
           $json = $packageJson | ConvertTo-Json -Depth 100
-          $json | Set-Content $packageJsonPath -Encoding UTF8
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText((Resolve-Path $packageJsonPath), $json, $utf8NoBom)
           
           Write-Host "✓ Updated package.json to version $version"
           
@@ -265,15 +266,34 @@ jobs:
             exit 1
           }
           
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          
-          if (-not $pkg.PSObject.Properties['version']) {
-            Write-Error "Version field is missing in package.json!"
-            exit 1
-          }
-          
-          if (-not $pkg.version -or $pkg.version -eq "") {
-            Write-Error "Version is empty in package.json!"
+          try {
+            $content = Get-Content package.json -Raw
+            Write-Host "package.json content length: $($content.Length)"
+            Write-Host "First 100 chars: $($content.Substring(0, [Math]::Min(100, $content.Length)))"
+            
+            $pkg = $content | ConvertFrom-Json
+            Write-Host "Parsed JSON successfully"
+            Write-Host "Version field exists: $($pkg.PSObject.Properties.Name -contains 'version')"
+            
+            if (-not $pkg.PSObject.Properties['version']) {
+              Write-Error "Version field is missing in package.json!"
+              Write-Host "Available properties: $($pkg.PSObject.Properties.Name -join ', ')"
+              exit 1
+            }
+            
+            if (-not $pkg.version -or $pkg.version -eq "") {
+              Write-Error "Version is empty in package.json!"
+              exit 1
+            }
+            
+            Write-Host "✓ Version in package.json: $($pkg.version)"
+            Write-Host "Expected version: ${{ steps.version.outputs.version }}"
+            if ($pkg.version -ne "${{ steps.version.outputs.version }}") {
+              Write-Warning "Version mismatch! Expected: ${{ steps.version.outputs.version }}, Got: $($pkg.version)"
+            }
+          } catch {
+            Write-Error "Failed to parse package.json: $_"
+            Write-Host "Error details: $($_.Exception.Message)"
             exit 1
           }
           
